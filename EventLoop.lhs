@@ -5,10 +5,11 @@
 module EventLoop ( eventLoop )
     where
 
-import Shell ( Shell, getEnv, getAllEnv )
+import Shell ( Shell, getEnv, setEnv, getAllEnv )
 import Prompt ( prompt )
-import System.Directory ( setCurrentDirectory, findExecutable, doesFileExist )
-import System.IO ( hFlush, stdin, stdout, stderr )
+import System.Directory ( getCurrentDirectory, setCurrentDirectory,
+                          findExecutable, doesFileExist, doesDirectoryExist )
+import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr )
 import System.IO.Unsafe ( unsafeInterleaveIO )
 import System.Process ( runProcess, waitForProcess )
 import Control.Monad.Trans ( liftIO )
@@ -16,14 +17,26 @@ import Control.Monad.Trans ( liftIO )
 -- we should STRIP SPACES before and after
 process :: [String] -> Shell Bool -- do we quit or not?
 process ["exit"] = return True
-process (s:ss) | s == "cd " = chDir ss >> return False
-               | otherwise  = tryToRun s ss >> return False
+process (s:ss) | s == "cd" = chDir ss >> return False
+               | otherwise = tryToRun s ss >> return False
 process [] = return False
 
 chDir :: [String] -> Shell ()
-chDir (dir:_) = liftIO $ setCurrentDirectory dir
+chDir ("-":_) = do Just dir <- getEnv "OLDPWD"
+                   chDir' dir
+chDir (dir:_) = do chDir' dir
 chDir []      = do Just home <- getEnv "HOME"
                    chDir [home]
+
+chDir' dir = do exists <- liftIO $ doesDirectoryExist dir
+                if exists
+                   then go
+                   else err $ "cd: "++dir++": No such file or directory"
+    where go = do olddir <- liftIO $ getCurrentDirectory
+                  liftIO $ setCurrentDirectory dir
+                  newdir <- liftIO $ getCurrentDirectory
+                  setEnv "PWD" newdir
+                  setEnv "OLDPWD" olddir
 
 tryToRun :: String -> [String] -> Shell ()
 tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
