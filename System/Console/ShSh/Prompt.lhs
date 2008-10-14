@@ -2,10 +2,10 @@
 
 \begin{code}
 
-module Prompt ( prompt )
+module System.Console.ShSh.Prompt ( prompt )
     where
 
-import Shell
+import System.Console.ShSh.Shell
 
 prompt :: Shell String
 prompt = do Just pwd <- getEnv "PWD"

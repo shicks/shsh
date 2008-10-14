@@ -16,8 +16,8 @@ Here's where we define main.  It's very simple.
 
 \begin{code}
 
-import Shell ( runShell )
-import EventLoop ( eventLoop )
+import System.Console.ShSh.Shell ( runShell )
+import System.Console.ShSh.EventLoop ( eventLoop )
 
 main = runShell eventLoop
 

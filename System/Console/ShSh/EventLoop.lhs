@@ -2,31 +2,39 @@
 
 \begin{code}
 
-module EventLoop ( eventLoop )
+module System.Console.ShSh.EventLoop ( eventLoop )
     where
 
-import Shell ( Shell, getEnv, setEnv, getAllEnv, tryEnv, withHandler )
-import Prompt ( prompt )
+import System.Console.ShSh.Parse ( parseLine, Command(..) )
+import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv,
+                                   tryEnv, withHandler,
+                                   setExitCode, setE )
+import System.Console.ShSh.Prompt ( prompt )
 import System.Directory ( getCurrentDirectory, setCurrentDirectory,
                           getDirectoryContents,
                           findExecutable, doesFileExist, doesDirectoryExist )
 import List ( sort )
 import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr )
 import System.Process ( runProcess, waitForProcess )
+import System ( ExitCode(..) )
 import Control.Monad.Trans ( liftIO )
+import Control.Monad ( when )
 
-process :: [String] -> Shell Bool -- do we quit or not?
-process ["exit"] = return True
-process ["pwd"] = do liftIO getCurrentDirectory >>= liftIO . putStrLn
-                     return False
-process ["ls"] = do let unboring ('.':_) = False
-                        unboring _ = True
-                    liftIO (getDirectoryContents ".") >>=
-                           liftIO . putStr . unlines . sort . filter unboring
-                    return False
-process (s:ss) | s == "cd" = withHandler "cd" (chDir ss) >> return False
-               | otherwise = tryToRun s ss >> return False
-process [] = return False
+process :: Command -> Shell Bool -- do we quit or not?
+process (Builtin "set" foo) = do when ('e' `elem` concat foo) setE
+                                 return False
+process (Builtin "exit" _) = return True
+process (Builtin "pwd" _) = do liftIO getCurrentDirectory >>= liftIO . putStrLn
+                               return False
+process (Builtin "ls" _) = do let unboring ('.':_) = False
+                                  unboring _ = True
+                              fs <- liftIO (getDirectoryContents ".")
+                              liftIO $ putStr $ unlines $ sort $ filter unboring fs
+                              return False
+process (Builtin "cd" ss) = withHandler "cd" (chDir ss) >> return False
+process (Cmd (s:ss)) = tryToRun s ss >> return False
+process EmptyCommand = do liftIO $ putStrLn ""; return False
+process _ = return False
 
 chDir :: [String] -> Shell ()
 chDir ("-":_) = do dir <- tryEnv "OLDPWD"
@@ -59,11 +67,11 @@ tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
           run x = do env <- getAllEnv
                      pid <- liftIO $ runProcess x args Nothing (Just env)
                                      Nothing Nothing Nothing
-                     liftIO $ waitForProcess pid
-                     return ()
+                     liftIO (waitForProcess pid) >>= setExitCode
 
 err :: String -> Shell ()
-err s = liftIO $ putStrLn $ "shsh: "++s
+err s = do liftIO $ putStrLn $ "shsh: "++s
+           setExitCode $ ExitFailure 127
 
 eventLoop :: Shell ()
 eventLoop = do p <- prompt
@@ -71,7 +79,10 @@ eventLoop = do p <- prompt
                eof <- liftIO $ hIsEOF stdin
                if eof then liftIO $ putStrLn "" else continue
     where continue = do s <- liftIO getLine -- use Haskeline eventually
-                        code <- process $ words s -- Needs smarter: ", \, etc
+                        code <- case parseLine s of
+                                Left e -> do liftIO $ putStrLn e
+                                             return False -- ???
+                                Right cmd -> process cmd
                         if code then liftIO $ putStrLn "" else eventLoop
 
 \end{code}

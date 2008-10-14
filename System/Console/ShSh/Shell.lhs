@@ -6,9 +6,9 @@ This is where we do stuff.
 
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Shell ( Shell, getEnv, setEnv, getAllEnv, runShell,
-               tryEnv, withHandler
-             )
+module System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv, runShell,
+                                   tryEnv, withHandler,
+                                   setE, setExitCode )
     where
 
 import Control.Monad ( MonadPlus, mzero )
@@ -17,8 +17,9 @@ import Control.Monad.State ( StateT, evalStateT, get, modify )
 --import Control.Monad.State ( State, evalState, get, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
 import Data.List ( lookup )
-import Data.Maybe ( fromMaybe )
+import Data.Maybe ( fromMaybe, isJust )
 import System.Directory ( getCurrentDirectory )
+import System ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 
 -- I might want to look into using ST to thread the state...?
@@ -65,6 +66,22 @@ runShell (Shell s) = do e <- getEnvironment
                           Right a  -> return a
                           Left err -> do putStrLn $ "shsh: "++err
                                          return undefined
+
+setE :: Shell ()
+setE = setEnv "__AM_E" ""
+
+setExitCode :: ExitCode -> Shell ()
+setExitCode ExitSuccess =
+    Shell $ modify $ update "__ExitCode" "ExitSuccess"
+setExitCode (ExitFailure ef) =
+    do ame <- getEnv "__AM_E"
+       if isJust ame
+          then fail "Bad exit code "
+          else Shell $ modify $ update "__ExitCode" ("ExitFailure "++show ef)
+
+--runShell :: Shell a -> IO a
+--runShell (Shell s) = do e <- getEnvironment
+--                        return $ evalState s e
 
 withHandler :: String -> Shell a -> Shell (Maybe a)
 withHandler h (Shell s)
