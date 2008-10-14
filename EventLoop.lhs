@@ -8,7 +8,9 @@ module EventLoop ( eventLoop )
 import Shell ( Shell, getEnv, setEnv, getAllEnv )
 import Prompt ( prompt )
 import System.Directory ( getCurrentDirectory, setCurrentDirectory,
+                          getDirectoryContents,
                           findExecutable, doesFileExist, doesDirectoryExist )
+import List ( sort )
 import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr )
 import System.IO.Unsafe ( unsafeInterleaveIO )
 import System.Process ( runProcess, waitForProcess )
@@ -17,6 +19,13 @@ import Control.Monad.Trans ( liftIO )
 -- we should STRIP SPACES before and after
 process :: [String] -> Shell Bool -- do we quit or not?
 process ["exit"] = return True
+process ["pwd"] = do liftIO getCurrentDirectory >>= liftIO . putStrLn
+                     return False
+process ["ls"] = do let unboring ('.':_) = False
+                        unboring _ = True
+                    liftIO (getDirectoryContents ".") >>=
+                           liftIO . putStr . unlines . sort . filter unboring
+                    return False
 process (s:ss) | s == "cd" = chDir ss >> return False
                | otherwise = tryToRun s ss >> return False
 process [] = return False
