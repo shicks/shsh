@@ -16,10 +16,11 @@ Here's where we define main.  It's very simple.
 
 \begin{code}
 
+import System ( exitWith )
 import System.Console.ShSh.Shell ( runShell )
 import System.Console.ShSh.EventLoop ( eventLoop )
 
-main = runShell eventLoop
+main = runShell eventLoop >>= exitWith
 
 \end{code}
 

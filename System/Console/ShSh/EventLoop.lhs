@@ -7,8 +7,7 @@ module System.Console.ShSh.EventLoop ( eventLoop )
 
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv,
-                                   tryEnv, withHandler,
-                                   setExitCode, setE )
+                                   tryEnv, withHandler, setE )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Directory ( getCurrentDirectory, setCurrentDirectory,
                           getDirectoryContents,
@@ -32,9 +31,16 @@ process (Builtin "ls" _) = do let unboring ('.':_) = False
                               liftIO $ putStr $ unlines $ sort $ filter unboring fs
                               return False
 process (Builtin "cd" ss) = withHandler "cd" (chDir ss) >> return False
-process (Cmd (s:ss)) = tryToRun s ss >> return False
+process (Cmd (s:ss)) = withHandler "" (tryToRun s ss) >> return False
 process EmptyCommand = do liftIO $ putStrLn ""; return False
-process _ = return False
+process (c1 :&&: c2) = do mok <- withHandler "" $ process c1 -- buggy
+                          case mok of
+                            Just True -> return True
+                            Just False -> process c2
+                            Nothing -> return False
+
+process cmd = do liftIO $ putStrLn $ "I can't handle:  "++show cmd
+                 return False
 
 chDir :: [String] -> Shell ()
 chDir ("-":_) = do dir <- tryEnv "OLDPWD"
@@ -47,7 +53,7 @@ chDir' :: String -> Shell ()
 chDir' dir = do exists <- liftIO $ doesDirectoryExist dir
                 if exists
                    then go
-                   else err $ "cd: "++dir++": No such file or directory"
+                   else fail $ dir++": No such file or directory"
     where go = do olddir <- liftIO $ getCurrentDirectory
                   liftIO $ setCurrentDirectory dir
                   newdir <- liftIO $ getCurrentDirectory
@@ -62,16 +68,15 @@ tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
     where notFound = do let path = '/' `elem` cmd
                         exists <- liftIO $ doesFileExist cmd
                         if path && exists
-                           then err $ cmd++": Permission denied"
-                           else err $ cmd++": No such file or directory"
+                           then fail $ cmd++": Permission denied"
+                           else fail $ cmd++": No such file or directory"
           run x = do env <- getAllEnv
                      pid <- liftIO $ runProcess x args Nothing (Just env)
                                      Nothing Nothing Nothing
-                     liftIO (waitForProcess pid) >>= setExitCode
-
-err :: String -> Shell ()
-err s = do liftIO $ putStrLn $ "shsh: "++s
-           setExitCode $ ExitFailure 127
+                     ec <- liftIO (waitForProcess pid)
+                     case ec of
+                       ExitSuccess -> return ()
+                       ExitFailure ef -> fail ""
 
 eventLoop :: Shell ()
 eventLoop = do p <- prompt

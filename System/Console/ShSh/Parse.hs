@@ -24,7 +24,7 @@ import Text.ParserCombinators.Parsec.Expr
 data Command = Cmd [String]
              | Builtin String [String]
              | Command :&&: Command
-             | Command :=: Command
+             | Command :>>: Command
              | Command :|: Command
              | EmptyCommand
                deriving ( Show )
@@ -45,7 +45,7 @@ subcommand = buildExpressionParser table cmd <?> "command thingy"
 table :: OperatorTable Char st Command
 table   = [ [binary "|" (:|:),
              binary "&&" (:&&:),
-             binary ";" (:=:) ]
+             binary ";" (:>>:) ]
           ]
     where binary name fun =
               Infix (do trystring name

@@ -7,8 +7,7 @@ This is where we do stuff.
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv, runShell,
-                                   tryEnv, withHandler,
-                                   setE, setExitCode )
+                                   tryEnv, withHandler, setE )
     where
 
 import Control.Monad ( MonadPlus, mzero )
@@ -57,27 +56,18 @@ setEnv s x = Shell $ modify $ update s x
 getAllEnv :: Shell [(String,String)]
 getAllEnv = Shell $ get
 
-runShell :: Shell a -> IO a
+runShell :: Shell a -> IO ExitCode
 runShell (Shell s) = do e <- getEnvironment
                         cwd <- getCurrentDirectory
                         let e' = updateWith "PWD" (fromMaybe cwd) e
                         result <- evalStateT (runErrorT s) e
                         case result of
-                          Right a  -> return a
-                          Left err -> do putStrLn $ "shsh: "++err
-                                         return undefined
+                          Right _  -> return ExitSuccess
+                          Left err -> do announceError err
+                                         return $ ExitFailure 1
 
 setE :: Shell ()
 setE = setEnv "__AM_E" ""
-
-setExitCode :: ExitCode -> Shell ()
-setExitCode ExitSuccess =
-    Shell $ modify $ update "__ExitCode" "ExitSuccess"
-setExitCode (ExitFailure ef) =
-    do ame <- getEnv "__AM_E"
-       if isJust ame
-          then fail "Bad exit code "
-          else Shell $ modify $ update "__ExitCode" ("ExitFailure "++show ef)
 
 --runShell :: Shell a -> IO a
 --runShell (Shell s) = do e <- getEnvironment
@@ -85,10 +75,18 @@ setExitCode (ExitFailure ef) =
 
 withHandler :: String -> Shell a -> Shell (Maybe a)
 withHandler h (Shell s)
-    = Shell $ do result <- lift $ runErrorT s
+ = do ame <- getEnv "__AM_E"
+      Shell $ do let die err = if isJust ame
+                               then fail $ prefix err
+                               else do announceError $ prefix err
+                                       return Nothing
+                 result <- lift $ runErrorT s
                  case result of
                    Right a  -> return $ Just a
-                   Left err -> do liftIO $ putStrLn $ "shsh: "++h++": "++err
-                                  return Nothing
+                   Left err -> die err
+    where prefix x = if null h || null x then x else h++": "++x
+
+announceError "" = return ()
+announceError e = liftIO $ putStrLn $ "shsh: "++e
 
 \end{code}
