@@ -60,8 +60,10 @@ err s = liftIO $ putStrLn $ "shsh: "++s
 eventLoop :: Shell ()
 eventLoop = do p <- prompt
                liftIO $ putStr p >> hFlush stdout
-               s <- liftIO getLine -- use Haskeline eventually
-               code <- process $ words s -- Will need to be smarter: ", \, etc
-               if code then return () else eventLoop
+               eof <- liftIO $ hIsEOF stdin
+               if eof then liftIO $ putStrLn "" else continue
+    where continue = do s <- liftIO getLine -- use Haskeline eventually
+                        code <- process $ words s -- Needs smarter: ", \, etc
+                        if code then liftIO $ putStrLn "" else eventLoop
 
 \end{code}
