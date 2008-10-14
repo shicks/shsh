@@ -37,7 +37,7 @@ tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
                            else err $ cmd++": No such file or directory"
           run x = do env <- getAllEnv
                      pid <- liftIO $ runProcess x args Nothing (Just env)
-                                     (Just stdin) (Just stdout) (Just stderr)
+                                     Nothing Nothing Nothing
                      liftIO $ waitForProcess pid
                      return ()
 
