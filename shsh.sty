@@ -1,0 +1,65 @@
+\usepackage{fullpage}
+\usepackage{listings}
+
+\parindent=0pt
+
+%\advance\oddsidemargin-.25in
+%\advance\evensidemargin-.25in
+%\advance\textwidth.5in
+\lstloadlanguages{Haskell}
+\makeatletter
+\lstnewenvironment{code}{%
+  \addtocounter{lstnumber}{1}
+  \lstset{numbers=left}\csname lst@SetFirstLabel\endcsname
+}{%
+  \csname lst@SaveFirstLabel\endcsname
+}
+\lstnewenvironment{code*}{%
+  \xdef\@@lastcount{\thelstnumber}
+  \lstset{numbers=none}\csname lst@SetFirstLabel\endcsname
+}{%
+  \csname lst@SaveFirstLabel\endcsname
+  \setcounter{lstnumber}{\@@lastcount}
+}
+
+\lstset{ % This is based on www.haskell.org/haskellwiki/Literate_programming
+  firstnumber=last,
+  numberblanklines=false,
+  numberstyle=\tiny,
+%  stepnumber=2,       % this makes code* not so apparent
+%  texcl=true,         % use LaTeX to typeset comments (i.e. non-monospace)
+  morecomment=[l]{--},
+  morecomment=[n]{\{-}{-\}},
+  morecomment=[n][basicstyle]{\{-\#}{\#-\}}, % compiler directives
+  commentstyle=\small\sffamily,
+  basicstyle=\small\ttfamily,
+  flexiblecolumns=false,
+  basewidth={0.5em,0.45em},
+  literate={\\}{{$\lambda$}}1
+    {\\n}{{\char`\\}n}2 % don't want lambdas here... (maybe others too)
+%    {--}{\relax}2
+    {\\\\}{{\char`\\\char`\\}}1
+    {>>}{{$\gg$}}2 {<<}{{$\ll$}}2
+    {>>=}{{$\gg\mkern-3mu=$}}3 {=<<}{{$=\mkern-3mu\ll$}}3
+    {->}{{$\rightarrow$}}2 {>=}{{$\geq$}}2 {<-}{{$\leftarrow$}}2
+    {<=}{{$\leq$}}2 {=>}{{$\Rightarrow$}}2 
+    {/=}{{$\ne$}}2
+%    {..}{{$\ldots$}}2
+    {\ .\ }{{$\circ$}}2
+}
+
+% Convenience...?
+\def\class#1{\textsf{#1}}
+\def\fun#1{\texttt{#1}}
+\def\type#1{\textsl{#1}}
+\def\module#1{\textsc{#1}}
+
+% Shortcuts: |functions|, ||classes||, |+types+|
+\catcode`|\active
+\makeatletter
+\def|{\@ifnextchar|\@il@sf{\@ifnextchar+\@if@sc\@il@tt}}
+\def\@il@sc+#1+|{\textsc{#1}}
+\def\@il@sf|#1||{\textsf{#1}}
+\def\@il@tt#1|{\texttt{#1}}
+\makeatother
+
