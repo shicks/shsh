@@ -5,18 +5,16 @@
 module EventLoop ( eventLoop )
     where
 
-import Shell ( Shell, getEnv, setEnv, getAllEnv )
+import Shell ( Shell, getEnv, setEnv, getAllEnv, tryEnv, withHandler )
 import Prompt ( prompt )
 import System.Directory ( getCurrentDirectory, setCurrentDirectory,
                           getDirectoryContents,
                           findExecutable, doesFileExist, doesDirectoryExist )
 import List ( sort )
 import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr )
-import System.IO.Unsafe ( unsafeInterleaveIO )
 import System.Process ( runProcess, waitForProcess )
 import Control.Monad.Trans ( liftIO )
 
--- we should STRIP SPACES before and after
 process :: [String] -> Shell Bool -- do we quit or not?
 process ["exit"] = return True
 process ["pwd"] = do liftIO getCurrentDirectory >>= liftIO . putStrLn
@@ -26,17 +24,18 @@ process ["ls"] = do let unboring ('.':_) = False
                     liftIO (getDirectoryContents ".") >>=
                            liftIO . putStr . unlines . sort . filter unboring
                     return False
-process (s:ss) | s == "cd" = chDir ss >> return False
+process (s:ss) | s == "cd" = withHandler "cd" (chDir ss) >> return False
                | otherwise = tryToRun s ss >> return False
 process [] = return False
 
 chDir :: [String] -> Shell ()
-chDir ("-":_) = do Just dir <- getEnv "OLDPWD"
+chDir ("-":_) = do dir <- tryEnv "OLDPWD"
                    chDir' dir
 chDir (dir:_) = do chDir' dir
-chDir []      = do Just home <- getEnv "HOME"
-                   chDir [home]
+chDir []      = do home <- tryEnv "HOME"
+                   chDir' home
 
+chDir' :: String -> Shell ()
 chDir' dir = do exists <- liftIO $ doesDirectoryExist dir
                 if exists
                    then go
