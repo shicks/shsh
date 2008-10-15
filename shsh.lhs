@@ -6,6 +6,15 @@
 
 \maketitle
 
+This is the Simple Haskell Shell.  It aims to provide a portable,
+native, \texttt{sh} replacement, independent of tools such as cygwin.
+This should be useful for, e.g. test scripts, among other things.
+
+A specification of \texttt{sh} can be found at
+\texttt{http://www.opengroup.org/onlinepubs/000095399/utilities/sh.html}.
+The plan currently is to base the implementation off of the main points
+of that specification.
+
 \input Shell.lhs
 \input EventLoop.lhs
 \input Prompt.lhs

@@ -7,23 +7,29 @@ This is where we do stuff.
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv, runShell,
-                                   tryEnv, withHandler, setE )
+                                   tryEnv, withHandler,
+                                   setFlag, unsetFlag, getFlag, getFlags )
     where
 
 import Control.Monad ( MonadPlus, mzero )
 import Control.Monad.Error ( ErrorT, runErrorT )
-import Control.Monad.State ( StateT, evalStateT, get, modify )
---import Control.Monad.State ( State, evalState, get, modify )
+import Control.Monad.State ( StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
-import Data.List ( lookup )
+import Data.List ( lookup, union, (\\) )
 import Data.Maybe ( fromMaybe, isJust )
 import System.Directory ( getCurrentDirectory )
 import System ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 
 -- I might want to look into using ST to thread the state...?
-type Env = [(String,String)]
-newtype Shell a = Shell (ErrorT String (StateT Env IO) a)
+data ShellState = ShellState {
+      environment :: [(String,String)],
+      aliases     :: [(String,String)],
+      flags       :: String,
+      functions   :: [(String,String)]
+    }
+
+newtype Shell a = Shell (ErrorT String (StateT ShellState IO) a)
     deriving ( Functor, Monad, MonadIO )
 
 -- Simple routines to update associative list elements.
@@ -39,35 +45,51 @@ updateWith x f ((x',y'):xs) | x'==x     = (x',f (Just y')):xs
 
 -- We don't really need to be so flexible here... could just use Maybe...
 getEnv :: MonadPlus m => String -> Shell (m String)
-getEnv s = Shell $ do e <- get
+getEnv s = Shell $ do e <- gets environment
                       return $ case lookup s e of -- this is StateT's return
                                  Just x  -> return x   -- MonadPlus's return
                                  Nothing -> mzero
 
 tryEnv :: String -> Shell String
-tryEnv s = Shell $ do e <- get
+tryEnv s = Shell $ do e <- gets environment
                       case lookup s e of
                         Just x  -> return x
                         Nothing -> fail $ s++" not set"
 
 setEnv :: String -> String -> Shell ()
-setEnv s x = Shell $ modify $ update s x
+setEnv s x = Shell $ modify $ \st ->
+             st { environment = update s x (environment st) }
 
 getAllEnv :: Shell [(String,String)]
-getAllEnv = Shell $ get
+getAllEnv = Shell $ gets environment
+
+parseFlags :: IO String
+parseFlags = return "" -- start with no flags set, for now...
+                       -- Later we'll get these with getopt
 
 runShell :: Shell a -> IO ExitCode
 runShell (Shell s) = do e <- getEnvironment
+                        f <- parseFlags
                         cwd <- getCurrentDirectory
                         let e' = updateWith "PWD" (fromMaybe cwd) e
-                        result <- evalStateT (runErrorT s) e
+                        result <- evalStateT (runErrorT s)
+                                  (ShellState e [] f []) -- "empty state"
                         case result of
                           Right _  -> return ExitSuccess
                           Left err -> do announceError err
                                          return $ ExitFailure 1
 
-setE :: Shell ()
-setE = setEnv "__AM_E" ""
+setFlag :: Char -> Shell ()
+setFlag c = Shell $ modify $ \s -> s { flags = (flags s) `union` [c] }
+
+unsetFlag :: Char -> Shell ()
+unsetFlag c = Shell $ modify $ \s -> s { flags = (flags s) \\ [c] }
+
+getFlag :: Char -> Shell Bool
+getFlag c = Shell $ elem c `fmap` gets flags
+
+getFlags :: Shell String
+getFlags = Shell $ gets flags
 
 --runShell :: Shell a -> IO a
 --runShell (Shell s) = do e <- getEnvironment
@@ -75,8 +97,8 @@ setE = setEnv "__AM_E" ""
 
 withHandler :: String -> Shell a -> Shell (Maybe a)
 withHandler h (Shell s)
- = do ame <- getEnv "__AM_E"
-      Shell $ do let die err = if isJust ame
+ = do ame <- getFlag 'e'
+      Shell $ do let die err = if ame
                                then fail $ prefix err
                                else do announceError $ prefix err
                                        return Nothing

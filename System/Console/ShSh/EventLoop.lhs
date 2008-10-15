@@ -5,9 +5,11 @@
 module System.Console.ShSh.EventLoop ( eventLoop )
     where
 
+
+import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv,
-                                   tryEnv, withHandler, setE )
+                                   tryEnv, withHandler, setFlag, getFlag )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Directory ( getCurrentDirectory, setCurrentDirectory,
                           getDirectoryContents,
@@ -20,8 +22,8 @@ import Control.Monad.Trans ( liftIO )
 import Control.Monad ( when )
 
 process :: Command -> Shell Bool -- do we quit or not?
-process (Builtin "set" foo) = do when ('e' `elem` concat foo) setE
-                                 return False
+process (Builtin "set" []) = showEnv >> return False
+process (Builtin "set" foo) = setOpts foo >> return False
 process (Builtin "exit" _) = return True
 process (Builtin "pwd" _) = do liftIO getCurrentDirectory >>= liftIO . putStrLn
                                return False
@@ -41,6 +43,12 @@ process (c1 :&&: c2) = do mok <- withHandler "" $ process c1 -- buggy
 
 process cmd = do liftIO $ putStrLn $ "I can't handle:  "++show cmd
                  return False
+
+showEnv :: Shell ()
+showEnv = liftIO $ putStrLn "Not yet implemented" -- not yet implemented
+
+
+
 
 chDir :: [String] -> Shell ()
 chDir ("-":_) = do dir <- tryEnv "OLDPWD"
