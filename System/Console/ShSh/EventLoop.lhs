@@ -9,7 +9,7 @@ module System.Console.ShSh.EventLoop ( eventLoop )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv,
-                                   tryEnv, withHandler, setFlag, getFlag )
+                                   tryEnv, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Directory ( getCurrentDirectory, setCurrentDirectory,
                           getDirectoryContents,

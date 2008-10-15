@@ -4,10 +4,26 @@ Here we deal with the various command-line options, which can
 also be set with the 'set' builtin.
 
 \begin{code}
-module System.Console.ShSh.Options ( setOpts ) where
+module System.Console.ShSh.Options ( setFlag, unsetFlag, getFlag, getFlags,
+                                     setOpts ) where
 
 import Control.Monad.Trans ( liftIO )
-import System.Console.ShSh.Shell ( Shell, getFlags, setFlag, unsetFlag )
+import Data.List ( union, (\\) )
+import System.Console.ShSh.Shell ( Shell, withEnv, tryEnv )
+
+
+setFlag :: Char -> Shell ()
+setFlag c = withEnv "-" (`union`[c])
+
+unsetFlag :: Char -> Shell ()
+unsetFlag c = withEnv "-" (\\[c])
+
+getFlag :: Char -> Shell Bool
+getFlag c = elem c `fmap` tryEnv "-"
+
+getFlags :: Shell String
+getFlags = tryEnv "-"
+
 
 isOpt :: String -> Bool
 isOpt ('-':_) = True

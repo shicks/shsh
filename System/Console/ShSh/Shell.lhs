@@ -7,15 +7,14 @@ This is where we do stuff.
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv, runShell,
-                                   tryEnv, withHandler,
-                                   setFlag, unsetFlag, getFlag, getFlags )
+                                   tryEnv, withEnv, withHandler )
     where
 
 import Control.Monad ( MonadPlus, mzero )
 import Control.Monad.Error ( ErrorT, runErrorT )
 import Control.Monad.State ( StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
-import Data.List ( lookup, union, (\\) )
+import Data.List ( lookup )
 import Data.Maybe ( fromMaybe, isJust )
 import System.Directory ( getCurrentDirectory )
 import System ( ExitCode(..) )
@@ -25,7 +24,6 @@ import System.Environment ( getEnvironment )
 data ShellState = ShellState {
       environment :: [(String,String)],
       aliases     :: [(String,String)],
-      flags       :: String,
       functions   :: [(String,String)]
     }
 
@@ -60,6 +58,10 @@ setEnv :: String -> String -> Shell ()
 setEnv s x = Shell $ modify $ \st ->
              st { environment = update s x (environment st) }
 
+withEnv :: String -> (String -> String) -> Shell () -- could have safe one too
+withEnv s f = do e <- tryEnv s
+                 setEnv s (f e)
+
 getAllEnv :: Shell [(String,String)]
 getAllEnv = Shell $ gets environment
 
@@ -69,27 +71,16 @@ parseFlags = return "" -- start with no flags set, for now...
 
 runShell :: Shell a -> IO ExitCode
 runShell (Shell s) = do e <- getEnvironment
-                        f <- parseFlags
+                        f <- parseFlags -- better way to integrate these
                         cwd <- getCurrentDirectory
-                        let e' = updateWith "PWD" (fromMaybe cwd) e
+                        let e' = updateWith "PWD" (fromMaybe cwd) $
+                                 updateWith "-" (fromMaybe f) e
                         result <- evalStateT (runErrorT s)
-                                  (ShellState e [] f []) -- "empty state"
+                                  (ShellState e [] []) -- "empty state"
                         case result of
                           Right _  -> return ExitSuccess
                           Left err -> do announceError err
                                          return $ ExitFailure 1
-
-setFlag :: Char -> Shell ()
-setFlag c = Shell $ modify $ \s -> s { flags = (flags s) `union` [c] }
-
-unsetFlag :: Char -> Shell ()
-unsetFlag c = Shell $ modify $ \s -> s { flags = (flags s) \\ [c] }
-
-getFlag :: Char -> Shell Bool
-getFlag c = Shell $ elem c `fmap` gets flags
-
-getFlags :: Shell String
-getFlags = Shell $ gets flags
 
 --runShell :: Shell a -> IO a
 --runShell (Shell s) = do e <- getEnvironment
@@ -97,16 +88,16 @@ getFlags = Shell $ gets flags
 
 withHandler :: String -> Shell a -> Shell (Maybe a)
 withHandler h (Shell s)
- = do ame <- getFlag 'e'
-      Shell $ do let die err = if ame
-                               then fail $ prefix err
-                               else do announceError $ prefix err
-                                       return Nothing
-                 result <- lift $ runErrorT s
-                 case result of
-                   Right a  -> return $ Just a
-                   Left err -> die err
-    where prefix x = if null h || null x then x else h++": "++x
+ = Shell $ do ame <- (elem 'e' . fromMaybe "" . lookup "-") `fmap` gets environment
+              let die err = if ame
+                            then fail $ prefix err
+                            else do announceError $ prefix err
+                                    return Nothing
+              result <- lift $ runErrorT s
+              case result of
+                Right a  -> return $ Just a
+                Left err -> die err
+   where prefix x = if null h || null x then x else h++": "++x
 
 announceError "" = return ()
 announceError e = liftIO $ putStrLn $ "shsh: "++e
