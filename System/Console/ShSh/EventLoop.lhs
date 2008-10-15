@@ -1,7 +1,7 @@
 \chapter{EventLoop module}
 
 \begin{code}
-
+{-# OPTIONS_GHC -cpp #-}
 module System.Console.ShSh.EventLoop ( eventLoop )
     where
 
@@ -20,6 +20,11 @@ import System.Process ( runProcess, waitForProcess )
 import System ( ExitCode(..) )
 import Control.Monad.Trans ( liftIO )
 import Control.Monad ( when )
+
+#ifdef HAVE_HASKELINE
+import System.Console.Haskeline ( runInputT, getInputLine,
+                                  defaultSettings, historyFile )
+#endif
 
 process :: Command -> Shell Bool -- do we quit or not?
 process (Builtin "set" []) = showEnv >> return False
@@ -87,15 +92,32 @@ tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
                        ExitFailure ef -> fail ""
 
 eventLoop :: Shell ()
-eventLoop = do p <- prompt
-               liftIO $ putStr p >> hFlush stdout
-               eof <- liftIO $ hIsEOF stdin
-               if eof then liftIO $ putStrLn "" else continue
-    where continue = do s <- liftIO getLine -- use Haskeline eventually
-                        code <- case parseLine s of
-                                Left e -> do liftIO $ putStrLn e
-                                             return False -- ???
-                                Right cmd -> process cmd
-                        if code then liftIO $ putStrLn "" else eventLoop
+eventLoop = do s' <- getInput =<< prompt
+               case s' of
+                 Nothing -> return ()
+                 Just s  -> do code <- case parseLine s of
+                                         Left e -> do liftIO $ putStrLn e
+                                                      return False -- ???
+                                         Right cmd -> process cmd
+                               if code
+                                 then liftIO $ putStrLn "" -- exit
+                                 else eventLoop
+
+getInput :: String -> Shell (Maybe String)
+#ifdef HAVE_HASKELINE
+getInput prompt = 
+    do mhome <- getEnv "HOME"
+       liftIO $ runInputT (settings mhome) (getInputLine prompt)       
+    where settings (Just home) = defaultSettings 
+                                 { historyFile = Just $ home++"/.shsh_history" }
+          settings Nothing     = defaultSettings
+#else
+getInput prompt = liftIO $ do putStr prompt
+                              hFlush stdout
+                              eof <- hIsEOF stdin
+                              if eof
+                                then putStrLn "" >> return Nothing -- exit
+                                else Just `fmap` getLine
+#endif
 
 \end{code}
