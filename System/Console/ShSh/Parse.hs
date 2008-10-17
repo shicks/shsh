@@ -81,6 +81,7 @@ builtinHelp = unlines $ map blurb builtinCommands
 builtinCommands :: [(String, String, [String] -> Command)]
 builtinCommands = [ ("ls", "list directory contents", Builtin Ls ),
                     ("cd", "change directory", Builtin Cd ),
+                    ("pwd", "print working directory", Builtin Pwd ),
                     ("exit", "quit", Builtin Exit ),
                     ("set", "set primitives", Builtin Set ) ]
 
