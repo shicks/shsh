@@ -76,7 +76,7 @@ runShell (Shell s) = do e <- getEnvironment
                         let e' = updateWith "PWD" (fromMaybe cwd) $
                                  updateWith "-" (fromMaybe f) e
                         result <- evalStateT (runErrorT s)
-                                  (ShellState e [] []) -- "empty state"
+                                  (ShellState e' [] []) -- "empty state"
                         case result of
                           Right _  -> return ExitSuccess
                           Left err -> do announceError err
