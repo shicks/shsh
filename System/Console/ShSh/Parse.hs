@@ -18,11 +18,13 @@
 module System.Console.ShSh.Parse ( Command(..), parseLine, builtinHelp )
     where
 
+import System.Console.ShSh.Builtins ( BuiltinCommand(..) )
+
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
 
 data Command = Cmd [String]
-             | Builtin String [String]
+             | Builtin BuiltinCommand [String]
              | Command :&&: Command
              | Command :>>: Command
              | Command :|: Command
@@ -77,10 +79,10 @@ builtinHelp = unlines $ map blurb builtinCommands
         blurb (c, help, _) = "   "++c ++ ": " ++ help
 
 builtinCommands :: [(String, String, [String] -> Command)]
-builtinCommands = [ ("ls", "list directory contents", Builtin "ls" ),
-                    ("cd", "change directory", Builtin "cd" ),
-                    ("exit", "quit", Builtin "exit" ),
-                    ("set", "set primitives", Builtin "set" ) ]
+builtinCommands = [ ("ls", "list directory contents", Builtin Ls ),
+                    ("cd", "change directory", Builtin Cd ),
+                    ("exit", "quit", Builtin Exit ),
+                    ("set", "set primitives", Builtin Set ) ]
 
 externalCmd :: CharParser st Command
 externalCmd = Cmd `fmap` many1 quoted

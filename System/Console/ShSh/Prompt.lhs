@@ -5,10 +5,10 @@
 module System.Console.ShSh.Prompt ( prompt )
     where
 
-import System.Console.ShSh.Shell
+import System.Console.ShSh.Shell ( Shell, getEnv )
 
 prompt :: Shell String
-prompt = do Just pwd <- getEnv "PWD"
+prompt = do Just pwd <- getEnv "PWD" -- this fails in windows...?
             return $ pwd ++ " $ "
             --Just user <- getEnv "USER"
             --Just hostname <- getEnv "HOSTNAME"
