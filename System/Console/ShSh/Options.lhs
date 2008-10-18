@@ -3,6 +3,18 @@
 Here we deal with the various command-line options, which can
 also be set with the 'set' builtin.
 
+I've moved this all out of the Shell monad so that we can put
+all the details of all the options into this module, and then
+Shell can import it for, e.g. parsing command-line options.
+
+Alternately, it might be better to just split this into two
+separate modules, one with just the data, and the other with
+the monadic operations.
+
+The difficulty is that we'd like to be able to use something like
+|setOpts| defined here to parse the command-line flags.  So maybe
+this should end up somewhere else...?
+
 \begin{code}
 module System.Console.ShSh.Options ( setFlag, unsetFlag, getFlag, getFlags,
                                      setOpts ) where

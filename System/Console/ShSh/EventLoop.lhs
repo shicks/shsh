@@ -6,13 +6,13 @@ module System.Console.ShSh.EventLoop ( eventLoop )
     where
 
 import System.Console.ShSh.Builtins ( runBuiltin )
-import System.Console.ShSh.Options ( setOpts )
+import System.Console.ShSh.Options ( setOpts, getFlag )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv,
                                    tryEnv, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Directory ( findExecutable, doesFileExist )
-import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr )
+import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr, hGetLine, Handle )
 import System.Process ( runProcess, waitForProcess )
 import System ( ExitCode(..) )
 import Control.Monad.Trans ( liftIO )
@@ -54,24 +54,34 @@ tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
                        ExitSuccess -> return ()
                        ExitFailure ef -> fail ""
 
-eventLoop :: Shell ()
-eventLoop = do s' <- getInput =<< prompt
-               case s' of
-                 Nothing -> return ()
-                 Just s  -> do code <- case parseLine s of
-                                         Left e -> do liftIO $ putStrLn e
-                                                      return False -- ???
-                                         Right cmd -> process cmd
-                               if code
-                                 then liftIO $ putStrLn "" -- exit
-                                 else eventLoop
+eventLoop :: Maybe Handle -> Shell ()
+eventLoop h = do s' <- case h of
+                         Nothing -> getInput =<< prompt
+                         Just h' -> getNoninteractiveInput h'
+                 case s' of
+                   Nothing -> return ()
+                   Just s  -> do am_v <- getFlag 'v'
+                                 if am_v then liftIO $ putStrLn s
+                                         else return ()
+                                 code <- case parseLine s of
+                                           Left e -> do liftIO $ putStrLn e
+                                                        return False -- ???
+                                           Right cmd -> process cmd
+                                 if code
+                                   then liftIO $ putStrLn "" -- exit
+                                   else eventLoop h
 
+-- What do we want to do with history?  Bash defines a $HISTFILE variable,
+-- but that only deals with saving the history on exit - apparently readline
+-- takes care of saving things automatically on a per-session basis.
+-- We certainly don't want to clobber ~/.bash_history.  But it would be
+-- good to have a variable such as $HISTFILE to deal with this...
 getInput :: String -> Shell (Maybe String)
 #ifdef HAVE_HASKELINE
-getInput prompt = 
+getInput prompt =
     do mhome <- getEnv "HOME"
-       liftIO $ runInputT (settings mhome) (getInputLine prompt)       
-    where settings (Just home) = defaultSettings 
+       liftIO $ runInputT (settings mhome) (getInputLine prompt)
+    where settings (Just home) = defaultSettings
                                  { historyFile = Just $ home++"/.shsh_history" }
           settings Nothing     = defaultSettings
 #else
@@ -82,5 +92,10 @@ getInput prompt = liftIO $ do putStr prompt
                                 then putStrLn "" >> return Nothing -- exit
                                 else Just `fmap` getLine
 #endif
+
+getNoninteractiveInput :: Handle -> Shell (Maybe String)
+getNoninteractiveInput h = liftIO $ do eof <- hIsEOF h
+                                       if eof then return Nothing
+                                              else Just `fmap` hGetLine h
 
 \end{code}
