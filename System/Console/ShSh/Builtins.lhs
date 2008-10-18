@@ -6,10 +6,12 @@ This module exports a list of builtin commands and how we handle them.
 
 module System.Console.ShSh.Builtins ( BuiltinCommand(..), runBuiltin ) where
 
+import System.Exit ( ExitCode(..), exitWith )
 import Control.Monad ( forM_ )
 import Data.List ( sort, sortBy )
 import Data.Ord ( comparing )
 import System.Console.ShSh.Builtins.Cd ( chDir )
+import System.Console.ShSh.Builtins.Exit ( exit )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( Shell, withHandler, getAllEnv )
 
@@ -26,7 +28,7 @@ data BuiltinCommand = Exit | Set | Pwd | Cd | Ls
 -- This will have to change when we want to generalize the I/O...
 runBuiltin :: BuiltinCommand -> [String] -> Shell Bool
 
-runBuiltin Exit _    = return True
+runBuiltin Exit n = exit n
 runBuiltin Set []    = showEnv >> return False
 runBuiltin Set foo   = setOpts foo >> return False
 runBuiltin Pwd _     = do liftIO getCurrentDirectory >>= liftIO . putStrLn
