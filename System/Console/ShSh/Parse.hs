@@ -29,6 +29,10 @@ data Command = Cmd [String]
              | Command :||: Command
              | Command :>>: Command
              | Command :|: Command
+             | Command :> String
+             | Command :>> String
+             | Command :>| String
+             | Command :< String
              | EmptyCommand
                deriving ( Show )
 
