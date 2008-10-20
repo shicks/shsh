@@ -7,17 +7,17 @@ Here we run commands.
 module System.Console.ShSh.Command ( process ) where
 
 import System.Console.ShSh.Builtins ( runBuiltin )
-import System.Console.ShSh.Options ( setOpts, getFlag )
+import System.Console.ShSh.Options ( setOpts, getFlag, unsetFlag )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Pipe ( pipeOutput, pipeOutputInput, waitForPipe, Pipe )
 import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv,
-                                   tryEnv, withHandler )
+                                   tryEnv, withHandler, withEnv )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Directory ( findExecutable, doesFileExist )
 import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr, hGetLine,
                    Handle, hPutStrLn, hClose )
 import System.Process ( runInteractiveProcess, waitForProcess, ProcessHandle )
-import System ( ExitCode(..) )
+import System ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
 
 process :: Command -> Handle -> Shell ExitCode -- do we quit or not?
@@ -32,13 +32,27 @@ process (c1 :||: c2) h = do ec1 <- process c1 h
                             if ec1 /= ExitSuccess
                                then process c2 h
                                else return ec1
+process (c1 :>>: c2) h = do am_e <- getFlag 'e'
+                            ec1 <- process c1 h
+                            if am_e && ec1 /= ExitSuccess
+                               then exitWith ec1
+                               else process c2 h
+-- This isn't quite right yet.  In real sh, the PARENS guard from
+-- the effects of -e.  That is,
+--   $ set -e
+--   $ (false)   # doesn't exit
+--   $ false     # exits
+-- We want to replicate this behavior somehow...?  Maybe just
+-- keep track of the nesting depth in process...?  This also means
+-- that we can't just have the check happen in the EventLoop... it
+-- needs to happen at "statement terminators" like ;, &, and EOL...?
+-- Check the spec.
 #ifdef HAVE_CREATEPROCESS
 process (c1 :|: (Cmd (c2:args))) h = 
     do (h',pid,pipe) <- runWithInput c2 args h
        process c1 h' -- assume c2 is a command for now...!
        liftIO $ hClose h' >> waitForPipe pipe >> waitForProcess pid
 #endif
-
 process cmd h = do liftIO $ hPutStrLn h $ "I can't handle:  "++show cmd
                    return $ ExitFailure 1
 
