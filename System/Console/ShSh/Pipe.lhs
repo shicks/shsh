@@ -4,7 +4,8 @@ This will need a lot of work, both on interface and implementation.
 
 \begin{code}
 {-# OPTIONS_GHC -cpp #-}
-module System.Console.ShSh.Pipe ( Pipe, pipe, openPipe, waitForPipe,
+module System.Console.ShSh.Pipe ( Pipe, pipe, openPipe,
+                                  waitForPipe, waitForPipes,
                                   pipeOutput, pipeOutputInput ) where
 
 import Control.Concurrent
@@ -21,7 +22,7 @@ import System.Process
 
 import System.Console.ShSh.Shell ( Shell, getAllEnv )
 
-newtype Pipe = Pipe (Maybe (Ptr Word8, MVar ()))
+newtype Pipe = Pipe (Ptr Word8, MVar ())
 
 doPipe :: Ptr Word8 -> MVar () -> Bool -> Handle -> Handle -> IO ()
 doPipe buf v close r w 
@@ -52,16 +53,19 @@ openPipe close r w = do -- read (output) handle, write (input) handle
   buf <- mallocBytes bufferSize
   mv <- newEmptyMVar
   forkIO $ doPipe buf mv close r w
-  return $ Pipe $ Just (buf,mv)
+  return $ Pipe (buf,mv)
 
 waitForPipe :: Pipe -> IO ()
-waitForPipe (Pipe (Just (buf,mv))) = do
+waitForPipe (Pipe (buf,mv)) = do
   takeMVar mv
   free buf
-waitForPipe (Pipe Nothing) = return ()
 
-pipeOutput :: FilePath -> [String] -> Handle -> Shell ExitCode
-pipeOutputInput :: FilePath -> [String] -> Handle -> Shell (Handle,ProcessHandle,Pipe)
+waitForPipes :: [Pipe] -> IO ()
+waitForPipes = mapM_ waitForPipe
+
+pipeOutput :: FilePath -> [String] -> Handle -> Shell (ExitCode,[Pipe])
+pipeOutputInput :: FilePath -> [String] -> Handle ->
+                   Shell (Handle,ProcessHandle,[Pipe])
 #ifdef HAVE_CREATEPROCESS
 pipeOutput cmd args h = do
   env <- getAllEnv
@@ -69,7 +73,8 @@ pipeOutput cmd args h = do
                           (proc cmd args) { env = Just env,
                                             std_out = CreatePipe }
   liftIO $ pipe False h' h
-  liftIO $ waitForProcess pid
+  ec <- liftIO $ waitForProcess pid
+  return (ec,[])
 pipeOutputInput cmd args h = do
   env <- getAllEnv
   (Just hi, Just h', _, pid) <- liftIO $ createProcess $
@@ -77,19 +82,21 @@ pipeOutputInput cmd args h = do
                                                   std_in = CreatePipe,
                                                   std_out = CreatePipe }
   pipe <- liftIO $ openPipe False h' h
-  return (hi,pid,pipe)
+  return (hi,pid,[pipe])
 #else
 -- These don't actually do what they claim to do...
 pipeOutput cmd args _ = do
   env <- getAllEnv
   pid <- liftIO $ runProcess cmd args Nothing (Just env)
                                       Nothing Nothing Nothing
-  liftIO $ waitForProcess pid
+  ec <- liftIO $ waitForProcess pid
+  return (ec,[])
+  
 pipeOutputInput cmd args _ = do
   env <- getAllEnv
   pid <- liftIO $ runProcess cmd args Nothing (Just env)
                                       Nothing Nothing Nothing
-  return (stdin,pid,Pipe Nothing)
+  return (stdin,pid,[])
 #endif
 
 \end{code}

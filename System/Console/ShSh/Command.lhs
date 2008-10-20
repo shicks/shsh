@@ -9,7 +9,8 @@ module System.Console.ShSh.Command ( process ) where
 import System.Console.ShSh.Builtins ( runBuiltin )
 import System.Console.ShSh.Options ( setOpts, getFlag, unsetFlag )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
-import System.Console.ShSh.Pipe ( pipeOutput, pipeOutputInput, waitForPipe, Pipe )
+import System.Console.ShSh.Pipe ( pipeOutput, pipeOutputInput, waitForPipes,
+                                  Pipe )
 import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv,
                                    tryEnv, withHandler, withEnv )
 import System.Console.ShSh.Prompt ( prompt )
@@ -49,9 +50,9 @@ process (c1 :>>: c2) h = do am_e <- getFlag 'e'
 -- Check the spec.
 #ifdef HAVE_CREATEPROCESS
 process (c1 :|: (Cmd (c2:args))) h = 
-    do (h',pid,pipe) <- runWithInput c2 args h
+    do (h',pid,pipes) <- runWithInput c2 args h
        process c1 h' -- assume c2 is a command for now...!
-       liftIO $ hClose h' >> waitForPipe pipe >> waitForProcess pid
+       liftIO $ hClose h' >> waitForPipes pipes >> waitForProcess pid
 #endif
 process cmd h = do liftIO $ hPutStrLn h $ "I can't handle:  "++show cmd
                    return $ ExitFailure 1
@@ -66,9 +67,11 @@ tryToRun cmd args h = do exe <- liftIO $ findExecutable cmd -- use own path?
                         if path && exists
                            then fail $ cmd++": Permission denied"
                            else fail $ cmd++": No such file or directory"
-          run x = do pipeOutput x args h
+          run x = do (ec,pipes) <- pipeOutput x args h
+                     liftIO $ waitForPipes pipes
+                     return ec
 
-runWithInput :: String -> [String] -> Handle -> Shell (Handle,ProcessHandle,Pipe)
+runWithInput :: String -> [String] -> Handle -> Shell (Handle,ProcessHandle,[Pipe])
 runWithInput cmd args h = do exe <- liftIO $ findExecutable cmd -- use own path?
                              case exe of
                                Just fp -> run fp
