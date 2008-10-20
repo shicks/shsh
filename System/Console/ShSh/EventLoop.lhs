@@ -6,6 +6,7 @@ module System.Console.ShSh.EventLoop ( eventLoop )
     where
 
 import System.Console.ShSh.Command ( process )
+import System.Console.ShSh.Expansions ( shellExpansions )
 import System.Console.ShSh.Options ( getFlag )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Shell ( Shell, getEnv )
@@ -30,7 +31,8 @@ eventLoop h = do
                   am_v <- getFlag 'v'
                   if am_v then liftIO $ putStrLn s
                           else return ()
-                  code <- case parseLine s of -- Later, add more to s' (PS2)
+                  s' <- shellExpansions s
+                  code <- case parseLine s' of -- Later, add more to s' (PS2)
                             Left e -> do liftIO $ putStrLn e
                                          return $ ExitFailure 1 -- ????
                             Right cmd -> process cmd stdout
