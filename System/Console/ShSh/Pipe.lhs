@@ -85,18 +85,27 @@ pipeOutputInput cmd args h = do
   return (hi,pid,[pipe])
 #else
 -- These don't actually do what they claim to do...
-pipeOutput cmd args _ = do
+noPipe cmd args = do
   env <- getAllEnv
-  pid <- liftIO $ runProcess cmd args Nothing (Just env)
-                                      Nothing Nothing Nothing
+  pid <- liftIO $ runProcess cmd args Nothing (Just env) Nothing Nothing Nothing
+  liftIO $ waitForProcess pid -- this is what pipeOutput did originally, and is
+                              -- still useful because it has interactive input.
+
+pipeOutput cmd args h = do
+  env <- getAllEnv
+  (i,o,e,pid) <- liftIO $ runInteractiveProcess cmd args Nothing (Just env)
+  --ip <- liftIO $ openPipe False stdin i
+  ep <- liftIO $ openPipe False e stderr
+  liftIO $ pipe False o h
   ec <- liftIO $ waitForProcess pid
-  return (ec,[])
+  return (ec,[ep]) --,ip
   
-pipeOutputInput cmd args _ = do
+pipeOutputInput cmd args h = do
   env <- getAllEnv
-  pid <- liftIO $ runProcess cmd args Nothing (Just env)
-                                      Nothing Nothing Nothing
-  return (stdin,pid,[])
+  (i,o,e,pid) <- liftIO $ runInteractiveProcess cmd args Nothing (Just env)
+  op <- liftIO $ openPipe False o h
+  ep <- liftIO $ openPipe False e stderr
+  return (i,pid,[op,ep])
 #endif
 
 \end{code}

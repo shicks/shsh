@@ -48,12 +48,12 @@ process (c1 :>>: c2) h = do am_e <- getFlag 'e'
 -- that we can't just have the check happen in the EventLoop... it
 -- needs to happen at "statement terminators" like ;, &, and EOL...?
 -- Check the spec.
-#ifdef HAVE_CREATEPROCESS
+-- #ifdef HAVE_CREATEPROCESS
 process (c1 :|: (Cmd (c2:args))) h = 
     do (h',pid,pipes) <- runWithInput c2 args h
        process c1 h' -- assume c2 is a command for now...!
        liftIO $ hClose h' >> waitForPipes pipes >> waitForProcess pid
-#endif
+-- #endif
 process cmd h = do liftIO $ hPutStrLn h $ "I can't handle:  "++show cmd
                    return $ ExitFailure 1
 
