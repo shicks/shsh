@@ -35,7 +35,7 @@ process (c1 :||: c2) h = do ec1 <- process c1 h
 process (c1 :>>: c2) h = do am_e <- getFlag 'e'
                             ec1 <- process c1 h
                             if am_e && ec1 /= ExitSuccess
-                               then exitWith ec1
+                               then liftIO $ exitWith ec1
                                else process c2 h
 -- This isn't quite right yet.  In real sh, the PARENS guard from
 -- the effects of -e.  That is,
