@@ -26,6 +26,7 @@ import Text.ParserCombinators.Parsec.Expr
 data Command = Cmd [String]
              | Builtin BuiltinCommand [String]
              | Command :&&: Command
+             | Command :||: Command
              | Command :>>: Command
              | Command :|: Command
              | EmptyCommand
@@ -45,8 +46,9 @@ subcommand :: CharParser st Command
 subcommand = buildExpressionParser table cmd <?> "command thingy"
 
 table :: OperatorTable Char st Command
-table   = [ [binary "|" (:|:),
-             binary "&&" (:&&:),
+table   = [ [binary "&&" (:&&:),
+             binary "||" (:||:),
+             binary "|" (:|:),
              binary ";" (:>>:) ]
           ]
     where binary name fun =

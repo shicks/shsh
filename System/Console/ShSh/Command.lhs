@@ -24,13 +24,15 @@ process :: Command -> Handle -> Shell ExitCode -- do we quit or not?
 process (Builtin b args) h = runBuiltin b args h
 process (Cmd (s:ss)) h = tryToRun s ss h
 process EmptyCommand h = do liftIO $ putStrLn ""; return ExitSuccess
-{-
-process (c1 :&&: c2) h = do mok <- withHandler "" $ process c1 -- buggy
-                            case mok of
-                              Just True -> return True
-                              Just False -> process c2
-                              Nothing -> return False
--}
+process (c1 :&&: c2) h = do ec1 <- process c1 h
+                            if ec1 == ExitSuccess
+                               then process c2 h
+                               else return ec1
+process (c1 :||: c2) h = do ec1 <- process c1 h
+                            if ec1 /= ExitSuccess
+                               then process c2 h
+                               else return ec1
+
 process cmd h = do liftIO $ hPutStrLn h $ "I can't handle:  "++show cmd
                    return $ ExitFailure 1
 
