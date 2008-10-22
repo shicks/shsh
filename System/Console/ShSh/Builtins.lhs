@@ -11,6 +11,7 @@ import Control.Monad ( forM_ )
 import Data.List ( sort, sortBy )
 import Data.Ord ( comparing )
 import System.Console.ShSh.Builtins.Cd ( chDir )
+import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Exit ( exit )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( Shell, withHandler, getAllEnv )
@@ -19,7 +20,7 @@ import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( Handle, hPutStr, hPutStrLn )
 import Control.Monad.Trans ( liftIO )
 
-data BuiltinCommand = Exit | Set | Pwd | Cd | Ls
+data BuiltinCommand = Exit | Set | Pwd | Cd | Ls | MkDir
      deriving ( Enum, Eq, Ord, Show )
 
 {- What else do we want...? list here:
@@ -42,6 +43,7 @@ runBuiltin Ls _ h     = do let unboring ('.':_) = False
                                     filter unboring fs
                            return ExitSuccess
 runBuiltin Cd ss _    = withHandler "cd" (chDir ss) >> return ExitSuccess
+runBuiltin MkDir ss _ = mkDir ss
 
 -- The BASH version escapes dangerous values with single-quotes, i.e.
 --   spaces, parens, etc..., make the output runnable.
