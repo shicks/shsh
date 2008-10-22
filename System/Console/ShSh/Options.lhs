@@ -16,29 +16,15 @@ The difficulty is that we'd like to be able to use something like
 this should end up somewhere else...?
 
 \begin{code}
-module System.Console.ShSh.Options ( setFlag, unsetFlag, getFlag, getFlags,
-                                     setOpts ) where
+module System.Console.ShSh.Options ( setOpts ) where
 
 import Control.Monad.Trans ( liftIO )
 import Data.List ( union, (\\) )
 import System.Exit ( ExitCode(..) )
 import System.IO ( Handle, hPutStrLn )
 
-import System.Console.ShSh.Shell ( Shell, withEnv, tryEnv )
-
-
-setFlag :: Char -> Shell ()
-setFlag c = withEnv "-" (`union`[c])
-
-unsetFlag :: Char -> Shell ()
-unsetFlag c = withEnv "-" (\\[c])
-
-getFlag :: Char -> Shell Bool
-getFlag c = elem c `fmap` tryEnv "-"
-
-getFlags :: Shell String
-getFlags = tryEnv "-"
-
+import System.Console.ShSh.Shell ( Shell,
+                                   setFlag, unsetFlag, getFlag, getFlags )
 
 isOpt :: String -> Bool
 isOpt ('-':_) = True

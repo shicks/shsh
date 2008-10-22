@@ -1,10 +1,11 @@
 \chapter{Builtins.Mkdir module}
 
 \begin{code}
-
+{-# OPTIONS_GHC -cpp #-}
 module System.Console.ShSh.Builtins.Mkdir ( mkDir ) where
 
 import System.Console.ShSh.Shell ( Shell, ShellT, withSubStateCalled, (.~) )
+import System.Console.ShSh.ShellError ( exit )
 
 import Control.Monad ( when )
 import Control.Monad.State ( get, modify )
@@ -15,6 +16,11 @@ import System.Directory ( getCurrentDirectory, doesDirectoryExist,
                           setCurrentDirectory, createDirectory )
 import System.FilePath ( splitDirectories, joinPath )
 import System.Exit ( ExitCode(..) )
+
+#ifdef UNIX
+import System.Posix.Files ( setFileMode )
+-- import System.Console.ShSh.Unix ( setFileMode, fileMode )
+#endif
 
 data Opts = Opts { mode :: String,
                    parents :: Bool,
@@ -31,9 +37,9 @@ optSpec = [Option "m" ["mode"]
            Option "v" ["verbose"]
              (NoArg $ modify $ \o -> o { verbose = True })
              "print a message for each created directory",
-           Option "h" ["help"] (NoArg $ usage >> fail "")
+           Option "h" ["help"] (NoArg $ usage >> exit 0)
              "display this help and exit",
-           Option "V" ["version"] (NoArg $ version >> fail "")
+           Option "V" ["version"] (NoArg $ version >> exit 0)
              "output version information and exit"
           ]
 
@@ -64,7 +70,10 @@ mkDir args = do withSubStateCalled "mkdir" (sequence_ opts>>run) noOpts
                                      then mk parent 
                                      else die "No such file or directory"
                     liftIO $ createDirectory d -- should catch here ...
+#ifdef UNIX 
+                    -- check for windows here and warn/ignore?
+                    liftIO $ setFileMode d (fileMode m)
+#endif
                     when v $ liftIO $ putStrLn $
                              "mkdir: created directory `"++d++"'"
-
 \end{code}

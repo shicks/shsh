@@ -7,12 +7,12 @@ Here we run commands.
 module System.Console.ShSh.Command ( process ) where
 
 import System.Console.ShSh.Builtins ( runBuiltin )
-import System.Console.ShSh.Options ( setOpts, getFlag, unsetFlag )
+import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Pipe ( pipeOutput, pipeOutputInput, waitForPipes,
                                   Pipe )
-import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv,
-                                   tryEnv, withHandler, withEnv )
+import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv, withHandler,
+                                   tryEnv, withEnv, getFlag, unsetFlag )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Directory ( findExecutable, doesFileExist )
 import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr, hGetLine,
@@ -23,7 +23,7 @@ import Control.Monad.Trans ( liftIO )
 
 process :: Command -> Handle -> Shell ExitCode -- do we quit or not?
 process (Builtin b args) h = runBuiltin b args h
-process (Cmd (s:ss)) h = tryToRun s ss h
+process (Cmd (s:ss)) h = withHandler $ tryToRun s ss h
 process EmptyCommand h = do liftIO $ putStrLn ""; return ExitSuccess
 process (c1 :&&: c2) h = do ec1 <- process c1 h
                             if ec1 == ExitSuccess

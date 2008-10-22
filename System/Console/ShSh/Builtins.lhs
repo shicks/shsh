@@ -15,6 +15,7 @@ import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Exit ( exit )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( Shell, withHandler, getAllEnv )
+import System.Console.ShSh.ShellError ( withPrefix )
 import System.Directory ( getCurrentDirectory, getDirectoryContents )
 import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( Handle, hPutStr, hPutStrLn )
@@ -42,8 +43,8 @@ runBuiltin Ls _ h     = do let unboring ('.':_) = False
                            liftIO $ hPutStr h $ unlines $ sort $
                                     filter unboring fs
                            return ExitSuccess
-runBuiltin Cd ss _    = withHandler "cd" (chDir ss) >> return ExitSuccess
-runBuiltin MkDir ss _ = mkDir ss
+runBuiltin Cd ss _    = withHandler $ withPrefix "cd" $ chDir ss
+runBuiltin MkDir ss _ = withHandler $ mkDir ss
 
 -- The BASH version escapes dangerous values with single-quotes, i.e.
 --   spaces, parens, etc..., make the output runnable.

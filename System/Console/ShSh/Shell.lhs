@@ -9,21 +9,28 @@ This is where we do stuff.
              MultiParamTypeClasses #-}
 
 module System.Console.ShSh.Shell ( Shell, ShellT,
-                                   getEnv, setEnv, getAllEnv, runShell,
-                                   tryEnv, withEnv, withHandler,
+                                   getEnv, setEnv, getAllEnv,
+                                   tryEnv, withEnv,
+                                   getFlag, setFlag, unsetFlag, getFlags,
+                                   runShell, withHandler,
                                    withSubState, withSubStateCalled, (.~) )
     where
 
 import Control.Monad ( MonadPlus, mzero )
-import Control.Monad.Error ( ErrorT, runErrorT )
+import Control.Monad.Error ( ErrorT, runErrorT,
+                             MonadError, throwError, catchError )
 import Control.Monad.State ( MonadState, get, put, runStateT,
                              StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
-import Data.List ( lookup )
+import Data.List ( lookup, union, (\\) )
 import Data.Maybe ( fromMaybe, isJust )
 import System.Directory ( getCurrentDirectory )
 import System ( ExitCode(..) )
 import System.Environment ( getEnvironment )
+
+import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
+                                        exitCode, prefixError )
+
 
 -- I might want to look into using ST to thread the state...?
 data ShellState e = ShellState {
@@ -33,8 +40,8 @@ data ShellState e = ShellState {
       extra       :: e
     }
 
-newtype ShellT e a = Shell (ErrorT String (StateT (ShellState e) IO) a)
-    deriving ( Functor, Monad, MonadIO )
+newtype ShellT e a = Shell (ErrorT ShellError (StateT (ShellState e) IO) a)
+    deriving ( Functor, Monad, MonadIO, MonadError ShellError )
 
 instance MonadState e (ShellT e) where
     get = Shell $ gets extra
@@ -77,6 +84,20 @@ withEnv s f = do e <- tryEnv s
 getAllEnv :: Shell [(String,String)]
 getAllEnv = Shell $ gets environment
 
+-- Flag commands - moved from Options
+setFlag :: Char -> Shell ()
+setFlag c = withEnv "-" (`union`[c])
+
+unsetFlag :: Char -> Shell ()
+unsetFlag c = withEnv "-" (\\[c])
+
+getFlag :: Char -> Shell Bool
+getFlag c = elem c `fmap` tryEnv "-"
+
+getFlags :: Shell String
+getFlags = tryEnv "-"
+
+
 parseFlags :: IO String
 parseFlags = return "" -- start with no flags set, for now...
                        -- Later we'll get these with getopt
@@ -111,7 +132,7 @@ withSubState (Shell sub) e = Shell $ do
   case result of
     Right a  -> do put $ convertState s' ()
                    return a
-    Left err -> fail err
+    Left err -> throwError err
 
 withSubStateCalled :: String -> ShellT e a -> e -> Shell a
 withSubStateCalled name (Shell sub) e = Shell $ do
@@ -120,7 +141,7 @@ withSubStateCalled name (Shell sub) e = Shell $ do
   case result of
     Right a  -> do put $ convertState s' ()
                    return a
-    Left err -> fail $ name++": "++err
+    Left err -> throwError $ prefixError name err
 
 {-
 withSubState' :: ShellT e a -> e -> Shell a
@@ -150,21 +171,15 @@ withSubStateCalled' name (Shell sub) e = Shell $ do
                   return result
 -}
 
-withHandler :: String -> Shell a -> Shell (Maybe a)
-withHandler h (Shell s)
- = Shell $ do ame <- (elem 'e' . fromMaybe "" . lookup "-") `fmap` gets environment
-              let die err = if ame
-                            then fail $ prefix err
-                            else do announceError $ prefix err
-                                    return Nothing
-              result <- lift $ runErrorT s
-              case result of
-                Right a  -> return $ Just a
-                Left err -> die err
-   where prefix x = if null h || null x then x else h++": "++x
-
-announceError "" = return ()
-announceError e = liftIO $ putStrLn $ "shsh: "++e
+-- No longer trying to preserve return type... maybe another function?
+withHandler :: Shell a -> Shell ExitCode
+withHandler s = do ame <- getFlag 'e'
+                   catchError (catchS (s >> return ExitSuccess)
+                               $ \_ -> return ExitSuccess)
+                       $ \e -> if ame
+                               then throwError e
+                               else do announceError e
+                                       return $ exitCode e
 
 -- This is a bit gratuitous.
 infixl 9 .~
