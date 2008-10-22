@@ -4,15 +4,20 @@ This is where we do stuff.
 
 \begin{code}
 
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving,
+             FlexibleInstances,
+             MultiParamTypeClasses #-}
 
-module System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv, runShell,
-                                   tryEnv, withEnv, withHandler )
+module System.Console.ShSh.Shell ( Shell, ShellT,
+                                   getEnv, setEnv, getAllEnv, runShell,
+                                   tryEnv, withEnv, withHandler,
+                                   withSubState, withSubStateCalled, (.~) )
     where
 
 import Control.Monad ( MonadPlus, mzero )
 import Control.Monad.Error ( ErrorT, runErrorT )
-import Control.Monad.State ( StateT, evalStateT, gets, modify )
+import Control.Monad.State ( MonadState, get, put, runStateT,
+                             StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
 import Data.List ( lookup )
 import Data.Maybe ( fromMaybe, isJust )
@@ -21,14 +26,21 @@ import System ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 
 -- I might want to look into using ST to thread the state...?
-data ShellState = ShellState {
+data ShellState e = ShellState {
       environment :: [(String,String)],
       aliases     :: [(String,String)],
-      functions   :: [(String,String)]
+      functions   :: [(String,String)],
+      extra       :: e
     }
 
-newtype Shell a = Shell (ErrorT String (StateT ShellState IO) a)
+newtype ShellT e a = Shell (ErrorT String (StateT (ShellState e) IO) a)
     deriving ( Functor, Monad, MonadIO )
+
+instance MonadState e (ShellT e) where
+    get = Shell $ gets extra
+    put a = Shell $ modify $ \s -> s { extra = a }
+
+type Shell = ShellT ()
 
 -- Simple routines to update associative list elements.
 update :: Eq a => a -> b -> [(a,b)] -> [(a,b)]
@@ -76,7 +88,7 @@ runShell (Shell s) = do e <- getEnvironment
                         let e' = updateWith "PWD" (fromMaybe cwd) $
                                  updateWith "-" (fromMaybe f) e
                         result <- evalStateT (runErrorT s)
-                                  (ShellState e' [] []) -- "empty state"
+                                  (ShellState e' [] [] ()) -- "empty state"
                         case result of
                           Right _  -> return ExitSuccess
                           Left err -> do announceError err
@@ -85,6 +97,58 @@ runShell (Shell s) = do e <- getEnvironment
 --runShell :: Shell a -> IO a
 --runShell (Shell s) = do e <- getEnvironment
 --                        return $ evalState s e
+
+-- It seems like this has the nice property that it both threads the
+-- state properly, AND is atomic, so that state changes don't go through
+-- if we fail...
+convertState :: ShellState e -> e' -> ShellState e'
+convertState (ShellState e a f _) x = ShellState e a f x
+
+withSubState :: ShellT e a -> e -> Shell a
+withSubState (Shell sub) e = Shell $ do
+  s <- get
+  (result,s') <- liftIO $ runStateT (runErrorT sub) $ convertState s e
+  case result of
+    Right a  -> do put $ convertState s' ()
+                   return a
+    Left err -> fail err
+
+withSubStateCalled :: String -> ShellT e a -> e -> Shell a
+withSubStateCalled name (Shell sub) e = Shell $ do
+  s <- get
+  (result,s') <- liftIO $ runStateT (runErrorT sub) $ convertState s e
+  case result of
+    Right a  -> do put $ convertState s' ()
+                   return a
+    Left err -> fail $ name++": "++err
+
+{-
+withSubState' :: ShellT e a -> e -> Shell a
+withSubState' (Shell sub) e = Shell $ do
+  s <- get
+  let s' = ShellState (environment s) (aliases s) (functions s) e
+  sub' <- lift $ runErrorT sub
+  case sub' of
+    Left err -> fail err
+    Right a  -> return $ do -- now we're up to the StateT monad
+                  (result,s'') <- lift $ runStateT a
+                  put $ ShellState (environment s'') (aliases s'')
+                                   (functions s'') ()
+                  return result
+
+withSubStateCalled' :: String -> ShellT e a -> e -> Shell a
+withSubStateCalled' name (Shell sub) e = Shell $ do
+  s <- get
+  let s' = ShellState (environment s) (aliases s) (functions s) e
+  sub' <- lift $ runErrorT sub
+  case sub' of
+    Left err -> fail $ name++": "++err
+    Right a  -> return $ do -- now we're up to the StateT monad
+                  (result,s'') <- lift $ runStateT a
+                  put $ ShellState (environment s'') (aliases s'')
+                                   (functions s'') ()
+                  return result
+-}
 
 withHandler :: String -> Shell a -> Shell (Maybe a)
 withHandler h (Shell s)
@@ -101,5 +165,9 @@ withHandler h (Shell s)
 
 announceError "" = return ()
 announceError e = liftIO $ putStrLn $ "shsh: "++e
+
+-- This is a bit gratuitous.
+infixl 9 .~
+(.~) = flip
 
 \end{code}
