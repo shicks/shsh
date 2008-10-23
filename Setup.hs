@@ -2,6 +2,7 @@
 import Distribution.Franchise
 
 configure = do ghcFlags ["-threaded","-O2"]
+               requireModuleExporting "Data.List" "intercalate" "intercalate"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
                withModuleExporting "System.Process" "createProcess, shell"
                    ("createProcess (shell \"echo 1\") >> return ()") $
