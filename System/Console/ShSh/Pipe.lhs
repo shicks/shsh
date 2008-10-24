@@ -1,67 +1,80 @@
 \chapter{Pipe module}
 
-This will need a lot of work, both on interface and implementation.
+This is the higher-level module that interfaces with Shell.
+
+In the absence of a sane createProcess, we'll failover to
+\begin{itemize}
+\item use non-interactive input rather than inheriting
+\item use stderr rather than redirecting
+\end{itemize}
+It might be worth warning about these things (unless a suitable
+environment variable is set?)
+
+How do we do this in the case of two builtin commands?!?
+We can't just start a cat process portably on Windows.  Say,
+\verb+set | grep+?  We clearly want to FORK into the internal
+in this case...  But how do we fork the shell...?  What to do
+about the state?!?
+
+It turns out that anything in a subshell (i.e. parens) can't
+change the state.  And variable assignments aren't pipeable.
+Also, anything in a pipeline can't change outside state either!!!
+(compare \verb+set -C -o | grep noclobber && set -o | grep noclobber+)
+
+So our semantic should be that we peel off all the layers of state,
+do a forkIO, and then go back INTO the state to run the subprocesses.   
+
+We'll also probably have to reimplement most of System.IO to run
+with a new type, Either Handle (Chan String).  And we'll also
+have to redo all of the process stuff too!
 
 \begin{code}
 {-# OPTIONS_GHC -cpp #-}
-module System.Console.ShSh.Pipe ( Pipe, pipe, openPipe,
-                                  waitForPipe, waitForPipes,
-                                  pipeOutput, pipeOutputInput ) where
+module System.Console.ShSh.Pipe ( pipeOutput, pipeOutputInput ) where
 
-import Control.Concurrent
+import Control.Concurrent.Chan
+
 import Control.Monad.Trans ( liftIO )
-
-import Data.Word ( Word8 )
-import Foreign.Ptr
-import Foreign.Marshal.Alloc
 
 import System.Environment
 import System.Exit
 import System.IO
-import System.Process
 
 import System.Console.ShSh.Shell ( Shell, getAllEnv )
+import System.Console.ShSh.PipeIO
 
-newtype Pipe = Pipe (Ptr Word8, MVar ())
+-- This takes care of all the handles for us!
+runInShell :: CreateProcess -> Shell (Maybe ShellHandle, MaybeShellHandle,
+                                      Maybe ShellHandle, ProcessHandle)
+#ifdef HAVE_CREATEPROCESS
+runInShell p = do ps <- getPState
+                  (ps',a,b,c,d) <- launch p ps
+                  putPState ps'
+                  return (a,b,c,d)
+#else
 
-doPipe :: Ptr Word8 -> MVar () -> Bool -> Handle -> Handle -> IO ()
-doPipe buf v close r w 
-               = catch (do hWaitForInput r (-1)
-                           len <- hGetBufNonBlocking r buf bufferSize
-                           hPutBuf w buf len
-                           hFlush w
-                           doPipe buf v close r w
-                       ) $
-                 \e -> do eof <- hIsEOF r
-                          if eof then maybeClose w >> putMVar v ()
-                                 else do putStrLn $ "Caught error: "++show e
-                                         doPipe buf v close r w
-    where maybeClose w = if close then hClose w else return ()
+#endif
 
-bufferSize = 4096
+-- This one is a bit frightening!
+-- We can optimize this if one or both is a process...
+-- call them pipeSS, pipeSP, pipePS, pipePP
+-- or just make it take Either (Shell ()) CreateProcess as args
+pipeShells :: Shell a -> Shell b -> Shell ()
+pipeShells source dest = do
+  state <- getShellState
+  ps <- getPState
+  h <- liftIO createSPipe
+  let s = state { pipeState = ps { std_out = SUseHandle h } }
+  let d = state { pipeState = ps { std_in = SUseHandle h } }
+  liftIO $ forkIO $ runShell source s >> return ()
+  ret <- liftIO $ runShell dest d >> return ()
+  case ret of
+    ExitSuccess   -> return ()
+    ExitFailure n -> exit n -- already announced...?
 
-pipe :: Bool -> Handle -> Handle -> IO ()
-pipe close r w = do -- read (output) handle, write (input) handle
-  buf <- mallocBytes bufferSize
-  mv <- newEmptyMVar
-  forkIO $ doPipe buf mv close r w
-  takeMVar mv
-  free buf
+-- We could use some sort of dup'd broadcast channel for STDERR, and
+-- maybe even something funny for STDIN?
 
-openPipe :: Bool -> Handle -> Handle -> IO Pipe
-openPipe close r w = do -- read (output) handle, write (input) handle
-  buf <- mallocBytes bufferSize
-  mv <- newEmptyMVar
-  forkIO $ doPipe buf mv close r w
-  return $ Pipe (buf,mv)
-
-waitForPipe :: Pipe -> IO ()
-waitForPipe (Pipe (buf,mv)) = do
-  takeMVar mv
-  free buf
-
-waitForPipes :: [Pipe] -> IO ()
-waitForPipes = mapM_ waitForPipe
 
 pipeOutput :: FilePath -> [String] -> Handle -> Shell (ExitCode,[Pipe])
 pipeOutputInput :: FilePath -> [String] -> Handle ->

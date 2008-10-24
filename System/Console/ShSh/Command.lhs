@@ -21,23 +21,23 @@ import System.Process ( runInteractiveProcess, waitForProcess, ProcessHandle )
 import System ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
 
-process :: Command -> Handle -> Shell ExitCode -- do we quit or not?
-process (Builtin b args) h = runBuiltin b args h
-process (Cmd (s:ss)) h = withHandler $ tryToRun s ss h
-process EmptyCommand h = do liftIO $ putStrLn ""; return ExitSuccess
-process (c1 :&&: c2) h = do ec1 <- process c1 h
-                            if ec1 == ExitSuccess
-                               then process c2 h
-                               else return ec1
-process (c1 :||: c2) h = do ec1 <- process c1 h
-                            if ec1 /= ExitSuccess
-                               then process c2 h
-                               else return ec1
-process (c1 :>>: c2) h = do am_e <- getFlag 'e'
-                            ec1 <- process c1 h
-                            if am_e && ec1 /= ExitSuccess
-                               then liftIO $ exitWith ec1
-                               else process c2 h
+process :: Command -> Shell ExitCode -- do we quit or not?
+process (Builtin b args) = runBuiltin b args
+process (Cmd (s:ss)) = withHandler $ tryToRun s ss
+process EmptyCommand = do liftIO $ putStrLn ""; return ExitSuccess
+process (c1 :&&: c2) = do ec1 <- process c1
+                          if ec1 == ExitSuccess
+                             then process c2
+                             else return ec1
+process (c1 :||: c2) = do ec1 <- process c1
+                          if ec1 /= ExitSuccess
+                             then process c2
+                             else return ec1
+process (c1 :>>: c2) = do am_e <- getFlag 'e'
+                          ec1 <- process c1
+                          if am_e && ec1 /= ExitSuccess
+                             then liftIO $ exitWith ec1
+                             else process c2
 -- This isn't quite right yet.  In real sh, the PARENS guard from
 -- the effects of -e.  That is,
 --   $ set -e
@@ -49,28 +49,32 @@ process (c1 :>>: c2) h = do am_e <- getFlag 'e'
 -- needs to happen at "statement terminators" like ;, &, and EOL...?
 -- Check the spec.
 -- #ifdef HAVE_CREATEPROCESS
+{-
 process (c1 :|: (Cmd (c2:args))) h = 
     do (h',pid,pipes) <- runWithInput c2 args h
        process c1 h' -- assume c2 is a command for now...!
        liftIO $ hClose h' >> waitForPipes pipes >> waitForProcess pid
+-}
+process (c1 :|: c2) = 
+    pipeShells (process c1) (process c2)
 -- #endif
 process cmd h = do liftIO $ hPutStrLn h $ "I can't handle:  "++show cmd
                    return $ ExitFailure 1
 
-tryToRun :: String -> [String] -> Handle -> Shell ExitCode
-tryToRun cmd args h = do exe <- liftIO $ findExecutable cmd -- use own path?
-                         case exe of
-                           Just fp -> run fp
-                           Nothing -> notFound
+tryToRun :: String -> [String] -> Shell ExitCode
+tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
+                       case exe of
+                         Just fp -> run fp
+                         Nothing -> notFound
     where notFound = do let path = '/' `elem` cmd
                         exists <- liftIO $ doesFileExist cmd
                         if path && exists
                            then fail $ cmd++": Permission denied"
                            else fail $ cmd++": No such file or directory"
-          run x = do (ec,pipes) <- pipeOutput x args h
-                     liftIO $ waitForPipes pipes
-                     return ec
+          run x = do (_,_,_,pid) <- runInShell $ proc x args
+                     liftIO $ waitForProcess pid
 
+{-
 runWithInput :: String -> [String] -> Handle -> Shell (Handle,ProcessHandle,[Pipe])
 runWithInput cmd args h = do exe <- liftIO $ findExecutable cmd -- use own path?
                              case exe of
@@ -82,5 +86,6 @@ runWithInput cmd args h = do exe <- liftIO $ findExecutable cmd -- use own path?
                            then fail $ cmd++": Permission denied"
                            else fail $ cmd++": No such file or directory"
           run x = do pipeOutputInput x args h
+-}
 
 \end{code}

@@ -30,21 +30,24 @@ data BuiltinCommand = Exit | Set | Pwd | Cd | Ls | MkDir
 
 -- This will have to change when we want to generalize the I/O...
 -- The handle parameter is an input handle for 
-runBuiltin :: BuiltinCommand -> [String] -> Handle -> Shell ExitCode
+runBuiltin :: BuiltinCommand -> [String] -> Shell ExitCode
 
-runBuiltin Exit _ _   = liftIO $ exitWith ExitSuccess -- message?
-runBuiltin Set [] h   = showEnv h >> return ExitSuccess
-runBuiltin Set foo h  = setOpts h foo
-runBuiltin Pwd _ h    = do liftIO getCurrentDirectory >>= liftIO . hPutStrLn h
-                           return ExitSuccess
-runBuiltin Ls _ h     = do let unboring ('.':_) = False
-                               unboring _ = True
-                           fs <- liftIO (getDirectoryContents ".")
-                           liftIO $ hPutStr h $ unlines $ sort $
-                                    filter unboring fs
-                           return ExitSuccess
-runBuiltin Cd ss _    = withHandler $ withPrefix "cd" $ chDir ss
-runBuiltin MkDir ss _ = withHandler $ mkDir ss
+runBuiltin Exit _   = liftIO $ exitWith ExitSuccess -- message?
+runBuiltin Set []   = showEnv >> return ExitSuccess
+runBuiltin Set foo  = setOpts foo
+runBuiltin Pwd _    = do cwd <- liftIO getCurrentDirectory
+                         h <- sh_out
+                         shPutStrLn h cwd
+                         return ExitSuccess
+runBuiltin Ls _     = do let unboring ('.':_) = False
+                             unboring _ = True
+                         fs <- liftIO (getDirectoryContents ".")
+                         h <- sh_out
+                         liftIO $ shPutStr h $ unlines $ sort $
+                                  filter unboring fs
+                         return ExitSuccess
+runBuiltin Cd ss    = withHandler $ withPrefix "cd" $ chDir ss
+runBuiltin MkDir ss = withHandler $ mkDir ss
 
 -- The BASH version escapes dangerous values with single-quotes, i.e.
 --   spaces, parens, etc..., make the output runnable.
