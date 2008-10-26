@@ -46,7 +46,7 @@ import System.Process
 import System.Console.ShSh.ShellError ( exit )
 import System.Console.ShSh.Shell ( Shell, getAllEnv, sh_out,
                                    getPState, putPState, getShellState,
-                                   pipeState, runShell )
+                                   pipeState, runShell, closeOut )
 import System.Console.ShSh.PipeIO
 
 -- This takes care of all the handles for us!
@@ -72,7 +72,9 @@ pipeShells source dest = do
   h <- liftIO createSPipe
   let s = ps { p_out = SUseHandle h }
   let d = ps { p_in = SUseHandle h }
-  liftIO $ forkIO $ runShell (putPState s >> source) state >> return ()
+  liftIO $ forkIO $ runShell (do putPState s
+                                 source
+                                 closeOut) state >> return ()
   ret <- liftIO $ runShell (putPState d >> dest) state
   case ret of
     ExitSuccess   -> return ()

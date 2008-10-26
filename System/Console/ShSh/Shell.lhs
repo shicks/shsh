@@ -16,7 +16,7 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getPState, putPState, modifyPState,
                                    runShell, startShell,
                                    withHandler, pipeState,
-                                   sh_out, sh_in, sh_err, sh_io,
+                                   sh_out, sh_in, sh_err, sh_io, closeOut,
                                    withSubState, withSubStateCalled, (.~) )
     where
 
@@ -34,7 +34,7 @@ import System ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 import System.IO ( stdin, stdout, stderr )
 
-import System.Console.ShSh.PipeIO ( PipeState(..), noPipes,
+import System.Console.ShSh.PipeIO ( PipeState(..), noPipes, shSafeClose,
                                     ShellHandle, streamToHandle )
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError )
@@ -148,6 +148,10 @@ sh_out :: ShellT e ShellHandle
 sh_out = Shell $ (streamToHandle stdout . p_out) `fmap` gets pipeState
 sh_err :: ShellT e ShellHandle
 sh_err = Shell $ (streamToHandle stderr . p_err) `fmap` gets pipeState
+
+closeOut :: ShellT e ()
+closeOut = do h <- sh_out
+              liftIO $ shSafeClose h
 
 sh_io :: ShellT e ShellHandle -> (ShellHandle -> IO a) -> ShellT e a
 sh_io h f = do h' <- h

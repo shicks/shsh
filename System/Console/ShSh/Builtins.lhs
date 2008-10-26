@@ -19,7 +19,6 @@ import System.Console.ShSh.Shell ( Shell, withHandler, getAllEnv, sh_out )
 import System.Console.ShSh.ShellError ( withPrefix )
 import System.Directory ( getCurrentDirectory, getDirectoryContents )
 import System.Exit ( ExitCode(..), exitWith )
-import System.IO ( Handle, hPutStr, hPutStrLn )
 import Control.Monad.Trans ( liftIO )
 
 data BuiltinCommand = Exit | Set | Pwd | Cd | Ls | MkDir

@@ -16,7 +16,7 @@ module System.Console.ShSh.PipeIO ( PipeState(..), noPipes,
                                     launch, createSPipe,
                                     shGetContents,
                                     shPutStr, shPutStrLn,
-                                    shFlush, shClose,
+                                    shFlush, shClose, shSafeClose,
                                     shIsClosed, shIsOpen, shIsEOF,
                                     shGetChar, shGetLine,
                                     shWaitForInput, shGetNonBlocking, shPut
@@ -31,6 +31,7 @@ import Control.Monad ( when )
 import qualified Data.ByteString.Lazy.Char8 as B
 import Data.Char ( ord, chr )
 import Data.Maybe ( catMaybes, isJust )
+import Data.Monoid ( Monoid, mempty )
 import Data.Word ( Word8 )
 import Foreign.Ptr
 import Foreign.Storable
@@ -90,10 +91,10 @@ launch pr ps = do let is = mkStdStream $ p_in  ps
           startPipe False = inChanPipe
 
 outChanPipe :: ShellHandle -> Handle -> IO Pipe
-outChanPipe c h = openPipe False (SHandle h) c
+outChanPipe c h = openPipe True (SHandle h) c
 
 inChanPipe :: ShellHandle -> Handle -> IO Pipe
-inChanPipe c h = openPipe False c (SHandle h)
+inChanPipe c h = openPipe True c (SHandle h)
 
 doPipe :: MVar () -> Bool
        -> ShellHandle -> ShellHandle -> IO ()
@@ -140,8 +141,9 @@ createSPipe = do c <- newChan
 
 -- We could do better error checking by testing isEmptyMVar first...
 shGetContents :: ShellHandle -> IO String
-shGetContents (SChan c) = do bs <- getChanContents c
+shGetContents (SChan c) = do bs <- getChanContents c -- what about EOF?
                              return $ B.unpack $ B.concat $ catMaybes bs
+                             -- Should we forkIO $ length bs >> put c Nothing?
 shGetContents (SHandle h) = hGetContents h
 
 shPutChar :: ShellHandle -> Char -> IO ()
@@ -162,6 +164,11 @@ shFlush _ = return ()
 shClose :: ShellHandle -> IO ()
 shClose (SChan c) = writeChan c Nothing
 shClose (SHandle h) = hClose h
+
+shSafeClose :: ShellHandle -> IO ()
+shSafeClose (SHandle h) | h `elem` [stdin,stdout,stderr] = return ()
+                        | otherwise = hClose h
+shSafeClose (SChan c) = writeChan c Nothing
 
 shIsOpen :: ShellHandle -> IO Bool
 shIsOpen (SChan c) = do e <- isEmptyChan c
@@ -194,23 +201,33 @@ shGetChar (SChan c) = do b <- readChan c
                                               return $ head $ B.unpack x
 shGetChar (SHandle h) = hGetChar h
 
+notEOF :: String -> Chan (Maybe B.ByteString) -> IO a -> IO a
+notEOF msg c job = do eof <- shIsEOF $ SChan c
+                      if eof then fail $ msg ++ ": end of file"
+                             else job
+
+unEOF :: Monoid a => Chan (Maybe c) -> IO a
+unEOF c = unGetChan c Nothing >> return mempty
+
 shGetLine :: ShellHandle -> IO String
 shGetLine (SHandle h) = hGetLine h
-shGetLine (SChan c) = do
+shGetLine (SChan c) = notEOF "shGetLine" c $ gl' c
+
+gl' c = do -- getLine helper...
   b <- readChan c
   case b of
-    Nothing -> fail "read from closed channel"
+    Nothing -> unEOF c
     Just b' -> if B.null b'
                then shGetLine $ SChan c
-               else do let l    = head $ B.lines b'
-                           len  = B.length l
-                           rest = B.drop len b'
-                           s    = B.unpack l
-                           r'   = B.drop 1 rest
-                       if B.null rest
-                          then fmap (s++) $ shGetLine $ SChan c
-                          else do when (not $ B.null r') $ unGetChan c $ Just r'
-                                  return s
+               else let l    = head $ B.lines b'
+                        len  = B.length l
+                        rest = B.drop len b'
+                        s    = B.unpack l
+                        r'   = B.drop 1 rest
+                    in if B.null rest
+                       then fmap (s++) $ gl' c
+                       else do when (not $ B.null r') $ unGetChan c $ Just r'
+                               return s
 
 shWaitForInput :: ShellHandle -> IO () -- simulates hWaitForInput h -1
 shWaitForInput (SHandle h) = hWaitForInput h (-1) >> return ()
@@ -221,17 +238,18 @@ shWaitForInput ch@(SChan c) = do empty <- isEmptyChan c
 
 shGetNonBlocking :: ShellHandle -> Int -> IO B.ByteString
 shGetNonBlocking (SHandle h) s = B.hGetNonBlocking h s
-shGetNonBlocking ch@(SChan c) s = do
+shGetNonBlocking (SChan c) s = notEOF "shGetNonBlocking" c (gnb' c s)
+
+gnb' c s = do -- getNonBlocking helper...
   empty <- isEmptyChan c
   if empty || s<=0
      then return B.empty
      else do x <- readChan c
              case x of
-               Nothing -> do unGetChan c Nothing
-                             return B.empty
+               Nothing -> unEOF c
                Just bs -> let l = fromIntegral $ B.length bs
                           in case compare l s of
-                               LT -> do rest <- shGetNonBlocking ch $ s - l
+                               LT -> do rest <- gnb' c $ s - l
                                         return $ B.append bs rest
                                EQ -> return bs
                                GT -> do let (ret,rest)
