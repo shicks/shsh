@@ -26,13 +26,13 @@ Here's where we define main.  It's very simple.
 \begin{code}
 
 import System ( exitWith )
-import System.Console.ShSh.Shell ( runShell )
+import System.Console.ShSh.Shell ( startShell )
 import System.Console.ShSh.EventLoop ( eventLoop )
 import System.IO ( stdin, hIsTerminalDevice )
 
 main = do term <- hIsTerminalDevice stdin
           let h = if term then Nothing else Just stdin -- extend later w/ getopt
-          runShell (eventLoop h) >>= exitWith
+          startShell (eventLoop h) >>= exitWith
 
 \end{code}
 

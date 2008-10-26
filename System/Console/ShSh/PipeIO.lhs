@@ -7,10 +7,12 @@ all the interface hiding that we want...
 This is all the low-level pipe maintenance code.
 
 \begin{code}
-module System.Console.ShSh.PipeIO ( PipeState(..),
+module System.Console.ShSh.PipeIO ( PipeState(..), noPipes,
+                                    ShellStream(..),
                                     ShellHandle,
+                                    streamToHandle,
                                     Pipe, pipe, openPipe,
-                                    waitForPipe, waitForPipes,
+                                    waitForPipe, waitForPipesIO,
                                     launch, createSPipe,
                                     shGetContents,
                                     shPutStr, shPutStrLn,
@@ -50,6 +52,12 @@ data PipeState = PipeState { p_in :: ShellStream,
                            }
 noPipes :: PipeState
 noPipes = PipeState SInherit SInherit SInherit []
+
+streamToHandle :: Handle -> ShellStream -> ShellHandle
+streamToHandle h SInherit = SHandle h
+streamToHandle _ (SUseHandle h) = h
+streamToHandle _ (SCreatePipe) = undefined -- fail "Pipe not yet created!"
+
 
 -- This is a tricky function...
 launch :: CreateProcess -> PipeState -> IO (PipeState,
@@ -116,11 +124,10 @@ openPipe close r w = do -- read (output) handle, write (input) handle
   return $ Pipe mv
 
 waitForPipe :: Pipe -> IO ()
-waitForPipe (Pipe mv) = do
-  takeMVar mv
+waitForPipe (Pipe mv) = takeMVar mv
 
-waitForPipes :: [Pipe] -> IO ()
-waitForPipes = mapM_ waitForPipe
+waitForPipesIO :: [Pipe] -> IO ()
+waitForPipesIO = mapM_ waitForPipe
 
 data ShellHandle = SChan (Chan (Maybe B.ByteString)) | SHandle Handle
 -- For now we'll use strict bytestrings...

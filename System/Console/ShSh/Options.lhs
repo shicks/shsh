@@ -23,7 +23,8 @@ import Data.List ( union, (\\) )
 import System.Exit ( ExitCode(..) )
 import System.IO ( Handle, hPutStrLn )
 
-import System.Console.ShSh.Shell ( Shell,
+import System.Console.ShSh.PipeIO ( shPutStrLn )
+import System.Console.ShSh.Shell ( Shell, sh_out,
                                    setFlag, unsetFlag, getFlag, getFlags )
 
 isOpt :: String -> Bool
@@ -31,19 +32,19 @@ isOpt ('-':_) = True
 isOpt ('+':_) = True
 isOpt _ = False
 
-setOpts :: Handle -> [String] -> Shell ExitCode
-setOpts _ [] = return ExitSuccess
+setOpts :: [String] -> Shell ExitCode
+setOpts [] = return ExitSuccess
 -- the "o" options are pesky...
-setOpts h ("-o":opt:ss) | isOpt opt = setOptLong opt >> setOpts h ss
-                        | otherwise = showOptsHuman h >> setOpts h (opt:ss)
-setOpts h ("+o":opt:ss) | isOpt opt = unsetOptLong opt >> setOpts h ss
-                        | otherwise = showOpts h >> setOpts h (opt:ss)
-setOpts h ["-o"] = showOptsHuman h >> return ExitSuccess
-setOpts h ["+o"] = showOpts h >> return ExitSuccess
-setOpts h (s:ss) = case s of
-                     '-':c:cs -> setFlag c   >> setOpts h (('-':cs):ss)
-                     '+':c:cs -> unsetFlag c >> setOpts h (('-':cs):ss)
-                     _ -> setOpts h ss -- no error checking...?
+setOpts ("-o":opt:ss) | isOpt opt = setOptLong opt >> setOpts ss
+                      | otherwise = showOptsHuman >> setOpts (opt:ss)
+setOpts ("+o":opt:ss) | isOpt opt = unsetOptLong opt >> setOpts ss
+                      | otherwise = showOpts >> setOpts (opt:ss)
+setOpts ["-o"] = showOptsHuman >> return ExitSuccess
+setOpts ["+o"] = showOpts >> return ExitSuccess
+setOpts (s:ss) = case s of
+                   '-':c:cs -> setFlag c   >> setOpts (('-':cs):ss)
+                   '+':c:cs -> unsetFlag c >> setOpts (('-':cs):ss)
+                   _ -> setOpts ss -- no error checking...?
 
 setOptLong :: String -> Shell ()
 setOptLong s = return ()
@@ -52,11 +53,12 @@ unsetOptLong :: String -> Shell ()
 unsetOptLong s = return ()
 
 -- These need to be rewritten
-showOptsHuman :: Handle -> Shell ()
-showOptsHuman h = do f <- getFlags
-                     liftIO $ hPutStrLn h $ "Opts: "++f
+showOptsHuman :: Shell ()
+showOptsHuman = do h <- sh_out
+                   f <- getFlags
+                   liftIO $ shPutStrLn h $ "Opts: "++f
 
-showOpts :: Handle -> Shell ()
+showOpts :: Shell ()
 showOpts = showOptsHuman
 
 \end{code}

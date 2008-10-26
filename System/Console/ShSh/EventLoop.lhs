@@ -34,7 +34,7 @@ eventLoop h = do
                   code <- case parseLine s' of -- Later, add more to s' (PS2)
                             Left e -> do liftIO $ putStrLn e
                                          return $ ExitFailure 1 -- ????
-                            Right cmd -> process cmd stdout
+                            Right cmd -> process cmd
                   if am_e && code /= ExitSuccess
                     then fail ""
                     else eventLoop h

@@ -30,8 +30,9 @@ have to redo all of the process stuff too!
 
 \begin{code}
 {-# OPTIONS_GHC -cpp #-}
-module System.Console.ShSh.Pipe ( pipeOutput, pipeOutputInput ) where
+module System.Console.ShSh.Pipe ( runInShell, pipeShells, waitForPipes ) where
 
+import Control.Concurrent
 import Control.Concurrent.Chan
 
 import Control.Monad.Trans ( liftIO )
@@ -40,15 +41,20 @@ import System.Environment
 import System.Exit
 import System.IO
 
-import System.Console.ShSh.Shell ( Shell, getAllEnv )
+import System.Process
+
+import System.Console.ShSh.ShellError ( exit )
+import System.Console.ShSh.Shell ( Shell, getAllEnv, sh_out,
+                                   getPState, putPState, getShellState,
+                                   pipeState, runShell )
 import System.Console.ShSh.PipeIO
 
 -- This takes care of all the handles for us!
-runInShell :: CreateProcess -> Shell (Maybe ShellHandle, MaybeShellHandle,
+runInShell :: CreateProcess -> Shell (Maybe ShellHandle, Maybe ShellHandle,
                                       Maybe ShellHandle, ProcessHandle)
 #ifdef HAVE_CREATEPROCESS
 runInShell p = do ps <- getPState
-                  (ps',a,b,c,d) <- launch p ps
+                  (ps',a,b,c,d) <- liftIO $ launch p ps
                   putPState ps'
                   return (a,b,c,d)
 #else
@@ -64,10 +70,10 @@ pipeShells source dest = do
   state <- getShellState
   ps <- getPState
   h <- liftIO createSPipe
-  let s = state { pipeState = ps { std_out = SUseHandle h } }
-  let d = state { pipeState = ps { std_in = SUseHandle h } }
-  liftIO $ forkIO $ runShell source s >> return ()
-  ret <- liftIO $ runShell dest d >> return ()
+  let s = ps { p_out = SUseHandle h }
+  let d = ps { p_in = SUseHandle h }
+  liftIO $ forkIO $ runShell (putPState s >> source) state >> return ()
+  ret <- liftIO $ runShell (putPState d >> dest) state
   case ret of
     ExitSuccess   -> return ()
     ExitFailure n -> exit n -- already announced...?
@@ -75,6 +81,10 @@ pipeShells source dest = do
 -- We could use some sort of dup'd broadcast channel for STDERR, and
 -- maybe even something funny for STDIN?
 
+waitForPipes :: Shell ()
+waitForPipes = do ps <- getPState
+                  liftIO $ waitForPipesIO $ openPipes ps
+                  putPState $ ps { openPipes = [] }
 
 pipeOutput :: FilePath -> [String] -> Handle -> Shell (ExitCode,[Pipe])
 pipeOutputInput :: FilePath -> [String] -> Handle ->
@@ -85,17 +95,19 @@ pipeOutput cmd args h = do
   (_, Just h', _, pid) <- liftIO $ createProcess $
                           (proc cmd args) { env = Just env,
                                             std_out = CreatePipe }
-  liftIO $ pipe False h' h
+  liftIO $ pipe' False h' h
   ec <- liftIO $ waitForProcess pid
   return (ec,[])
+      where pipe' = undefined
 pipeOutputInput cmd args h = do
   env <- getAllEnv
   (Just hi, Just h', _, pid) <- liftIO $ createProcess $
                                 (proc cmd args) { env = Just env,
                                                   std_in = CreatePipe,
                                                   std_out = CreatePipe }
-  pipe <- liftIO $ openPipe False h' h
+  pipe <- liftIO $ openPipe' False h' h
   return (hi,pid,[pipe])
+      where openPipe' = undefined
 #else
 -- These don't actually do what they claim to do...
 noPipe cmd args = do

@@ -12,8 +12,11 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
                                    tryEnv, withEnv,
                                    getFlag, setFlag, unsetFlag, getFlags,
+                                   getShellState,
                                    getPState, putPState, modifyPState,
-                                   runShell, withHandler, pipeState,
+                                   runShell, startShell,
+                                   withHandler, pipeState,
+                                   sh_out, sh_in, sh_err, sh_io,
                                    withSubState, withSubStateCalled, (.~) )
     where
 
@@ -25,11 +28,14 @@ import Control.Monad.State ( MonadState, get, put, runStateT,
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
 import Data.List ( lookup, union, (\\) )
 import Data.Maybe ( fromMaybe, isJust )
+import Data.Monoid ( Monoid, mempty )
 import System.Directory ( getCurrentDirectory )
 import System ( ExitCode(..) )
 import System.Environment ( getEnvironment )
+import System.IO ( stdin, stdout, stderr )
 
-import System.Console.ShSh.PipeIO ( PipeState(..) )
+import System.Console.ShSh.PipeIO ( PipeState(..), noPipes,
+                                    ShellHandle, streamToHandle )
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError )
 
@@ -123,10 +129,11 @@ startState = do e <- liftIO getEnvironment
                 cwd <- liftIO getCurrentDirectory
                 let e' = updateWith "PWD" (fromMaybe cwd) $
                          updateWith "-" (fromMaybe f) e
-                return $ ShellState e' [] [] mempty
+                return $ ShellState e' [] [] noPipes mempty
 
 startShell :: Monoid e => ShellT e a -> IO ExitCode
-startShell = runShell .~ startState
+startShell a = do s <- startState
+                  runShell a s
 
 runShell :: ShellT e a -> ShellState e -> IO ExitCode
 runShell (Shell s) e = do result <- evalStateT (runErrorT s) e
@@ -136,11 +143,11 @@ runShell (Shell s) e = do result <- evalStateT (runErrorT s) e
                                            return $ ExitFailure 1
 
 sh_in :: ShellT e ShellHandle
-sh_in = Shell $ p_in `fmap` gets pipeState
+sh_in = Shell $ (streamToHandle stdin . p_in) `fmap` gets pipeState
 sh_out :: ShellT e ShellHandle
-sh_out = Shell $ p_out `fmap` gets pipeState
+sh_out = Shell $ (streamToHandle stdout . p_out) `fmap` gets pipeState
 sh_err :: ShellT e ShellHandle
-sh_err = Shell $ p_err `fmap` gets pipeState
+sh_err = Shell $ (streamToHandle stderr . p_err) `fmap` gets pipeState
 
 sh_io :: ShellT e ShellHandle -> (ShellHandle -> IO a) -> ShellT e a
 sh_io h f = do h' <- h
@@ -154,7 +161,7 @@ sh_io h f = do h' <- h
 -- state properly, AND is atomic, so that state changes don't go through
 -- if we fail...
 convertState :: ShellState e -> e' -> ShellState e'
-convertState (ShellState e a f _) x = ShellState e a f x
+convertState (ShellState e a f p _) x = ShellState e a f p x
 
 withSubState :: ShellT e a -> e -> Shell a
 withSubState (Shell sub) e = Shell $ do

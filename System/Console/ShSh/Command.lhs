@@ -9,15 +9,14 @@ module System.Console.ShSh.Command ( process ) where
 import System.Console.ShSh.Builtins ( runBuiltin )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
-import System.Console.ShSh.Pipe ( pipeOutput, pipeOutputInput, waitForPipes,
-                                  Pipe )
-import System.Console.ShSh.Shell ( Shell, getEnv, setEnv, getAllEnv, withHandler,
+import System.Console.ShSh.Pipe ( runInShell, pipeShells, waitForPipes )
+import System.Console.ShSh.PipeIO ( shPutStrLn )
+import System.Console.ShSh.Shell ( Shell, sh_out,
+                                   getEnv, setEnv, getAllEnv, withHandler,
                                    tryEnv, withEnv, getFlag, unsetFlag )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Directory ( findExecutable, doesFileExist )
-import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr, hGetLine,
-                   Handle, hPutStrLn, hClose )
-import System.Process ( runInteractiveProcess, waitForProcess, ProcessHandle )
+import System.Process ( proc, waitForProcess )
 import System ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
 
@@ -55,11 +54,12 @@ process (c1 :|: (Cmd (c2:args))) h =
        process c1 h' -- assume c2 is a command for now...!
        liftIO $ hClose h' >> waitForPipes pipes >> waitForProcess pid
 -}
-process (c1 :|: c2) = 
-    pipeShells (process c1) (process c2)
+process (c1 :|: c2) =  -- pipeShells rethrows from c2...
+    pipeShells (process c1) (process c2) >> return ExitSuccess
 -- #endif
-process cmd h = do liftIO $ hPutStrLn h $ "I can't handle:  "++show cmd
-                   return $ ExitFailure 1
+process cmd = do h <- sh_out
+                 liftIO $ shPutStrLn h $ "I can't handle:  "++show cmd
+                 return $ ExitFailure 1
 
 tryToRun :: String -> [String] -> Shell ExitCode
 tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
