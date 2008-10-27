@@ -21,18 +21,17 @@ import qualified Data.ByteString.Lazy as B
 
 import Control.Monad ( when )
 import Data.List ( takeWhile )
-import Data.Maybe ( isJust, fromJust )
 
 -- |We define a channel actually as a tuple of a 'Chan' and an 'MVar'.
 -- This is mainly so that we can deal with closing write handles in a
 -- consistent and sane way by setting the 'MVar', since there's no
 -- way to "unWrite" a 'Chan'.
-newtype Chan = A (C.Chan (Maybe B.ByteString)) (MVar ())
+newtype Chan = A (C.Chan B.ByteString) (MVar ())
 
 -- Soon maybe we'll change this to use empty bytestrings instead...?
 
 -- Internals
-ch :: Chan -> Chan (Maybe B.ByteString)
+ch :: Chan -> Chan B.ByteString
 ch = fst
 
 mv :: Chan -> MVar ()
@@ -59,22 +58,25 @@ isEmptyChan c = C.isEmptyChan . ch
 -- length and then calling close): what happens if we hGetContents and then
 -- read the same handle from elsewhere before the pipe is closed???
 getChanContents :: Chan -> IO [B.ByteString]
-getChanContents c = takeWhile isJust . C.getChanContents . ch
+getChanContents c =  (B.concat . takeWhile (not . null))
+                     `fmap` C.getChanContents . ch
 
 -- |Note that we're okay /reading/ from a closed channel, as long as we're
 -- not at empty.
 readChan :: Chan -> IO B.ByteString
-readChan c = fromJust `fmap` C.readChan . ch
+readChan c = do b <- C.readChan . ch
+                if null b then fail "readChan: file closed"
+                          else return b
 
 -- |We're not allowed to write to the @Chan@ if it's closed, and the only
 -- way to write a 'Nothing' is to close it.
 writeChan :: Chan -> B.ByteString -> IO ()
-writeChan (A c v) = do closed <- isEmptyMVar v
-                       if closed then fail "write to closed Chan"
-                                 else writeChan c . Just
+writeChan (A c v) b = do closed <- isEmptyMVar v
+                         if closed then fail "writeChan: file closed"
+                                   else when (not $ null b) $ writeChan c
 
 unGetChan :: Chan -> B.ByteString -> IO ()
-unGetChan c = C.unGetChan c . Just
+unGetChan c = C.unGetChan c
 
 -- |Here we interface with the messy part of @unGet@ting 'Nothing's.
 isEOFChan :: Chan -> IO Bool
@@ -82,7 +84,7 @@ isEOFChan c = do e <- C.isEmptyChan c
                  if e then return True
                       else do b <- C.readChan c
                               C.unGetChan c b
-                              return $ isJust b
+                              return $ not $ null b
 
 isOpenChan :: Chan -> IO Bool
 isOpenChan = isEmptyMVar . mv
