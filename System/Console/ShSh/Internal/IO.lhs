@@ -14,7 +14,7 @@ depend on it.
 -- The basic idea is that if we're reimplementing this stuff anyway,
 -- we might as well do it right.
 module System.Console.ShSh.Internal.IO (
-  ReadHandle, WriteHandle, ShellHandle, newPipe
+  ReadHandle, WriteHandle, ShellHandle, newPipe,
   rGetContents, rGetChar, rGetLine, rWaitForInput, rGetNonBlocking,
   rClose, rSafeClose, rIsOpen, rIsClosed, rIsEOF,
   wPut, wPutChar, wPutStr, wPutStrLn, wFlush,
@@ -69,11 +69,11 @@ rGetChar :: ReadHandle -> IO Char
 rGetChar (RChan c) = do eof <- isEOFChan c
                         when eof fail "read from closed channel"
                         b <- readChan c
-                        Just b' -> if B.null b'
-                                      then rGetChar $ RChan c
-                                      else do let (x,rest) = B.splitAt 1 b'
-                                              unGetChan c $ Just rest
-                                              return $ head $ B.unpack x
+                        if B.null b'
+                           then rGetChar $ RChan c
+                           else do let (x,rest) = B.splitAt 1 b'
+                                   unGetChan c $ Just rest
+                                   return $ head $ B.unpack x
 rGetChar (RHandle h) = hGetChar h
 
 rGetLine :: ReadHandle -> IO String
@@ -114,8 +114,8 @@ gnb' s c = do -- getNonBlocking helper...
   if eof || empty || s<=0
      then return B.empty
      else do bs <- readChan c
-          let l = fromIntegral $ B.length bs
-          in case compare l s of
+             let l = fromIntegral $ B.length bs
+             case compare l s of
                LT -> do rest <- gnb' (s-l) c
                         return $ B.append bs rest
                EQ -> return bs
