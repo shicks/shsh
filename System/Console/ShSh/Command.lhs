@@ -12,7 +12,7 @@ import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Pipe ( runInShell, pipeShells, waitForPipes )
 import System.Console.ShSh.PipeIO ( shPutStrLn )
 import System.Console.ShSh.Shell ( Shell, sh_out,
-                                   getEnv, setEnv, getAllEnv, withHandler,
+                                   getEnv, setEnv, getAllEnv, withExitHandler,
                                    tryEnv, withEnv, getFlag, unsetFlag )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Directory ( findExecutable, doesFileExist )
@@ -22,7 +22,7 @@ import Control.Monad.Trans ( liftIO )
 
 process :: Command -> Shell ExitCode -- do we quit or not?
 process (Builtin b args) = runBuiltin b args
-process (Cmd (s:ss)) = withHandler $ tryToRun s ss
+process (Cmd (s:ss)) = withExitHandler $ tryToRun s ss
 process EmptyCommand = do liftIO $ putStrLn ""; return ExitSuccess
 process (c1 :&&: c2) = do ec1 <- process c1
                           if ec1 == ExitSuccess
@@ -55,7 +55,7 @@ process (c1 :|: (Cmd (c2:args))) h =
        liftIO $ hClose h' >> waitForPipes pipes >> waitForProcess pid
 -}
 process (c1 :|: c2) =  -- pipeShells rethrows from c2...
-    pipeShells (process c1) (process c2) >> return ExitSuccess
+    pipeShells (process c1) (process c2)
 -- #endif
 process cmd = do h <- sh_out
                  liftIO $ shPutStrLn h $ "I can't handle:  "++show cmd

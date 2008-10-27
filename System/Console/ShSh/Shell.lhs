@@ -15,7 +15,8 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getShellState,
                                    getPState, putPState, modifyPState,
                                    runShell, startShell,
-                                   withHandler, pipeState,
+                                   withHandler, withExitHandler, failOnError,
+                                   pipeState,
                                    sh_out, sh_in, sh_err, sh_io, closeOut,
                                    withSubState, withSubStateCalled, (.~) )
     where
@@ -37,7 +38,7 @@ import System.IO ( stdin, stdout, stderr )
 import System.Console.ShSh.PipeIO ( PipeState(..), noPipes, shSafeClose,
                                     ShellHandle, streamToHandle )
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
-                                        exitCode, prefixError )
+                                        exitCode, prefixError, exit )
 
 -- I might want to look into using ST to thread the state...?
 data ShellState e = ShellState {
@@ -140,7 +141,11 @@ runShell (Shell s) e = do result <- evalStateT (runErrorT s) e
                           case result of
                             Right _  -> return ExitSuccess
                             Left err -> do announceError err
-                                           return $ ExitFailure 1
+                                           return $ exitCode err
+
+failOnError :: ExitCode -> ShellT e ExitCode
+failOnError ExitSuccess = return ExitSuccess
+failOnError (ExitFailure n) = exit n
 
 sh_in :: ShellT e ShellHandle
 sh_in = Shell $ (streamToHandle stdin . p_in) `fmap` gets pipeState
@@ -222,6 +227,14 @@ withHandler s = do ame <- getFlag 'e'
                                then throwError e
                                else do announceError e
                                        return $ exitCode e
+
+withExitHandler :: Shell ExitCode -> Shell ExitCode
+withExitHandler s = do ame <- getFlag 'e'
+                       catchError (catchS s $ \_ -> return ExitSuccess)
+                           $ \e -> if ame
+                                   then throwError e
+                                   else do announceError e
+                                           return $ exitCode e
 
 -- This is a bit gratuitous.
 infixl 9 .~
