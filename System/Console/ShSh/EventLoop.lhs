@@ -2,23 +2,38 @@
 
 \begin{code}
 {-# OPTIONS_GHC -cpp #-}
-module System.Console.ShSh.EventLoop ( eventLoop )
+module System.Console.ShSh.EventLoop ( eventLoop, sourceProfile, source )
     where
 
 import System.Console.ShSh.Command ( process )
 import System.Console.ShSh.Expansions ( shellExpansions )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
-import System.Console.ShSh.Shell ( Shell, getEnv, getFlag )
+import System.Console.ShSh.Shell ( Shell, getEnv, getFlag, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
-import System.IO ( hFlush, hIsEOF, stdin, stdout, stderr, hGetLine, Handle )
-import System ( ExitCode(..) )
+import System.IO ( hFlush, hIsEOF, openFile, IOMode(..),
+                   stdin, stdout, stderr, hGetLine, Handle )
+import System.Directory ( doesFileExist )
+import System.FilePath ( (</>) )
+import System.Exit ( ExitCode(..) )
+import Control.Monad ( when )
 import Control.Monad.Trans ( liftIO )
 
 #ifdef HAVE_HASKELINE
 import System.Console.Haskeline ( runInputT, getInputLine,
                                   defaultSettings, historyFile )
 #endif
+
+source :: FilePath -> Shell ()
+source f = do h <- liftIO $ openFile f ReadMode
+              eventLoop $ Just h
+
+sourceProfile :: Shell ExitCode
+sourceProfile = withHandler $ do dir <- getEnv "HOME"
+                                 let file = dir </> ".shshrc"
+                                 exists <- liftIO $ doesFileExist file
+                                 when exists $ ePutStrLn ("Sourcing "++file) >>
+                                               source file
 
 eventLoop :: Maybe Handle -> Shell ()
 eventLoop h = do

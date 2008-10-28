@@ -29,7 +29,7 @@ Here's where we define main.  It's very simple.
 
 import System ( exitWith )
 import System.Console.ShSh.Shell ( startShell )
-import System.Console.ShSh.EventLoop ( eventLoop )
+import System.Console.ShSh.EventLoop ( eventLoop, sourceProfile )
 import System.IO ( stdin, hIsTerminalDevice )
 
 #ifdef HAVE_SIGNALS
@@ -41,7 +41,7 @@ main = do term <- hIsTerminalDevice stdin
 #ifdef HAVE_SIGNALS
           installHandler sigPIPE Ignore Nothing
 #endif
-          startShell (eventLoop h) >>= exitWith
+          startShell (sourceProfile >> eventLoop h) >>= exitWith
 
 \end{code}
 

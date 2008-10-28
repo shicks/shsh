@@ -17,7 +17,8 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    pipeShells, runInShell,
                                    startShell,
                                    withPipes, runWithPipes, runWithPipes_,
-                                   withHandler, withExitHandler, failOnError,
+                                   withHandler, withHandler_,
+                                   withExitHandler, failOnError,
                                    pipeState, closeOut, maybeCloseOut,
                                    withSubState, withSubStateCalled, (.~) )
     where
@@ -324,6 +325,9 @@ withHandler s = do ame <- getFlag 'e'
                                then throwError e
                                else do announceError e
                                        return $ exitCode e
+
+withHandler_ :: Shell a -> Shell ()
+withHandler_ s = withHandler s >> return ()
 
 withExitHandler :: Shell ExitCode -> Shell ExitCode
 withExitHandler s = do ame <- getFlag 'e'
