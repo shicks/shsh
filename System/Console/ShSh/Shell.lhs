@@ -19,7 +19,6 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    withPipes, runWithPipes, runWithPipes_,
                                    withHandler, withExitHandler, failOnError,
                                    pipeState, closeOut, maybeCloseOut,
-                                   iHandle, oHandle, eHandle,
                                    withSubState, withSubStateCalled, (.~) )
     where
 
@@ -38,6 +37,7 @@ import System ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 import System.IO ( stdin, stdout, stderr )
 
+import System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle )
 import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
                                          rSafeClose, wSafeClose, newPipe,
                                          fromReadHandle, fromWriteHandle,
@@ -64,7 +64,12 @@ data ShellState e = ShellState {
 
 type InnerShell e = ErrorT ShellError (StateT (ShellState e) IO)
 newtype ShellT e a = Shell ((InnerShell e) a)
-    deriving ( Functor, Monad, MonadIO, MonadError ShellError )
+    deriving ( Functor, Monad, MonadIO, MonadSIO, MonadError ShellError )
+
+instance MonadSIO (InnerShell e) where
+    iHandle = (fromReadStream stdin . p_in) `fmap` gets pipeState
+    oHandle = (fromWriteStream stdout . p_out) `fmap` gets pipeState
+    eHandle = (fromWriteStream stderr . p_err) `fmap` gets pipeState
 
 instance MonadState e (ShellT e) where
     get = Shell $ gets extra
@@ -188,13 +193,6 @@ runShell_ s e = runShell s e >> return ()
 failOnError :: ExitCode -> ShellT e ExitCode
 failOnError ExitSuccess = return ExitSuccess
 failOnError (ExitFailure n) = exit n
-
-iHandle :: ShellT e ReadHandle
-iHandle = Shell $ (fromReadStream stdin . p_in) `fmap` gets pipeState
-oHandle :: ShellT e WriteHandle
-oHandle = Shell $ (fromWriteStream stdout . p_out) `fmap` gets pipeState
-eHandle :: ShellT e WriteHandle
-eHandle = Shell $ (fromWriteStream stderr . p_err) `fmap` gets pipeState
 
 closeOut :: ShellT e ()
 closeOut = do h <- oHandle

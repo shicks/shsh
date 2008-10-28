@@ -4,12 +4,14 @@ We'll isolate some of this stuff, since it's pretty independent.
 
 \begin{code}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleContexts #-}
-module System.Console.ShSh.ShellError ( ShellError(..), isFailure,
+module System.Console.ShSh.ShellError ( ShellError, isFailure,
                                         exit, exitCode,
                                         rethrow, catchS,
                                         announceError,
                                         prefixError, withPrefix
                                       ) where
+
+import System.Console.ShSh.IO ( MonadSIO, ePutStrLn )
 
 import Control.Monad.Trans ( MonadIO, liftIO )
 import Control.Monad.Error ( MonadError, throwError, catchError,
@@ -48,9 +50,9 @@ exit n = throwError $ ShellError (ExitFailure n) ""
 exitCode :: ShellError -> ExitCode
 exitCode (ShellError e _) = e
 
-announceError :: MonadIO m => ShellError -> m ()
+announceError :: MonadSIO m => ShellError -> m ()
 announceError (ShellError _ "") = return ()
-announceError e = liftIO $ putStrLn $ show $ prefixError "shsh" e
+announceError e = ePutStrLn $ show $ prefixError "shsh" e
 
 -- This is a bit silly - we just rethrow the errors with a prefix...
 withPrefix :: MonadError ShellError m => String -> m a -> m a

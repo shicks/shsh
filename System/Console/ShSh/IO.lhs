@@ -10,88 +10,104 @@ how to get at the handles?
 
 \begin{code}
 
-module System.Console.ShSh.IO ( iGetContents, iGetContentsBS, oPut, ePut,
+module System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle,
+                                iGetContents, iGetContentsBS, oPut, ePut,
                                 iGetChar, iGetLine, iIsEOF,
                                 oPutChar, ePutChar, oPutStr, ePutStr,
                                 oPutStrLn, ePutStrLn, oFlush, eFlush,
                                 iUnsafeClose, oUnsafeClose, eUnsafeClose,
                                 iClose, oClose, eClose ) where
 
-import Control.Monad.Trans ( liftIO )
+import Control.Monad.Trans ( MonadIO, liftIO )
 import qualified Data.ByteString.Lazy as B
 
-import System.Console.ShSh.Shell ( ShellT, iHandle, oHandle, eHandle, (.~) )
-import System.Console.ShSh.Internal.IO ( rGetContents, rGetContentsBS,
+import System.IO ( stdin, stdout, stderr )
+import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
+                                         toReadHandle, toWriteHandle,
+                                         rGetContents, rGetContentsBS,
                                          rGetChar, rGetLine, rIsEOF,
                                          wPutChar, wPutStr, wPutStrLn,
                                          wPut, rClose, wFlush, wClose,
                                          wSafeClose, rSafeClose )
 
+-- |A MonadSIO is basically something that defines the three handles
+-- we want.  This abstraction allows us to decouple from Shell and
+-- therefore be included by /any/ module, regardless of where it is.
+class MonadIO m => MonadSIO m where
+    iHandle :: m ReadHandle
+    oHandle :: m WriteHandle
+    eHandle :: m WriteHandle
+
+instance MonadSIO IO where
+    iHandle = return $ toReadHandle stdin
+    oHandle = return $ toWriteHandle stdout
+    eHandle = return $ toWriteHandle stderr
+
 infixr 7 >>>=
-(>>>=) :: ShellT e a -> (a -> IO b) -> ShellT e b
+(>>>=) :: MonadSIO m => m a -> (a -> IO b) -> m b
 f >>>= g = f >>= \a -> liftIO $ g a
 
-iGetContentsBS :: ShellT e B.ByteString
+iGetContentsBS :: MonadSIO m => m B.ByteString
 iGetContentsBS = iHandle >>>= rGetContentsBS
 
-iGetContents :: ShellT e String
+iGetContents :: MonadSIO m => m String
 iGetContents = iHandle >>>= rGetContents
 
-iGetChar :: ShellT e Char
+iGetChar :: MonadSIO m => m Char
 iGetChar = iHandle >>>= rGetChar
 
-iGetLine :: ShellT e String
+iGetLine :: MonadSIO m => m String
 iGetLine = iHandle >>>= rGetLine
 
-iIsEOF :: ShellT e Bool
+iIsEOF :: MonadSIO m => m Bool
 iIsEOF = iHandle >>>= rIsEOF
 
-oPut :: B.ByteString -> ShellT e ()
-oPut c = oHandle >>>= wPut .~ c
+oPut :: MonadSIO m => B.ByteString -> m ()
+oPut c = oHandle >>>= flip wPut c
 
-ePut :: B.ByteString -> ShellT e ()
-ePut c = eHandle >>>= wPut .~ c
+ePut :: MonadSIO m => B.ByteString -> m ()
+ePut c = eHandle >>>= flip wPut c
 
-oPutChar :: Char -> ShellT e ()
-oPutChar c = oHandle >>>= wPutChar .~ c
+oPutChar :: MonadSIO m => Char -> m ()
+oPutChar c = oHandle >>>= flip wPutChar c
 
-ePutChar :: Char -> ShellT e ()
-ePutChar c = eHandle >>>= wPutChar .~ c
+ePutChar :: MonadSIO m => Char -> m ()
+ePutChar c = eHandle >>>= flip wPutChar c
 
-oPutStr :: String -> ShellT e ()
-oPutStr s = oHandle >>>= wPutStr .~ s
+oPutStr :: MonadSIO m => String -> m ()
+oPutStr s = oHandle >>>= flip wPutStr s
 
-ePutStr :: String -> ShellT e ()
-ePutStr s = eHandle >>>= wPutStr .~ s
+ePutStr :: MonadSIO m => String -> m ()
+ePutStr s = eHandle >>>= flip wPutStr s
 
-oPutStrLn :: String -> ShellT e ()
-oPutStrLn s = oHandle >>>= wPutStrLn .~ s
+oPutStrLn :: MonadSIO m => String -> m ()
+oPutStrLn s = oHandle >>>= flip wPutStrLn s
 
-ePutStrLn :: String -> ShellT e ()
-ePutStrLn s = eHandle >>>= wPutStrLn .~ s
+ePutStrLn :: MonadSIO m => String -> m ()
+ePutStrLn s = eHandle >>>= flip wPutStrLn s
 
-oFlush :: ShellT e ()
+oFlush :: MonadSIO m => m ()
 oFlush = oHandle >>>= wFlush
 
-eFlush :: ShellT e ()
+eFlush :: MonadSIO m => m ()
 eFlush = eHandle >>>= wFlush
 
-iClose :: ShellT e ()
+iClose :: MonadSIO m => m ()
 iClose = iHandle >>>= rSafeClose
 
-oClose :: ShellT e ()
+oClose :: MonadSIO m => m ()
 oClose = oHandle >>>= wSafeClose
 
-eClose :: ShellT e ()
+eClose :: MonadSIO m => m ()
 eClose = eHandle >>>= wSafeClose
 
-iUnsafeClose :: ShellT e ()
+iUnsafeClose :: MonadSIO m => m ()
 iUnsafeClose = iHandle >>>= rClose
 
-oUnsafeClose :: ShellT e ()
+oUnsafeClose :: MonadSIO m => m ()
 oUnsafeClose = oHandle >>>= wClose
 
-eUnsafeClose :: ShellT e ()
+eUnsafeClose :: MonadSIO m => m ()
 eUnsafeClose = eHandle >>>= wClose
 
 \end{code}
