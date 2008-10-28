@@ -42,7 +42,7 @@ import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
                                          rSafeClose, wSafeClose, newPipe,
                                          fromReadHandle, fromWriteHandle,
                                          toReadHandle, toWriteHandle,
-                                         wIsOpen )
+                                         wIsOpen, rIsOpen )
 import System.Console.ShSh.Internal.Process ( CreateProcess, ProcessHandle,
                                               launch,
                                               Pipe, PipeState(..), waitForPipe,
@@ -203,6 +203,11 @@ maybeCloseOut = do h <- oHandle
                    open <- liftIO $ wIsOpen h
                    when open $ liftIO $ wSafeClose h
 
+maybeCloseIn :: ShellT e ()
+maybeCloseIn = do h <- iHandle
+                  open <- liftIO $ rIsOpen h
+                  when open $ liftIO $ rSafeClose h
+
 waitForPipes :: ShellT e ()
 waitForPipes = Shell $ do p <- gets pipeState
                           liftIO $ mapM_ waitForPipe (openPipes p)
@@ -253,7 +258,7 @@ pipeShells source dest = do
   let sp = mempty { p_out = WUseHandle w }
       dp = mempty { p_in  = RUseHandle r }
   s <- computationWithPipes_ sp $ source >> maybeCloseOut
-  d <- computationWithPipes  dp dest
+  d <- computationWithPipes  dp $ dest -- >> maybeCloseIn -- do we want this?
   liftIO $ forkIO  s
   liftIO $ d
 
