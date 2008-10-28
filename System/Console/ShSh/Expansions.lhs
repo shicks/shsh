@@ -18,6 +18,7 @@ shellExpansions s = se "" s
 (~||~) f g a = (f a) || (g a)
 
 se s "" = return s
+se s ('#':cs) = return s -- cheap way to do comments...
 se s ('~':cs) = do mh <- getEnv "HOME"
                    case mh of
                      Just h  -> se (s++h) cs
