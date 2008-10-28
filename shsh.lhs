@@ -25,15 +25,22 @@ Here's where we define main.  It's very simple.
 
 \begin{code}
 
+{-# OPTIONS_GHC -cpp #-}
+
 import System ( exitWith )
 import System.Console.ShSh.Shell ( startShell )
 import System.Console.ShSh.EventLoop ( eventLoop )
 import System.IO ( stdin, hIsTerminalDevice )
+
+#ifdef HAVE_SIGNALS
 import System.Posix.Signals ( Handler(..), installHandler, sigPIPE )
+#endif
 
 main = do term <- hIsTerminalDevice stdin
           let h = if term then Nothing else Just stdin -- extend later w/ getopt
+#ifdef HAVE_SIGNALS
           installHandler sigPIPE Ignore Nothing
+#endif
           startShell (eventLoop h) >>= exitWith
 
 \end{code}
