@@ -36,7 +36,8 @@ expandAll (c:rest) = (c:) `fmap` expandAll rest
 expandAll "" = return ""
 
 prompt :: Shell String
-prompt = do pwd <- fromMaybe "\\s-\\v\\$ " `fmap` getEnv "PS1"
+prompt = do -- pwd <- fromMaybe "\\s-\\v\\$ " `fmap` getEnv "PS1"
+            pwd <- fromMaybe "\\s-\\v: \\w \\$ " `fmap` getEnv "PS1"
             expandAll pwd
             --return $ pwd ++ " $ "
             --Just user <- getEnv "USER"
