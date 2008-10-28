@@ -4,6 +4,7 @@
 {-# OPTIONS_GHC -cpp #-}
 module System.Console.ShSh.Builtins.Mkdir ( mkDir ) where
 
+import System.Console.ShSh.IO ( oPutStrLn, ePutStrLn )
 import System.Console.ShSh.Shell ( Shell, ShellT, withSubStateCalled, (.~) )
 import System.Console.ShSh.ShellError ( exit )
 
@@ -44,8 +45,8 @@ optSpec = [Option "m" ["mode"]
           ]
 
 -- make this into bversion :: String -> ..., defined elsewhere
-version = liftIO $ putStrLn $ "mkdir (ShSh builtin)" -- version number?
-usage = liftIO $ putStrLn $ usageInfo header optSpec
+version = oPutStrLn $ "mkdir (ShSh builtin)" -- version number?
+usage = oPutStrLn $ usageInfo header optSpec
     where header = "Usage: mkdir [OPTION] DIRECTORY...\n"++
                    "Create the DIRECTORY(ies), if they do not already exist."
                    -- report bugs to ...?
@@ -74,6 +75,6 @@ mkDir args = do withSubStateCalled "mkdir" (sequence_ opts>>run) noOpts
                     -- check for windows here and warn/ignore?
                     liftIO $ setFileMode d (fileMode m)
 #endif
-                    when v $ liftIO $ putStrLn $
+                    when v $ ePutStrLn $
                              "mkdir: created directory `"++d++"'"
 \end{code}

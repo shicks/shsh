@@ -7,6 +7,7 @@ module System.Console.ShSh.EventLoop ( eventLoop )
 
 import System.Console.ShSh.Command ( process )
 import System.Console.ShSh.Expansions ( shellExpansions )
+import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Shell ( Shell, getEnv, getFlag )
 import System.Console.ShSh.Prompt ( prompt )
@@ -28,11 +29,11 @@ eventLoop h = do
     Nothing -> return ()
     Just s  -> do am_e <- getFlag 'e'
                   am_v <- getFlag 'v'
-                  if am_v then liftIO $ putStrLn s
+                  if am_v then ePutStrLn s
                           else return ()
                   s' <- shellExpansions s
                   code <- case parseLine s' of -- Later, add more to s' (PS2)
-                            Left e -> do liftIO $ putStrLn e
+                            Left e -> do ePutStrLn e
                                          return $ ExitFailure 1 -- ????
                             Right cmd -> process cmd
                   if am_e && code /= ExitSuccess
@@ -53,14 +54,17 @@ getInput prompt =
                                  { historyFile = Just $ home++"/.shsh_history" }
           settings Nothing     = defaultSettings
 #else
-getInput prompt = liftIO $ do putStr prompt
-                              hFlush stdout
-                              eof <- hIsEOF stdin
-                              if eof
-                                then putStrLn "" >> return Nothing -- exit
-                                else Just `fmap` getLine
+getInput prompt = do oPutStr prompt
+                     oFlush
+                     eof <- iIsEOF
+                     if eof then oPutStrLn "" >> return Nothing
+                            else Just `fmap` iGetLine
 #endif
 
+-- I feel like we still need this for reading from script files,
+-- although maybe it's not quite as it should be, since it looks
+-- like this getds called with stdin as its arg when we're in
+-- non-interactive mode, and in that case, it's possibly not right.
 getNoninteractiveInput :: Handle -> Shell (Maybe String)
 getNoninteractiveInput h = liftIO $ do eof <- hIsEOF h
                                        if eof then return Nothing
