@@ -5,51 +5,65 @@ This is where we do stuff.
 \begin{code}
 
 {-# LANGUAGE GeneralizedNewtypeDeriving,
-             FlexibleInstances,
-             MultiParamTypeClasses #-}
+             FlexibleInstances, FlexibleContexts,
+             MultiParamTypeClasses,
+             TypeSynonymInstances #-}
 
 module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
                                    tryEnv, withEnv,
                                    getFlag, setFlag, unsetFlag, getFlags,
-                                   getShellState,
-                                   getPState, putPState, modifyPState,
-                                   runShell, startShell,
+                                   getShellState, runShell_, runShell,
+                                   pipeShells, runInShell,
+                                   startShell,
+                                   withPipes, runWithPipes, runWithPipes_,
                                    withHandler, withExitHandler, failOnError,
-                                   pipeState,
-                                   sh_out, sh_in, sh_err, sh_io, closeOut,
+                                   pipeState, closeOut, maybeCloseOut,
+                                   iHandle, oHandle, eHandle,
                                    withSubState, withSubStateCalled, (.~) )
     where
 
-import Control.Monad ( MonadPlus, mzero )
+import Control.Concurrent ( forkIO )
+import Control.Monad ( MonadPlus, mzero, mplus, when )
 import Control.Monad.Error ( ErrorT, runErrorT,
                              MonadError, throwError, catchError )
 import Control.Monad.State ( MonadState, get, put, runStateT,
                              StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
 import Data.List ( lookup, union, (\\) )
-import Data.Maybe ( fromMaybe, isJust )
-import Data.Monoid ( Monoid, mempty )
+import Data.Maybe ( fromMaybe, isJust, listToMaybe )
+import Data.Monoid ( Monoid, mempty, mappend )
 import System.Directory ( getCurrentDirectory )
 import System ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 import System.IO ( stdin, stdout, stderr )
 
-import System.Console.ShSh.PipeIO ( PipeState(..), noPipes, shSafeClose,
-                                    ShellHandle, streamToHandle )
+import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
+                                         rSafeClose, wSafeClose, newPipe,
+                                         fromReadHandle, fromWriteHandle,
+                                         toReadHandle, toWriteHandle,
+                                         wIsOpen )
+import System.Console.ShSh.Internal.Process ( CreateProcess, ProcessHandle,
+                                              launch,
+                                              Pipe, PipeState(..), waitForPipe,
+                                              ReadStream(..), WriteStream(..),
+                                              fromReadStream, fromWriteStream
+                                            )
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError, exit )
 
 -- I might want to look into using ST to thread the state...?
+
 data ShellState e = ShellState {
       environment :: [(String,String)],
       aliases     :: [(String,String)],
       functions   :: [(String,String)],
-      pipeState   :: PipeState, -- ???
+      pipeState   :: PipeState,
       extra       :: e
     }
 
-newtype ShellT e a = Shell (ErrorT ShellError (StateT (ShellState e) IO) a)
+type InnerShell e = ErrorT ShellError (StateT (ShellState e) IO)
+newtype ShellT e a = Shell ((InnerShell e) a)
     deriving ( Functor, Monad, MonadIO, MonadError ShellError )
 
 instance MonadState e (ShellT e) where
@@ -69,26 +83,59 @@ updateWith x f [] = [(x,f Nothing)]
 updateWith x f ((x',y'):xs) | x'==x     = (x',f (Just y')):xs
                             | otherwise = (x',y'):updateWith x f xs
 
--- We don't really need to be so flexible here... could just use Maybe...
-getEnv :: MonadPlus m => String -> ShellT a (m String)
+class Maybeable a m where
+    toMaybe :: m -> Maybe a
+instance Maybeable a (Maybe a) where
+    toMaybe = id
+instance Maybeable a [a] where
+    toMaybe = listToMaybe
+instance Maybeable a a where
+    toMaybe = Just
+
+class Stringy m s where
+    maybeToStringy :: Maybe String -> String -> m s
+instance (Monad m,MonadPlus n) => Stringy m (n String) where
+    maybeToStringy (Just x) _ = return $ return x
+    maybeToStringy Nothing  _ = return $ mzero
+instance Monad m => Stringy m String where
+    maybeToStringy (Just x) _ = return x
+    maybeToStringy Nothing  s = fail $ s ++ " not set"
+
+-- |I've gone a bit overboard on the flexibility here.  If we just want
+-- a string, we'll get a fail.  If we put it in a MonadPlus then we
+-- guarantee no failure.
+getEnv :: Stringy (InnerShell a) s => String -> ShellT a s
 getEnv s = Shell $ do e <- gets environment
-                      return $ case lookup s e of -- this is StateT's return
-                                 Just x  -> return x   -- MonadPlus's return
-                                 Nothing -> mzero
+                      maybeToStringy (lookup s e) s
 
-tryEnv :: String -> ShellT a String
-tryEnv s = Shell $ do e <- gets environment
-                      case lookup s e of
-                        Just x  -> return x
-                        Nothing -> fail $ s++" not set"
+-- |This is a simpler version because we also give a default.
+tryEnv :: String -> String -> ShellT a String
+tryEnv d s = Shell $ gets environment >>= return . fromMaybe d . lookup s
 
+-- |Not much here - we don't care if the thing is currently defined or not:
+-- we just set it either way.
 setEnv :: String -> String -> ShellT a ()
 setEnv s x = Shell $ modify $ \st ->
              st { environment = update s x (environment st) }
 
-withEnv :: String -> (String -> String) -> ShellT a () -- could have safe one too
-withEnv s f = do e <- tryEnv s
-                 setEnv s (f e)
+-- |Remove the environment variable from the list.
+unsetEnv :: String -> ShellT e ()
+unsetEnv s = Shell $ modify $ \st ->
+             st { environment = filter ((/=s).fst) (environment st) }
+
+-- |This is a bit more complicated, but basically what it says is that
+-- we can give it any function from something string-like to something else
+-- stringlike.  So @String->String@, @String->Maybe String@, or
+-- @[String]->String@ are all okay.  The instance conditions are that the
+-- argument needs to be generatable from the environment (i.e. a MonadPlus
+-- or a plain string if we allow failure) and that we know how to convert
+-- the output into a maybe.  
+withEnv :: (Stringy (InnerShell e) a,Maybeable String b) =>
+           String -> (a -> b) -> ShellT e () -- could have safe one too
+withEnv s f = do e <- getEnv s
+                 case toMaybe $ f e of
+                   Just v  -> setEnv s v
+                   Nothing -> unsetEnv s
 
 getAllEnv :: ShellT a [(String,String)]
 getAllEnv = Shell $ gets environment
@@ -101,25 +148,14 @@ unsetFlag :: Char -> ShellT a ()
 unsetFlag c = withEnv "-" (\\[c])
 
 getFlag :: Char -> ShellT a Bool
-getFlag c = elem c `fmap` tryEnv "-"
+getFlag c = elem c `fmap` getEnv "-"
 
 getFlags :: ShellT a String
-getFlags = tryEnv "-"
-
+getFlags = getEnv "-"
 
 parseFlags :: IO String
 parseFlags = return "" -- start with no flags set, for now...
                        -- Later we'll get these with getopt
-
-getPState :: ShellT a PipeState
-getPState = Shell $ gets pipeState
-
--- Maybe shouldn't be able to do this...?
-putPState :: PipeState -> ShellT a ()
-putPState p = Shell $ modify $ \s -> s { pipeState = p }
-
-modifyPState :: (PipeState -> PipeState) -> ShellT a ()
-modifyPState f = Shell $ modify $ \s -> s { pipeState = f $ pipeState s }
 
 getShellState :: ShellT e (ShellState e)
 getShellState = Shell $ get
@@ -130,7 +166,7 @@ startState = do e <- liftIO getEnvironment
                 cwd <- liftIO getCurrentDirectory
                 let e' = updateWith "PWD" (fromMaybe cwd) $
                          updateWith "-" (fromMaybe f) e
-                return $ ShellState e' [] [] noPipes mempty
+                return $ ShellState e' [] [] mempty mempty
 
 startShell :: Monoid e => ShellT e a -> IO ExitCode
 startShell a = do s <- startState
@@ -143,24 +179,85 @@ runShell (Shell s) e = do result <- evalStateT (runErrorT s) e
                             Left err -> do announceError err
                                            return $ exitCode err
 
+-- |This is handy because @runShell@ changes the return type, so there's
+-- no way to easily ignore it by doing anything on the /inside/ of the
+-- computation.
+runShell_ :: ShellT e a -> ShellState e -> IO ()
+runShell_ s e = runShell s e >> return ()
+
 failOnError :: ExitCode -> ShellT e ExitCode
 failOnError ExitSuccess = return ExitSuccess
 failOnError (ExitFailure n) = exit n
 
-sh_in :: ShellT e ShellHandle
-sh_in = Shell $ (streamToHandle stdin . p_in) `fmap` gets pipeState
-sh_out :: ShellT e ShellHandle
-sh_out = Shell $ (streamToHandle stdout . p_out) `fmap` gets pipeState
-sh_err :: ShellT e ShellHandle
-sh_err = Shell $ (streamToHandle stderr . p_err) `fmap` gets pipeState
+iHandle :: ShellT e ReadHandle
+iHandle = Shell $ (fromReadStream stdin . p_in) `fmap` gets pipeState
+oHandle :: ShellT e WriteHandle
+oHandle = Shell $ (fromWriteStream stdout . p_out) `fmap` gets pipeState
+eHandle :: ShellT e WriteHandle
+eHandle = Shell $ (fromWriteStream stderr . p_err) `fmap` gets pipeState
 
 closeOut :: ShellT e ()
-closeOut = do h <- sh_out
-              liftIO $ shSafeClose h
+closeOut = do h <- oHandle
+              liftIO $ wSafeClose h
 
-sh_io :: ShellT e ShellHandle -> (ShellHandle -> IO a) -> ShellT e a
-sh_io h f = do h' <- h
-               liftIO $ f h'
+maybeCloseOut :: ShellT e ()
+maybeCloseOut = do h <- oHandle
+                   open <- liftIO $ wIsOpen h
+                   when open $ liftIO $ wSafeClose h
+
+waitForPipes :: ShellT e ()
+waitForPipes = Shell $ do p <- gets pipeState
+                          liftIO $ mapM_ waitForPipe (openPipes p)
+                          modify $ \s -> s { pipeState = p { openPipes = [] } }
+
+-- |This function is the only way to change the PipeState.  In that sense,
+-- it's more of a Reader type, but since we're already in a StateT, there's
+-- not really any point in changing it.  It works by returning a computation
+-- in which the pipes are locally changed.  There's gotta be a better way?
+-- (the difficulty is that the result /must/ be in the Shell monad, since we
+-- need to get at the /current/ pipe state.  But we don't want to allow it
+-- to be used to change the pipe state, so the effects need to be bounded...?
+withPipes :: PipeState -> ShellT e a -> ShellT e a
+withPipes p (Shell s) = Shell $ do
+                          ps <- gets pipeState
+                          modify $ \st -> st { pipeState = ps `mappend` p }
+                          ret <- s
+                          modify $ \st -> st { pipeState = ps }
+                          return ret
+
+-- |This is a convenience function to act like runShell . withPipes
+runWithPipes :: PipeState -> ShellState e -> ShellT e a -> IO ExitCode
+runWithPipes p e s = runShell (withPipes p s) e
+
+runWithPipes_ :: PipeState -> ShellState e -> ShellT e a -> IO ()
+runWithPipes_ p e s = runWithPipes p e s >> return ()
+
+computationWithPipes :: PipeState -> ShellT e a -> ShellT e (IO ExitCode)
+computationWithPipes p s = Shell $ do
+                             p' <- gets pipeState
+                             e <- get
+                             return $ runWithPipes (p' `mappend` p) e s
+
+computationWithPipes_ :: PipeState -> ShellT e a -> ShellT e (IO ())
+computationWithPipes_ p s = do c <- computationWithPipes p s
+                               return $ c >> return ()
+
+runInShell :: CreateProcess -> ShellT e (Maybe WriteHandle, Maybe ReadHandle,
+                                         Maybe ReadHandle, ProcessHandle)
+runInShell p = Shell $ do ps <- gets pipeState
+                          (ps',a,b,c,d) <- liftIO $ launch p ps
+                          modify $ \s -> s { pipeState = ps' }
+                          return (a,b,c,d)
+
+pipeShells :: ShellT e a -> ShellT e ExitCode -> ShellT e ExitCode
+pipeShells source dest = do
+  (r,w) <- liftIO newPipe
+  let sp = mempty { p_out = WUseHandle w }
+      dp = mempty { p_in  = RUseHandle r }
+  s <- computationWithPipes_ sp $ source >> maybeCloseOut
+  d <- computationWithPipes  dp dest
+  liftIO $ forkIO  s
+  liftIO $ d
 
 --runShell :: Shell a -> IO a
 --runShell (Shell s) = do e <- getEnvironment
@@ -172,23 +269,20 @@ sh_io h f = do h' <- h
 convertState :: ShellState e -> e' -> ShellState e'
 convertState (ShellState e a f p _) x = ShellState e a f p x
 
-withSubState :: ShellT e a -> e -> Shell a
-withSubState (Shell sub) e = Shell $ do
+withSubState' :: (ShellError -> ShellError) -> ShellT e a -> e -> Shell a
+withSubState' f (Shell sub) e = Shell $ do
   s <- get
   (result,s') <- liftIO $ runStateT (runErrorT sub) $ convertState s e
   case result of
     Right a  -> do put $ convertState s' ()
                    return a
-    Left err -> throwError err
+    Left err -> throwError $ f err
+
+withSubState :: ShellT e a -> e -> Shell a
+withSubState = withSubState' id
 
 withSubStateCalled :: String -> ShellT e a -> e -> Shell a
-withSubStateCalled name (Shell sub) e = Shell $ do
-  s <- get
-  (result,s') <- liftIO $ runStateT (runErrorT sub) $ convertState s e
-  case result of
-    Right a  -> do put $ convertState s' ()
-                   return a
-    Left err -> throwError $ prefixError name err
+withSubStateCalled name = withSubState' $ prefixError name
 
 {-
 withSubState' :: ShellT e a -> e -> Shell a

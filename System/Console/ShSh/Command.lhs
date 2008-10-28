@@ -7,11 +7,10 @@ Here we run commands.
 module System.Console.ShSh.Command ( process ) where
 
 import System.Console.ShSh.Builtins ( runBuiltin )
+import System.Console.ShSh.IO ( oPutStrLn )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
-import System.Console.ShSh.Pipe ( runInShell, pipeShells, waitForPipes )
-import System.Console.ShSh.PipeIO ( shPutStrLn )
-import System.Console.ShSh.Shell ( Shell, sh_out,
+import System.Console.ShSh.Shell ( Shell, pipeShells, runInShell,
                                    getEnv, setEnv, getAllEnv, withExitHandler,
                                    tryEnv, withEnv, getFlag, unsetFlag )
 import System.Console.ShSh.Prompt ( prompt )
@@ -57,8 +56,7 @@ process (c1 :|: (Cmd (c2:args))) h =
 process (c1 :|: c2) =  -- pipeShells rethrows from c2...
     pipeShells (process c1) (process c2)
 -- #endif
-process cmd = do h <- sh_out
-                 liftIO $ shPutStrLn h $ "I can't handle:  "++show cmd
+process cmd = do oPutStrLn $ "I can't handle:  "++show cmd
                  return $ ExitFailure 1
 
 tryToRun :: String -> [String] -> Shell ExitCode

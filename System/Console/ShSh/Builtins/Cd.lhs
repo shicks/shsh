@@ -5,15 +5,15 @@
 module System.Console.ShSh.Builtins.Cd ( chDir ) where
 
 import Control.Monad.Trans ( liftIO )
-import System.Console.ShSh.Shell ( Shell, tryEnv, setEnv )
+import System.Console.ShSh.Shell ( Shell, getEnv, setEnv )
 import System.Directory ( getCurrentDirectory, doesDirectoryExist,
                           setCurrentDirectory )
 
 chDir :: [String] -> Shell ()
-chDir ("-":_) = do dir <- tryEnv "OLDPWD"
+chDir ("-":_) = do dir <- getEnv "OLDPWD"
                    chDir' dir
 chDir (dir:_) = do chDir' dir
-chDir []      = do home <- tryEnv "HOME"
+chDir []      = do home <- getEnv "HOME"
                    chDir' home
 
 chDir' :: String -> Shell ()

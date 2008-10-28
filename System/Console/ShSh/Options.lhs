@@ -23,8 +23,8 @@ import Data.List ( union, (\\) )
 import System.Exit ( ExitCode(..) )
 import System.IO ( Handle, hPutStrLn )
 
-import System.Console.ShSh.PipeIO ( shPutStrLn )
-import System.Console.ShSh.Shell ( Shell, sh_out,
+import System.Console.ShSh.IO ( oPutStrLn )
+import System.Console.ShSh.Shell ( Shell,
                                    setFlag, unsetFlag, getFlag, getFlags )
 
 isOpt :: String -> Bool
@@ -54,9 +54,8 @@ unsetOptLong s = return ()
 
 -- These need to be rewritten
 showOptsHuman :: Shell ()
-showOptsHuman = do h <- sh_out
-                   f <- getFlags
-                   liftIO $ shPutStrLn h $ "Opts: "++f
+showOptsHuman = do f <- getFlags
+                   oPutStrLn $ "Opts: "++f
 
 showOpts :: Shell ()
 showOpts = showOptsHuman
