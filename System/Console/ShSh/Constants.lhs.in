@@ -1,0 +1,12 @@
+\chapter{Constants module}
+
+This defines a bunch of compile-time constants.
+
+\begin{code}
+
+module System.Console.ShSh.Constants ( version ) where
+
+version :: String
+version = @VERSION@
+
+\end{code}

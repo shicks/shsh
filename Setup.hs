@@ -1,14 +1,19 @@
 #!/usr/bin/runhaskell
 import Distribution.Franchise
 
-configure = do version "0.0.1"
+true_version = "0.0.1"
+
+configure = do version true_version
+               defineAs "PACKAGE_VERSION" true_version
                ghcFlags ["-threaded","-O2"]
                requireModuleExporting "Data.List" "intercalate" "intercalate"
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
                withModuleExporting "System.Process" "createProcess, shell"
-                   ("createProcess (shell \"echo 1\") >> return ()") $
+                   "createProcess (shell \"echo 1\") >> return ()" $
                    define "HAVE_CREATEPROCESS"
+               replace "@VERSION@" true_version
+               createFile "System/Console/ShSh/Constants.lhs"
 
 buildable = executable "shsh" "shsh.lhs" []
 
