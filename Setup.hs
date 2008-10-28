@@ -1,7 +1,8 @@
 #!/usr/bin/runhaskell
 import Distribution.Franchise
 
-configure = do ghcFlags ["-threaded","-O2"]
+configure = do version "0.0.1"
+               ghcFlags ["-threaded","-O2"]
                requireModuleExporting "Data.List" "intercalate" "intercalate"
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
