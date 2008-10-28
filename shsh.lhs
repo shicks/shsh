@@ -29,9 +29,11 @@ import System ( exitWith )
 import System.Console.ShSh.Shell ( startShell )
 import System.Console.ShSh.EventLoop ( eventLoop )
 import System.IO ( stdin, hIsTerminalDevice )
+import System.Posix.Signals ( Handler(..), installHandler, sigPIPE )
 
 main = do term <- hIsTerminalDevice stdin
           let h = if term then Nothing else Just stdin -- extend later w/ getopt
+          installHandler sigPIPE Ignore Nothing
           startShell (eventLoop h) >>= exitWith
 
 \end{code}
