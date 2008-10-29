@@ -1,0 +1,112 @@
+Token Parsing
+=============
+
+
+Special Characters
+------------------
+
+Certain characters must be quoted in order to preserve their literal meanings.
+The following tokens must /always/ be quoted in order to represent themselves:
+  |  &  ;  <  >  (  )  $  `  \  "  '  <space>  <tab>  <newline>
+
+In addition, some characters may need to be quoted under certain circumstances:
+  *  ?  [  #  ~  =  %
+
+
+
+Quoting
+-------
+
+Characters can be quoted in one of three ways.
+
+Escape Character (Backslash)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Any character immediately following a backslash shall preserve its literal
+meaning, with the exception of <newline>.  A <newline> following a backslash
+represents line continuation and both the backslash and the newline are
+gobbled.  Tokens may be matched accross line continuations.  Thus,
+
+\begin{code}{backslash.sh}
+
+ec\
+ho -\n 1\n\&\|\\c
+
+\end{code}
+
+should produce the output «1n&|\c».
+
+
+Single Quotes
+~~~~~~~~~~~~~
+
+Single quotes preserve the value of all characters within them, including
+<newline>.  Single quotes may not occur within single quotes.
+
+\begin{code}{singlequote.sh}
+
+e'ch'o '-''n' 'ab'cd'!&|<>'
+
+\end{code}
+
+produces the output «abcd!&|<>».
+
+
+Double Quotes
+~~~~~~~~~~~~~
+
+Double quotes preserve literal values of all characters except $, `,
+which have their normal expansion meanings, and \, which is only non-literal
+when preceding $, `, ", \, or <newline>.
+
+\begin{code}{doublequote.sh}
+
+A=23
+"e"cho "-n" "%<>|"'$'"$A.\5\"\$'"
+
+\end{code}
+
+produces «%<>|$23.\5"$'».
+
+Finally, $@ has a special meaning inside double quotes.
+
+
+
+Token Recognition
+-----------------
+
+Lines are read in either Here-Document mode, or else in normal mode.
+Normal mode delimits tokens by the following rules (in order):
+
+ 1. End of input causes the current token to be delimited.  If there is
+    no current token then the EOF indicator is returned as a token.
+
+    test?
+
+ 2. Operators are extended only by non-quoted tokens.
+
+ 3. Operators are delimited whenever they are not extended.
+
+ 4. UnQuoted \, ', and " begin quoted lexing.  No substitution is
+    performed yet.  Embedded and enclosing quotes are preserved (?).
+
+ 5. UQ $ and ` cause us to start looking for candidates for parameter
+    expansion, etc, from $, ${, $(, `, and $((.  Embedded expansions
+    are processed recursively, as appropriate.  All characters within
+    are preserved unmodified.  The token is not delimited by the end
+    of substitution.
+
+ 6. UQ <, >, |, &, ;, (, and ) are used to start a new operator and
+    delimit the current token.
+
+ 7. UQ <newline> delimits the current token.
+
+ 8. UQ <space> delimits (if there is a current token) and is discarded.
+
+ 9. If the previous character was part of a word, the new character shall
+    be appended to it (even if it's a #).
+
+ 10. UQ # discards everything up to but excluding the next newline.
+
+ 11. A new word is started.
+
