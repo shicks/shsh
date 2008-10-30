@@ -11,6 +11,6 @@ loop pre = do let prompt = if null pre then "$ " else "> "
                              let l = runLexer (pre++x)
                              case l of
                                Just ts -> print ts >> hFlush stdout >> loop ""
-                               Nothing -> loop (pre++x)
+                               Nothing -> loop (pre++x++"\n")
 
 main = loop ""

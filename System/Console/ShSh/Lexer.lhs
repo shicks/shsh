@@ -238,7 +238,7 @@ lexDQuotes = do char '"'
                                                  ,char '\\' >>
                                                   ((oneOf "$`\\\"" >>= appendChar)
                                                     <|> appendChar '\\')
-                                                 ,noneOf "\"" >>=  appendChar]
+                                                 ,noneOf "\"" >>= appendChar]
                                    (es,_) <- getState
                                    case es of
                                      Just (Word e) -> return e
