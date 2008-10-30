@@ -4,6 +4,7 @@
 {-# OPTIONS_GHC -cpp #-}
 module System.Console.ShSh.Builtins.Mkdir ( mkDir ) where
 
+import System.Console.ShSh.Directory ( parentDir )
 import System.Console.ShSh.IO ( oPutStrLn, ePutStrLn )
 import System.Console.ShSh.Shell ( Shell, ShellT, withSubStateCalled, (.~) )
 import System.Console.ShSh.ShellError ( exit )
@@ -64,11 +65,9 @@ mkDir args = do withSubStateCalled "mkdir" (sequence_ opts>>run) noOpts
                     dex <- liftIO $ doesDirectoryExist d
                     when dex $ die "File exists"
                     -- what about root...?
-                    let parent = joinPath $ reverse $ drop 1 $
-                                 reverse $ splitDirectories d
-                    pex <- liftIO $ doesDirectoryExist parent
+                    pex <- liftIO $ doesDirectoryExist $ parentDir d
                     when (not pex) $ if p 
-                                     then mk parent 
+                                     then mk $ parentDir d
                                      else die "No such file or directory"
                     liftIO $ createDirectory d -- should catch here ...
 #ifdef UNIX 
