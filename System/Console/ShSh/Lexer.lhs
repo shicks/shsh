@@ -5,14 +5,20 @@ parsing, and is where we stop if we need to ask for another line of input.
 
 \begin{code}
 
-module System.Console.ShSh.Lexer ( Token(..), tokenize ) where
+module System.Console.ShSh.Lexer ( Token(..), runLexer ) where
 
-import Text.ParserCombinator.Parsec ( parse, char, eof, (<|>) )
+import Control.Monad ( when )
+import Data.Maybe ( isJust, fromJust )
+import Data.Monoid ( Monoid, mappend )
 
-data Token = Word [EString] | Oper Operator | EOF
-
-data EString = Literal String | ParamExp String
-             | CommandSub [Token] | ArithExp String
+import Prelude hiding ( lex )
+import Text.ParserCombinators.Parsec (
+                     Parser, CharParser, GenParser, parse, runParser,
+                     getState, setState,
+                     choice, try, (<|>),
+                     many1, many, eof, lookAhead,
+                     char, letter, alphaNum, digit,
+                     oneOf, noneOf, anyChar )
 
 data Operator = Async | Pipe | Semi | Less | Great | LParen | RParen
               | AndIf | OrIf | DSemi | DLess | DGreat | LessAnd
@@ -65,131 +71,187 @@ toOperator s = case parse readOper "" s of
                  Left _  -> Nothing
                  Right x -> Just x
 
--- We could use Either in a similar way - fmap and fail both work..
-tokenize :: String -> Maybe [Token] -- Nothing means more input...
-tokenize s = evalWriter $ evalStateT tok s
+data Token = Word [EString] | Oper Operator | Newline | EOF
+           deriving ( Show )
 
--- |This lets us treat this sort of like a writer monad...
--- The underscore version is for end of input...
-tell_ :: Token -> Maybe [Token] -> Maybe [Token]
-tell_ t = fmap (++[t])
+-- |This is a type for anything that can make up a single "word", i.e.
+-- anything within double quotes.  We build up a list of all these,
+-- expand them each before concatenating them.  Note that we need to
+-- keep track of the double quotes because, e.g.
+--   A=\*
+--   echo $A # prints list of files
+--   echo "$A" # prints '*'
+-- So while expanding variables (and literals) we identify glob tokens
+-- (and other things), and inside DQuotes, we just make the globs literal...
+data EString = Literal String | DQuotes [EString] | ParamExp String
+             | CommandSub [Token] | ArithExp String
+           deriving ( Show )
 
-tell :: Token -> String -> Maybe [Token] -> Maybe [Token]
-tell t s ts = tok s Nothing $ fmap (++t) ts
+-- |State: current tok, output so far
+type Lexer = CharParser (Maybe Token,[Token])
 
--- |If the next char can be added onto the operator then do it, else
--- tokenize it and try again.
-extendOperator :: Operator -> String -> Maybe [Token] -> Maybe [Token]
-extendOperator o (c:cs) = case toOperator (show o++[c]) of
-                            Just o' -> tok cs (Oper o')
-                            Nothing -> tell o (c:cs)
+-- |This only operates on words...  Note that words are stored backwards,
+-- and thus need to be reversed at the end...
+append :: [EString] -> EString -> [EString]
+append (Literal s:xs) (Literal s') = Literal (s++s'):xs
+append xs x = x:xs
 
--- |Append a @String@ to a @Maybe Token@ only if it's @Nothing@ or a @Word@.
-append :: Maybe Token -> EString -> Maybe Token
-append Nothing x = Just $ Word [x]
-append (Just (Word xs)) (Literal s) = Just $ Word $ appLit xs s
-append (Just (Word xs)) x = Just $ Word $ x:xs
-append _ _ = undefined -- can't append to operator or EOF
+delimit_ :: Lexer ()
+delimit_ = do (t,ts) <- getState
+              when (isJust t) $ setState (Nothing,fixWord (fromJust t):ts)
 
-appLit :: [EString] -> String -> [EString] -- note: BACKWARDS!
-appLit (Literal s:xs) s' = Literal (s++s'):xs
-appLit xs s = Literal s:xs
+delimit :: Token -> Lexer ()
+delimit t' = getState >>= \(t,ts) -> setState (t,fixWord t':ts)
 
-concat :: Maybe Token -> [EString] -> Maybe Token
-concat Nothing [] = Nothing
-concat Nothing xs = Just $ Word xs
-concat (Just (Word xs)) xs' = Just $ Word $ xs'++xs
-concat _ _ = undefined
+fixWord :: Token -> Token
+fixWord (Word x) = Word $ reverse x
+fixWord x = x
 
-data TokMode = SimpleParam | ParamExp | ComSubst | BackTick | ArithSubst
+done :: Lexer [Token]
+done = getState >>= \(_,ts) -> return $ reverse ts
 
--- |This is the main function.
-tok :: [TokMode]     -- ^stack of mode things
-    -> String        -- ^the remaining input stream
-    -> Maybe Token   -- ^the current token
-    -> Maybe [Token] -- ^the token list so far
-    -> Maybe [Token]
--- What do we do with extra unparsed data for submodes?
--- -> it's a pain to return a Maybe ([Token],String)...
--- Maybe we do want to be inside a monad...?
+curTok :: Lexer (Maybe Token)
+curTok = getState >>= \(t,_) -> return t
 
-tok (SimpleParam:ms) "" t = ??? -- push the token, pop out of SimpleParam
-tok (ParamExp:ms) "" t = Left 
-tok [] "" Nothing  = tell_ EOF     -- what does this do?
-tok [] "" (Just t) = tell_ t       -- tokenize last token, no EOF token.
-tok [] _ (Just EOF) = undefined    -- this should never happen
-tok [] s (Just (Oper o)) = extendOperator o s    -- try to add onto an operator
-tok [] ('\\':[]) _ = const Nothing -- line continuation...
-tok [] ('\\':'\n':cs) t = tok cs t --   "    "    "
-tok [] ('\\':c:cs) t = tok cs $ append t $ Literal [c] -- add literal character
-tok [] ('"':cs) t = tok rest $ concat t quot
-    where (quot,rest) = findDQuote cs
-tok [] ('\'':cs) t = tok rest $ append t $ Literal quot
-    where (quot,rest) = findSQuote cs
-tok [] ('$':cs) t = 
+setTok :: Token -> Lexer ()
+setTok t = getState >>= \(_,ts) -> setState (Just t,ts)
 
+getCurWord :: Lexer [EString]
+getCurWord = do (t,ts) <- getState
+                case t of
+                  Just (Word w) -> setState (Nothing,ts) >> return w
+                  _ -> delimit_ >> return []
 
--- New version: make it into a State monad, including which mode we're
--- in and current token.
--- Might make a WriterT [Token], and maybe an ErrorT () so that fail
--- can signify unexpected end of input...?  This still doesn't cover
--- extra input on closeparens.... so maybe we need the input to be
--- part of the state, though it would be better to just pass it around...?
--- We could use fail to pass extra input if it's stacked on the right
--- side of the WriterT...
+appendWord :: EString -> Lexer ()
+appendWord x = do t <- curTok
+                  case t of
+                    Just (Word w) -> setTok $ Word $ append w x
+                    Just t        -> delimit_ >> setTok (Word [x])
+                    Nothing       -> setTok $ Word [x]
 
-data LexMode = N  -- ^Normal - this should never go in the stack...?
-             | P  -- ^Paren
-             | DQ -- ^Double quote
-             | SQ -- ^Single quote
-             | BQ -- ^Backquote
-             | SP -- ^Simple parameter
-             | BP -- ^Brace parameter
-             | CS -- ^Command substitution
-             | AE -- ^Arithmetic expansion
-             | HD Bool String String -- ^Heredoc <strip tabs> 
-                                     --          <delimiter> <rest of line>
-data LexState = LexState { lexMode :: [LexMode],
-                           curTok :: Maybe Token,
-                           allToks :: Maybe [Token] }
+appendChar :: Char -> Lexer ()
+appendChar c = appendWord $ Literal [c]
 
-lex :: String -> Maybe ([Token],String)
+infixl 3 +++
+(+++) :: Monoid w => GenParser i s w -> GenParser i s w -> GenParser i s w
+a +++ b = do w <- a
+             w' <- b
+             return $ w `mappend` w'
 
--- State: current tok, terminating tokens (paren depth), output so far
-type TokParser = CharParser (Maybe Token,[Char],[Token])
+name :: CharParser st String
+name = many1 (letter <|> char '_') +++ many (alphaNum <|> char '_')
 
-tokenize_ :: TokParser ()
-tokenize_ = do (t,d,ts) <- getState
-               when (isJust t) $ putState (Nothing,d,fromJust t:ts)
+special :: CharParser st String
+special = do c <- oneOf "*@#?-$!" <|> digit -- positional parameters too...
+             return [c]
 
-tokenize :: Token -> TokParser ()
-tokenize t' = do (t,d,ts) <- getState
-                 putState (t,d,t':ts)
+-- |@lex@ takes a delimiter that it's looking for to stop...
+lex :: Maybe Char -> Lexer [Token]
+lex d = do tok <- curTok
+           choice [case d of    -- delimit but don't consume, return if wanted
+                     Just delim -> lookAhead (char delim) >> done
+                     Nothing    -> fail ""
+                  ,do eof
+                      when (isJust d) $ fail $ "expected "++[fromJust d]
+                      case tok of
+                        Nothing -> delimit EOF >> done
+                        Just t  -> delimit_ >> done
+                  ,try $ case tok of
+                           Just (Oper op) ->
+                               do c <- anyChar
+                                  case toOperator (show op++[c]) of 
+                                    Just op' -> setTok (Oper op')
+                                    Nothing  -> delimit_ >> fail "" -- refail
+                                  lex d             -- (or we could put back)
+                           _ -> fail ""
+                  ,do char '\\'
+                      c <- anyChar
+                      when (c/='\n') $ appendChar c
+                      lex d
+                  ,lexDQuotes >> lex d
+                  ,do char '\''
+                      s <- many $ noneOf "'"
+                      char '\''
+                      appendWord $ Literal s
+                      lex d
+                  ,lexDollar >> lex d
+                  ,lexBacktick >> lex d
+                  ,do o <- oneOf "<>|&;)"
+                      delimit_
+                      let op = fromJust $ toOperator [o]
+                      setTok $ Oper op
+                      lex d
+                  ,do char '('
+                      delimit_
+                      delimit (Oper LParen)
+                      lex $ Just ')' -- ignore output (still saved in state)
+                      char ')' -- make sure it's actually there...
+                      delimit (Oper RParen)
+                      lex d
+                  ,char '\n' >> delimit_ >> delimit Newline >> lex d
+                  ,char ' ' >> delimit_ >> lex d
+                  ,case tok of
+                     Just (Word w) -> do c <- anyChar
+                                         appendChar c
+                                         lex d
+                     _ -> fail ""
+                  ,(char '#' >> many (noneOf "\n") >> lex d)
+                  ,do c <- anyChar -- catch-all...
+                      appendChar c
+                      lex d]
 
-done :: TokParser [Token]
-done = do (_,_,ts) <- getState
-          return $ reverse ts
+subLexer :: Lexer a -> Lexer a
+subLexer lexer = do t <- curTok
+                    case t of
+                      Just (Word _) -> return ()
+                      _ -> delimit_
+                    save <- getState
+                    setState (Nothing,[])
+                    ret <- lexer
+                    setState save
+                    return ret
 
-setTok :: Token -> TokParser ()
-setTok t = do (Nothing,d,ts) <- getState
-              putState (Just t,d,ts)
+lexDollar :: Lexer ()
+lexDollar = do char '$'
+               choice [do char '{'
+                          s <- many (noneOf "}") 
+                          char '}' -- this works b/c predictive
+                          appendWord $ ParamExp s
+                      ,do char '('
+                          choice [char '(' >> lexArithmetic,
+                                  do t <- subLexer $ lex $ Just ')'
+                                     char ')'
+                                     appendWord $ CommandSub t]
+                      ,(name <|> special) >>= (appendWord . ParamExp)]
 
-lex :: TokParser [Token]
-lex = do (curTok,depth) <- getState
-         (    do eof
-                 case curTok of
-                   Nothing -> tokenize EOF >> done
-                   Just t  -> tokenize_ >> done
-          <|> do Oper op <- curTok
-                 continueOperator op
-          <|> (char '\\' >> lexBlackslash)
-          <|> (char '"' >> lexDoubleQuotes)
-          <|> (char '\'' >> lexSingleQuotes)
-          <|> (char '$' >> lexDollar)
-          <|> (char '`' >> lexBacktick)
-          <|> do o <- oneOf "<>|&;"
-                 tokenize_
-                 let op = fromJust $ toOperator o
-                 setTok $ Oper op
+lexBacktick :: Lexer ()
+lexBacktick = do char '`'
+                 s <- many $ (char '\\' >> anyChar) <|> noneOf "`"
+                 char '`'
+                 case runParser (lex Nothing) (Nothing,[]) "" s of
+                   Left e  -> fail (show e) -- is this all we can do?
+                   Right x -> appendWord $ CommandSub x
 
+lexDQuotes :: Lexer ()
+lexDQuotes = do char '"'
+                t <- subLexer $ do many $ choice [lexDollar, lexBacktick
+                                                 ,char '\\' >>
+                                                  ((oneOf "$`\\\"" >>= appendChar)
+                                                    <|> appendChar '\\')
+                                                 ,noneOf "\"" >>=  appendChar]
+                                   (es,_) <- getState
+                                   case es of
+                                     Just (Word e) -> return e
+                                     Nothing -> return []
+                                     _ -> fail "Got something other than a word"
+                char '"'
+                appendWord $ DQuotes $ reverse t
+
+lexArithmetic :: Lexer ()
+lexArithmetic = fail "not yet supported"
+
+runLexer :: String -> Maybe [Token]
+runLexer s = case runParser (lex Nothing) (Nothing,[]) "" s of
+               Left _  -> Nothing
+               Right x -> Just x
 \end{code}
