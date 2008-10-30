@@ -9,7 +9,7 @@ module System.Console.ShSh.Lexer ( Token(..), runLexer ) where
 
 import Control.Monad ( when )
 import Data.Maybe ( isJust, fromJust )
-import Data.Monoid ( Monoid, mappend )
+import Data.Monoid ( Monoid, mappend, mconcat )
 
 import Prelude hiding ( lex )
 import Text.ParserCombinators.Parsec (
@@ -247,8 +247,21 @@ lexDQuotes = do char '"'
                 char '"'
                 appendWord $ DQuotes $ reverse t
 
+one :: Functor f => f a -> f [a]
+one = fmap (take 1 . repeat)
+cat :: (Monoid a,Functor f) => f [a] -> f a
+cat = fmap mconcat
+
+parens :: Lexer String
+parens = one (char '(') +++ cat (many parens) +++ one (char ')') 
+         <|> many1 (noneOf "()")
+
 lexArithmetic :: Lexer ()
-lexArithmetic = fail "not yet supported"
+lexArithmetic = do s <- cat (many parens) +++ closeArith
+                   appendWord $ ArithExp s
+    where closeArith = do char ')' -- first unmatched rparen...
+                          ((char ')' >> return "") <|> -- suppress "))" output
+                           return ")" +++ one anyChar +++ closeArith)
 
 runLexer :: String -> Maybe [Token]
 runLexer s = case runParser (lex Nothing) (Nothing,[]) "" s of
