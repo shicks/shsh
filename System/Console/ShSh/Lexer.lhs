@@ -155,5 +155,41 @@ data LexState = LexState { lexMode :: [LexMode],
 
 lex :: String -> Maybe ([Token],String)
 
+-- State: current tok, terminating tokens (paren depth), output so far
+type TokParser = CharParser (Maybe Token,[Char],[Token])
+
+tokenize_ :: TokParser ()
+tokenize_ = do (t,d,ts) <- getState
+               when (isJust t) $ putState (Nothing,d,fromJust t:ts)
+
+tokenize :: Token -> TokParser ()
+tokenize t' = do (t,d,ts) <- getState
+                 putState (t,d,t':ts)
+
+done :: TokParser [Token]
+done = do (_,_,ts) <- getState
+          return $ reverse ts
+
+setTok :: Token -> TokParser ()
+setTok t = do (Nothing,d,ts) <- getState
+              putState (Just t,d,ts)
+
+lex :: TokParser [Token]
+lex = do (curTok,depth) <- getState
+         (    do eof
+                 case curTok of
+                   Nothing -> tokenize EOF >> done
+                   Just t  -> tokenize_ >> done
+          <|> do Oper op <- curTok
+                 continueOperator op
+          <|> (char '\\' >> lexBlackslash)
+          <|> (char '"' >> lexDoubleQuotes)
+          <|> (char '\'' >> lexSingleQuotes)
+          <|> (char '$' >> lexDollar)
+          <|> (char '`' >> lexBacktick)
+          <|> do o <- oneOf "<>|&;"
+                 tokenize_
+                 let op = fromJust $ toOperator o
+                 setTok $ Oper op
 
 \end{code}
