@@ -15,6 +15,7 @@ configure = do version true_version
                replace "@VERSION@" true_version
                createFile "System/Console/ShSh/Constants.lhs"
 
-buildable = executable "shsh" "shsh.lhs" []
+buildable = do executable "shsh" "shsh.lhs" []
+               executable "testlex" "testlex.hs" []
 
 main = build [] configure buildable

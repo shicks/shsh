@@ -2,6 +2,10 @@ import Control.Monad ( when )
 import System.Exit ( exitWith, ExitCode(..) )
 import System.IO ( hIsEOF, stdin, hFlush, stdout )
 import System.Console.ShSh.Lexer ( runLexer )
+import System.Console.ShSh.Expansions ( expansions )
+
+import System.Console.ShSh.Shell ( Shell, startShell )
+import System.Console.ShSh.IO ( oPutStrLn )
 
 loop pre = do let prompt = if null pre then "$ " else "> "
               putStr prompt >> hFlush stdout
@@ -10,7 +14,11 @@ loop pre = do let prompt = if null pre then "$ " else "> "
                      else do x <- getLine
                              let l = runLexer (pre++x)
                              case l of
-                               Just ts -> print ts >> hFlush stdout >> loop ""
+                               Just ts -> process ts >> hFlush stdout >> loop ""
                                Nothing -> loop (pre++x++"\n")
+
+process ts = do putStrLn $ "After Lexing: "++show ts
+                startShell $ do ts' <- expansions ts
+                                oPutStrLn $ "After Expand: "++show ts'
 
 main = loop ""

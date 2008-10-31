@@ -1,7 +1,6 @@
 \chapter{Expansions module}
 
-Here is where we do some expansions.  Particularly, we just substitute
-environment variables and \verb|~|.
+Here is where we do the various expansions.
 
 \begin{code}
 
@@ -10,12 +9,18 @@ module System.Console.ShSh.Expansions ( expansions ) where
 import System.Console.ShSh.Lexer ( Token(..), Operator(..), EString(..),
                                    runLexer )
 
+import Control.Monad.Trans ( lift )
+
 import Data.Char ( isAlphaNum )
 import Data.List ( takeWhile, dropWhile )
+import Data.Maybe ( fromMaybe )
+import Data.Monoid ( Monoid, mappend )
 
-import Text.Parsec ( ParsecT, parse, (<|>) )
+import Text.Parsec ( ParsecT, runParserT, (<|>),
+                     choice, try, many, many1, eof,
+                     string, char, anyChar, letter, alphaNum, oneOf, digit )
 
-import System.Console.ShSh.Shell ( Shell, getEnv, tryEnv )
+import System.Console.ShSh.Shell ( Shell, setEnv, getEnv )
 
 -- |This is the main function.  Every expansion we do only acts on
 -- words, so we single them out and move on otherwise.  And we make
@@ -23,8 +28,15 @@ import System.Console.ShSh.Shell ( Shell, getEnv, tryEnv )
 expansions :: [Token] -> Shell [Token] -- manual threading -> error prone
 expansions (Word x:ts) = do t1 <- tildeExpansion $ catLiterals x
                             ts2 <- parameterExpansion t1
-                            fmap (ts2++) $ expansions ts
+                            fmap (Word ts2:) $ expansions ts
 expansions (t:ts) = fmap (t:) $ expansions ts
+expansions [] = return []
+
+splitAtChar :: Eq a => a -> [a] -> ([a],[a])
+splitAtChar c' (c:cs) | c==c'     = ([],cs)
+                      | otherwise = let (f,s) = splitAtChar c' cs
+                                    in  (c:f,s)
+splitAtChar _ []  = ([],[])
 
 -- |The first step in expansion is tilde expansion, so we define that
 -- here.  Note that there is a discrepancy between bash and sh here, which
@@ -34,121 +46,126 @@ expansions (t:ts) = fmap (t:) $ expansions ts
 -- want to look for /unquoted/ '=' in a command name...)
 tildeExpansion :: [EString] -> Shell [EString]
 tildeExpansion x@(Literal ('~':rest):es)
-    | '/' `elem` rest = do let (name,path) = splitAt '/' rest
-                           dir <- homedir name
+    | '/' `elem` rest = do let (user,path) = splitAtChar '/' rest
+                           dir <- homedir user
                            return $ Literal (dir++"/"++path):es
-    | null es         = homedir name
-    | otherwise       = x
+    | null es         = do dir <- homedir rest
+                           return $ [Literal dir]
+tildeExpansion x = return x -- everybody else...
 
 homedir :: String -> Shell String
 homedir "" = getEnv "HOME"
-homedir user = undefined -- for now
+homedir user = return $ "/fakehome/"++user -- for now
 
-parameterExpansion :: [Token] -> Shell [Token]
-parameterExpansion (Word xs:ts) = pExpand False xs:parameterExpansion ts
-parameterExpansion (t:ts) = t:parameterExpansion ts
-
-pExpand :: [EString] -> Shell [EString]
-pExpand = catLiterals `fmap` mapM expandOne
+parameterExpansion :: [EString] -> Shell [EString]
+parameterExpansion (x:ts) = do this <- expandOne False x
+                               fmap (this++) $ parameterExpansion ts
+parameterExpansion [] = return []
 
 catLiterals :: [EString] -> [EString]
 catLiterals (Literal x:Literal y:xs) = catLiterals $ Literal (x++y):xs
-catLiterals (Quoted x:Quoted y:xs) = catLiterals $ Quoted (x++y):xs
-catLiterals (Quoted x:xs) = Quoted (catLiterals x):catLiterals xs
+catLiterals (Quoted (Literal x):Quoted (Literal y):xs)
+    = catLiterals $ Quoted (Literal (x++y)):xs
 catLiterals (x:xs) = x:catLiterals xs
+catLiterals [] = []
 
--- Bool is whether we're quoted or not...
-expandOne :: Bool -> EString -> Shell EString
-expandOne _ (Literal s) = return $ Literal s
-expandOne _ (Quoted s) = return $ Quoted (pExpand True s)
-expandOne q (ParamExp s) = case parse (anExpansion q) "" s of
-                             Left  e -> fail e
-                             Right x -> undefined -- I had tokens...?
-expandOne _ s = s -- Command sub and arithmetic go later..
+-- |Simple one-deep quoting...
+mapQuote :: Bool -> [EString] -> [EString]
+mapQuote True = map Quoted
+mapQuote False = id
+
+-- Bool is whether we're quoted or not... - no depth any more...
+expandOne :: Bool -> EString -> Shell [EString]
+expandOne q (Literal s) = return $ mapQuote q [Literal s]
+expandOne _ (Quoted s) = expandOne True s -- only effect of quotes now
+expandOne q (ParamExp s) = do result <- runParserT (parseExp q) () "" s
+                              case result of 
+                                Left  e -> fail $ show e
+                                Right x -> return x
+expandOne q s = return $ mapQuote q [s] -- Command sub and arithmetic go later..
 
 -- |expandVar takes quoting and the colon into consideration...!
-expandVar :: Bool -> Bool -> String -> Shell (Maybe [Token])
-expandVar quoted colon var = undefined
+-- It returns @Nothing@ when the variable is undefined, or when it's
+-- null and the colon is set.
 
-removeEOF :: [Token] -> [Token]
-removeEOF = mapMaybe f
-    where f EOF = Nothing
-          f x = Just x
-
-alt :: String -> Maybe [Token] -> ShellT e [Token]
-alt _ (Just t) = t
-alt s Nothing  = do mts <- runLexer s
-                    case mts of
-                      Just ts -> return $ removeEOF ts
-                      Nothing -> fail "couldn't parse substitution text"
+-- What difference does this make?  (does what make?)
+-- This doesn't do much of anything special just yet...
+expandVar :: Bool -> Bool -> String -> Shell (Maybe [EString])
+expandVar quoted colon var = do mval <- getEnv var
+                                case mval of
+                                  Nothing -> return Nothing
+                                  Just "" -> if colon
+                                             then return Nothing
+                                             else return $ Just [q $ Literal ""]
+                                  Just x  -> return $ Just [q $ Literal x]
+    where q = if quoted then Quoted else id
 
 -- |Here is a parser for expansions.  We may need to specify e=Bool so that
 -- we can keep track of whether or not we're quoted and behave accordingly...
-type ExpansionParser = ParsecT () Char ShellP
-
-literal :: String -> [Token]
-literal s = [Word $ Literal s]
+type ExpansionParser = ParsecT String () Shell
 
 maybeColon :: String -> ExpansionParser Bool
-maybeColon s = choice [try string (':':s) >> return True
+maybeColon s = choice [try $ string (':':s) >> return True
                       ,string s >> return False]
 
-anExpansion :: Bool -> ExpansionParser [Token]
-anExpansion q = choice [do char '#' -- get length of var
-                           var <- name <|> special
-                           eof
-                           lift $ fmap (literal . show . length . fromMaybe "") $
-                                       getEnv var
-                       ,do var <- name <|> special
-                           choice [do eof
-                                      lift $ alt "" =<< expandVar q False var
-                                  ,do c <- maybeColon "-"
-                                      word <- many anyChar
-                                      lift $ alt word =<< expandVar q c var
-                                  ,do c <- maybeColon "="
-                                      word <- many anyChar
-                                      e <- lift $ expandVar q c var
-                                      case e of
-                                        Just ts -> return ts
-                                        Nothing -> lift $ do setVar var word
-                                                             alt word Nothing
-                                  ,do c <- maybeColon "?"
-                                      msg <- many anyChar
-                                      e <- lift $ expandVar q c var
-                                      case e of
-                                        Just ts -> return ts
-                                        Nothing -> fail $ errMsg c var msg
-                                  ,do c <- maybeColon "+"
-                                      word <- many anyChar
-                                      e <- lift $ expandVar q c var
-                                      case e of
-                                        Just ts -> alt word Nothing
-                                        Nothing -> []
-                                  ]
-                       ]
+-- |These are copied from Lexer, but we're currently using a different
+-- type of parser.  We can unify at some point.
+name :: Monad m => ParsecT String u m String
+name = many1 (letter <|> char '_') +++ many (alphaNum <|> char '_')
 
-doExpansion :: String -> Shell [Token]
-doExpansion text = undefined -- run the parser!
+special :: Monad m => ParsecT String u m String
+special = do c <- oneOf "*@#?-$!" <|> digit -- positional parameters too...
+             return [c]
+
+infixl 3 +++
+(+++) :: (Monad m,Monoid w) => ParsecT s u m w -> ParsecT s u m w 
+      -> ParsecT s u m w
+a +++ b = do w <- a
+             w' <- b
+             return $ w `mappend` w'
+
+parseExp :: Bool -> ExpansionParser [EString]
+parseExp q = choice [do char '#' -- get length of var
+                        var <- name <|> special
+                        eof
+                        lift $ fmap (literal . show . length .
+                                     fromMaybe "") $ getEnv var
+                    ,do var <- name <|> special
+                        choice [do eof
+                                   lift $ (alt "") `fmap` expandVar q False var
+                               ,do c <- maybeColon "-"
+                                   word <- many anyChar
+                                   lift $ (alt word) `fmap` expandVar q c var
+                               ,do c <- maybeColon "="
+                                   word <- many anyChar
+                                   e <- lift $ expandVar q c var
+                                   case e of
+                                     Just ts -> return ts
+                                     Nothing -> lift $ do setEnv var word
+                                                          return $ literal word
+                               ,do c <- maybeColon "?"
+                                   msg <- many anyChar
+                                   e <- lift $ expandVar q c var
+                                   case e of
+                                     Just ts -> return ts
+                                     Nothing -> fail $ errMsg c var msg
+                               ,do c <- maybeColon "+"
+                                   word <- many anyChar
+                                   e <- lift $ expandVar q c var
+                                   case e of
+                                     Just ts -> return $ literal word
+                                     Nothing -> return $ []
+                               ]
+                    ]
+    where literal :: String -> [EString]
+          literal s = if q then [Quoted $ Literal s] else [Literal s]
+          alt :: String -> Maybe [EString] -> [EString]
+          alt = fromMaybe . literal
+          errMsg :: Bool -> String -> String -> String
+          errMsg c var [] = var++": parameter "++nullor++"not set"
+              where nullor = if c then "null or " else ""
+          errMsg _ _ s = s
 
 
-
-
-
-(~||~) f g a = (f a) || (g a)
-
-se s "" = return s
-se s ('#':cs) = return s -- cheap way to do comments...
-se s ('~':cs) = do mh <- getEnv "HOME"
-                   case mh of
-                     Just h  -> se (s++h) cs
-                     Nothing -> se (s++"~") cs
-se s ('$':cs) = do let var = takeWhile (isAlphaNum ~||~ (=='_')) cs
-                       rest = dropWhile (isAlphaNum ~||~ (=='_')) cs
-                       (var',rest') = if null var
-                                      then (take 1 rest,drop 1 rest)
-                                      else (var,rest)
-                   v <- getEnv var
-                   se (s++v) rest'
-se s (c:cs) = se (s++[c]) cs
 
 \end{code}

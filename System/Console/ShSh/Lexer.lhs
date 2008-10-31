@@ -84,9 +84,15 @@ data Token = Word [EString] | Oper Operator | Newline | EOF
 --   echo "$A" # prints '*'
 -- So while expanding variables (and literals) we identify glob tokens
 -- (and other things), and inside Quoted, we just make the globs literal...
-data EString = Literal String | Quoted [EString] | ParamExp String
+data EString = Literal String | ParamExp String
              | CommandSub [Token] | ArithExp String
+             | Quoted EString
            deriving ( Show )
+
+-- ^For a while I thought about having a separate @TokenDelimiter@
+-- constructor, but since all spaces need to be quoted anyway, it
+-- seems like we can take a separate step to split at any unquoted
+-- spaces...
 
 -- |State: current tok, output so far
 type Lexer = CharParser (Maybe Token,[Token])
@@ -167,7 +173,7 @@ lex d = do tok <- curTok
                            _ -> fail ""
                   ,do char '\\'    -- The Quoted here is important for e.g.
                       c <- anyChar -- alias expansion, globbing, etc.
-                      when (c/='\n') $ appendWord $ Quoted $ [Literal [c]]
+                      when (c/='\n') $ appendWord $ Quoted $ Literal [c]
                       lex d
                   ,lexQuoted >> lex d
                   ,do char '\''
@@ -246,7 +252,7 @@ lexQuoted = do char '"'
                                     Nothing -> return []
                                     _ -> fail "Got something other than a word"
                char '"'
-               appendWord $ Quoted $ reverse t
+               mapM_ (appendWord . Quoted) $ reverse t
 
 one :: Functor f => f a -> f [a]
 one = fmap (take 1 . repeat)
