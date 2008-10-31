@@ -6,7 +6,7 @@ module System.Console.ShSh.EventLoop ( eventLoop, sourceProfile, source )
     where
 
 import System.Console.ShSh.Command ( process )
-import System.Console.ShSh.Expansions ( shellExpansions )
+-- import System.Console.ShSh.Expansions ( shellExpansions )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr )
 import System.Console.ShSh.Parse ( parseLine, Command(..) )
 import System.Console.ShSh.Shell ( Shell, getEnv, getFlag, withHandler )
@@ -46,8 +46,8 @@ eventLoop h = do
                   am_v <- getFlag 'v'
                   if am_v then ePutStrLn s
                           else return ()
-                  s' <- shellExpansions s
-                  code <- case parseLine s' of -- Later, add more to s' (PS2)
+--                  s' <- shellExpansions s
+                  code <- case parseLine s of -- Later, add more to s' (PS2)
                             Left e -> do ePutStrLn e
                                          return $ ExitFailure 1 -- ????
                             Right cmd -> process cmd
