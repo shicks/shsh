@@ -252,7 +252,9 @@ lexQuoted = do char '"'
                                     Nothing -> return []
                                     _ -> fail "Got something other than a word"
                char '"'
-               mapM_ (appendWord . Quoted) $ reverse t
+               if null t
+                  then appendWord (Quoted $ Literal "")
+                  else mapM_ (appendWord . Quoted) $ reverse t
 
 one :: Functor f => f a -> f [a]
 one = fmap (take 1 . repeat)

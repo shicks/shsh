@@ -27,12 +27,16 @@ import System.Console.ShSh.ShellError ( throw )
 -- |This is the main function.  Every expansion we do only acts on
 -- words, so we single them out and move on otherwise.  And we make
 -- sure to do them in the correct order.
-expansions :: [Token] -> Shell [Token] -- manual threading -> error prone
-expansions (Word x:ts) = do t1 <- tildeExpansion $ catLiterals x
-                            ts2 <- parameterExpansion t1
-                            fmap (Word ts2:) $ expansions ts
-expansions (t:ts) = fmap (t:) $ expansions ts
-expansions [] = return []
+expansions :: [Token] -> Shell [Token]
+expansions t = do t' <- expansions' t
+                  return $ clean $ retokenize t' -- retokenze at the end!
+
+expansions' :: [Token] -> Shell [Token] -- manual threading -> error prone
+expansions' (Word x:ts) = do t1 <- tildeExpansion $ catLiterals x
+                             ts2 <- parameterExpansion t1
+                             fmap (Word ts2:) $ expansions ts
+expansions' (t:ts) = fmap (t:) $ expansions ts
+expansions' [] = return []
 
 splitAtChar :: Eq a => a -> [a] -> ([a],[a])
 splitAtChar c' (c:cs) | c==c'     = ([],cs)
@@ -65,12 +69,20 @@ parameterExpansion (x:ts) = do this <- expandOne False x
                                fmap (this++) $ parameterExpansion ts
 parameterExpansion [] = return []
 
+-- |@catLiterals@ simply combines any neighboring literal expressions.
 catLiterals :: [EString] -> [EString]
 catLiterals (Literal x:Literal y:xs) = catLiterals $ Literal (x++y):xs
 catLiterals (Quoted (Literal x):Quoted (Literal y):xs)
     = catLiterals $ Quoted (Literal (x++y)):xs
 catLiterals (x:xs) = x:catLiterals xs
 catLiterals [] = []
+
+-- |@removeNulls@ removes any empty literals from the list.
+removeNulls :: [EString] -> [EString]
+removeNulls (Literal "":xs) = removeNulls xs
+removeNulls (Quoted (Literal ""):xs) = removeNulls xs
+removeNulls (x:xs) = x:removeNulls xs
+removeNulls [] = []
 
 -- |Simple one-deep quoting...
 mapQuote :: Bool -> [EString] -> [EString]
@@ -170,5 +182,33 @@ parseExp q = choice [do char '#' -- get length of var
           errMsg _ _ s = throw s
 
 
+-- |Various expansions have messed up our tokenization by inserting spaces
+-- here and there.  We now need to retokenize by scanning all the un@Quoted@
+-- @Literal@s for whitespace and breaking them apart.
+retokenize :: [Token] -> [Token]
+retokenize = concat . map retok
+    where retok :: Token -> [Token]
+          retok (Word xs) = let (front,back) = split xs
+                            in (Word front):if null back
+                                               then []
+                                               else retok $ Word back
+          retok x = [x]
+          split :: [EString] -> ([EString],[EString])
+          split (Literal x:xs) | ' ' `elem` x
+                                   = let (front,back) = splitAtChar ' ' x
+                                         back' = dropWhile (==' ') back
+                                     in ([Literal front],Literal back':xs)
+          split (x:xs) = let (front,back) = split xs
+                         in (x:front,back)
+          split [] = ([],[])
+
+-- |We also need functions to clean up messes left by these sorts of
+-- retokenize operations.  @clean@ goes through and removes empty literals
+-- and concatenates neighboring literals.  We use 'catLiterals' and
+-- 'removeNulls' from above, but generalize to @[Token]@ instead.
+clean :: [Token] -> [Token]
+clean = map cl
+    where cl (Word x) = Word $ catLiterals $ removeNulls x
+          cl x = x
 
 \end{code}
