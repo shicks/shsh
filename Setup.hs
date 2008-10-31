@@ -12,10 +12,20 @@ configure = do version true_version
                withModuleExporting "System.Process" "createProcess, shell"
                    "createProcess (shell \"echo 1\") >> return ()" $
                    define "HAVE_CREATEPROCESS"
+               tryHeader "pwd.h" (define "HAVE_PWD") -- test function?!
+                         "tilde expansion will not work fully."
                replace "@VERSION@" true_version
                createFile "System/Console/ShSh/Constants.lhs"
 
-buildable = do executable "shsh" "shsh.lhs" []
-               executable "testlex" "testlex.hs" []
+buildable = do have_pwd <- isDefined "HAVE_PWD"
+               let cfiles = if have_pwd then ["hspwd.c"]
+                                        else []
+                   cfiles' = map ("System/Console/ShSh/Foreign/"++) cfiles
+               executable "shsh" "shsh.lhs" cfiles'
+               executable "testlex" "testlex.hs" cfiles'
 
 main = build [] configure buildable
+
+tryHeader h job warn = (checkHeader h >> putS ("found header "++h) >> job)
+                       `catchC` \_ -> putS ("failed to find working "++h++": "
+                                            ++warn)

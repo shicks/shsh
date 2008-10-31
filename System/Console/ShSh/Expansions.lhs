@@ -9,7 +9,7 @@ module System.Console.ShSh.Expansions ( expansions ) where
 import System.Console.ShSh.Lexer ( Token(..), Operator(..), EString(..),
                                    runLexer )
 
-import Control.Monad.Trans ( lift )
+import Control.Monad.Trans ( lift, liftIO )
 
 import Data.Char ( isAlphaNum )
 import Data.List ( takeWhile, dropWhile )
@@ -20,6 +20,7 @@ import Text.Parsec ( ParsecT, runParserT, (<|>),
                      choice, try, many, many1, eof,
                      string, char, anyChar, letter, alphaNum, oneOf, digit )
 
+import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
 import System.Console.ShSh.Shell ( Shell, setEnv, getEnv )
 
 -- |This is the main function.  Every expansion we do only acts on
@@ -55,7 +56,8 @@ tildeExpansion x = return x -- everybody else...
 
 homedir :: String -> Shell String
 homedir "" = getEnv "HOME"
-homedir user = return $ "/fakehome/"++user -- for now
+--homedir user = return $ "/fakehome/"++user -- for now
+homedir user = liftIO $ fromMaybe ("~"++user) `fmap` getHomeDir user
 
 parameterExpansion :: [EString] -> Shell [EString]
 parameterExpansion (x:ts) = do this <- expandOne False x
