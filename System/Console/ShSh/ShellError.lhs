@@ -5,7 +5,7 @@ We'll isolate some of this stuff, since it's pretty independent.
 \begin{code}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleContexts #-}
 module System.Console.ShSh.ShellError ( ShellError, isFailure,
-                                        exit, exitCode,
+                                        throw, exit, exitCode,
                                         rethrow, catchS,
                                         announceError,
                                         prefixError, withPrefix
@@ -46,6 +46,9 @@ rethrow e = throwError e
 exit :: MonadError ShellError m => Int -> m a
 exit 0 = throwError $ ShellError ExitSuccess ""
 exit n = throwError $ ShellError (ExitFailure n) ""
+
+throw :: MonadError ShellError m => String -> m a
+throw s = throwError $ ShellError (ExitFailure 1) s
 
 exitCode :: ShellError -> ExitCode
 exitCode (ShellError e _) = e

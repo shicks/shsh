@@ -22,6 +22,7 @@ import Text.Parsec ( ParsecT, runParserT, (<|>),
 
 import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
 import System.Console.ShSh.Shell ( Shell, setEnv, getEnv )
+import System.Console.ShSh.ShellError ( throw )
 
 -- |This is the main function.  Every expansion we do only acts on
 -- words, so we single them out and move on otherwise.  And we make
@@ -82,7 +83,7 @@ expandOne q (Literal s) = return $ mapQuote q [Literal s]
 expandOne _ (Quoted s) = expandOne True s -- only effect of quotes now
 expandOne q (ParamExp s) = do result <- runParserT (parseExp q) () "" s
                               case result of 
-                                Left  e -> fail $ show e
+                                Left  e -> fail $ show e -- doesn't happen?
                                 Right x -> return x
 expandOne q s = return $ mapQuote q [s] -- Command sub and arithmetic go later..
 
@@ -150,7 +151,7 @@ parseExp q = choice [do char '#' -- get length of var
                                    e <- lift $ expandVar q c var
                                    case e of
                                      Just ts -> return ts
-                                     Nothing -> fail $ errMsg c var msg
+                                     Nothing -> errMsg c var msg
                                ,do c <- maybeColon "+"
                                    word <- many anyChar
                                    e <- lift $ expandVar q c var
@@ -163,10 +164,10 @@ parseExp q = choice [do char '#' -- get length of var
           literal s = if q then [Quoted $ Literal s] else [Literal s]
           alt :: String -> Maybe [EString] -> [EString]
           alt = fromMaybe . literal
-          errMsg :: Bool -> String -> String -> String
-          errMsg c var [] = var++": parameter "++nullor++"not set"
+          errMsg :: Bool -> String -> String -> ExpansionParser a
+          errMsg c var [] = throw $ var++": parameter "++nullor++"not set"
               where nullor = if c then "null or " else ""
-          errMsg _ _ s = s
+          errMsg _ _ s = throw s
 
 
 
