@@ -273,19 +273,26 @@ pipeShells source dest = do
 convertState :: ShellState e -> e' -> ShellState e'
 convertState (ShellState e a f p _) x = ShellState e a f p x
 
-withSubState' :: (ShellError -> ShellError) -> ShellT e a -> e -> Shell a
+-- |This is the main worker function for working in a substate.
+withSubState' :: (ShellError -> ShellError) -- ^an error processor
+              -> ShellT e a                 -- ^a computation
+              -> e                          -- ^an initial state
+              -> ShellT e' a
 withSubState' f (Shell sub) e = Shell $ do
   s <- get
+  let saveExtra = extra s
   (result,s') <- liftIO $ runStateT (runErrorT sub) $ convertState s e
   case result of
-    Right a  -> do put $ convertState s' ()
+    Right a  -> do put $ convertState s' saveExtra
                    return a
-    Left err -> throwError $ f err
+    Left err -> throwError $ f err -- apply the processor and rethrow
 
-withSubState :: ShellT e a -> e -> Shell a
+-- |This uses the identity as the error processor.
+withSubState :: ShellT e a -> e -> ShellT e' a
 withSubState = withSubState' id
 
-withSubStateCalled :: String -> ShellT e a -> e -> Shell a
+-- |This prefixes errors with a @String@ and is provided for convenience.
+withSubStateCalled :: String -> ShellT e a -> e -> ShellT e' a
 withSubStateCalled name = withSubState' $ prefixError name
 
 {-

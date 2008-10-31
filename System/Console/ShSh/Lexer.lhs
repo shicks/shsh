@@ -5,7 +5,8 @@ parsing, and is where we stop if we need to ask for another line of input.
 
 \begin{code}
 
-module System.Console.ShSh.Lexer ( Token(..), runLexer ) where
+module System.Console.ShSh.Lexer ( Token(..), Operator(..), EString(..),
+                                   runLexer ) where
 
 import Control.Monad ( when )
 import Data.Maybe ( isJust, fromJust )
@@ -82,8 +83,8 @@ data Token = Word [EString] | Oper Operator | Newline | EOF
 --   echo $A # prints list of files
 --   echo "$A" # prints '*'
 -- So while expanding variables (and literals) we identify glob tokens
--- (and other things), and inside DQuotes, we just make the globs literal...
-data EString = Literal String | DQuotes [EString] | ParamExp String
+-- (and other things), and inside Quoted, we just make the globs literal...
+data EString = Literal String | Quoted [EString] | ParamExp String
              | CommandSub [Token] | ArithExp String
            deriving ( Show )
 
@@ -164,11 +165,11 @@ lex d = do tok <- curTok
                                     Nothing  -> delimit_ >> fail "" -- refail
                                   lex d             -- (or we could put back)
                            _ -> fail ""
-                  ,do char '\\'
-                      c <- anyChar
-                      when (c/='\n') $ appendChar c
+                  ,do char '\\'    -- The Quoted here is important for e.g.
+                      c <- anyChar -- alias expansion, globbing, etc.
+                      when (c/='\n') $ appendWord $ Quoted $ [Literal [c]]
                       lex d
-                  ,lexDQuotes >> lex d
+                  ,lexQuoted >> lex d
                   ,do char '\''
                       s <- many $ noneOf "'"
                       char '\''
@@ -232,20 +233,20 @@ lexBacktick = do char '`'
                    Left e  -> fail (show e) -- is this all we can do?
                    Right x -> appendWord $ CommandSub x
 
-lexDQuotes :: Lexer ()
-lexDQuotes = do char '"'
-                t <- subLexer $ do many $ choice [lexDollar, lexBacktick
-                                                 ,char '\\' >>
-                                                  ((oneOf "$`\\\"" >>= appendChar)
-                                                    <|> appendChar '\\')
-                                                 ,noneOf "\"" >>= appendChar]
-                                   (es,_) <- getState
-                                   case es of
-                                     Just (Word e) -> return e
-                                     Nothing -> return []
-                                     _ -> fail "Got something other than a word"
-                char '"'
-                appendWord $ DQuotes $ reverse t
+lexQuoted :: Lexer ()
+lexQuoted = do char '"'
+               t <- subLexer $ do many $ choice [lexDollar, lexBacktick
+                                                ,char '\\' >>
+                                                 ((oneOf "$`\\\"" >>= appendChar)
+                                                   <|> appendChar '\\')
+                                                ,noneOf "\"" >>= appendChar]
+                                  (es,_) <- getState
+                                  case es of
+                                    Just (Word e) -> return e
+                                    Nothing -> return []
+                                    _ -> fail "Got something other than a word"
+               char '"'
+               appendWord $ Quoted $ reverse t
 
 one :: Functor f => f a -> f [a]
 one = fmap (take 1 . repeat)
