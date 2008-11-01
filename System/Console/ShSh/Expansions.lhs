@@ -139,6 +139,27 @@ a +++ b = do w <- a
              w' <- b
              return $ w `mappend` w'
 
+-- |This is where the parsing actually takes place.  We still have a small
+-- problem: the substitution texts (i.e. "word") are regarded as /literals/,
+-- but real shell allows actual 'Token's.  I see several possible solutions:
+--  (1) Move this parsing into the lexer.  This is messy.
+--  (2) Make the lexer give us back whole @Token@s here.  This will likely
+--      require us to do some silliness breaking the tokens back into literals
+--      and then parsing on the literals.
+--  (3) Re-lex the literals.  This would absolutely require re-escaping any
+--      dangerous characters, and would work easiest if we added an artificial
+--      constructor to 'EString' to store arbitrary @[Token]@.  We'd then
+--      run a function on the output to break the @Token@s out of the
+--      @EString@s, before running the command substitution.
+-- This may all be a moot point.  Apparently I've been removing my
+-- quotes (single, double, and escapes) too early anyway, and I don't
+-- understand the distinction between tokenization and field
+-- separation...  Apparently we need to do these in /parallel/ anyway!
+-- eek.  Also, [[:blank:]] = [ \t] apparently.  And we should match
+-- newline with \n, \r, \n\r, and \r\n for maximum portability.
+-- Experiments show that syntax errors come before substitutions, but
+-- that the substitutions are non-atomic - a future subs error doesn't
+-- wipe out an earlier ${A=} sub.
 parseExp :: Bool -> ExpansionParser [EString]
 parseExp q = choice [do char '#' -- get length of var
                         var <- name <|> special
