@@ -9,7 +9,7 @@ parsing, and is where we stop if we need to ask for another line of input.
 
 module System.Console.ShSh.Lexer where
 
-import Control.Monad ( when )
+import Control.Monad ( when, unless )
 import Data.Maybe ( isJust, fromJust, listToMaybe )
 import Data.Monoid ( Monoid, mappend, mconcat )
 
@@ -19,24 +19,35 @@ import Prelude hiding ( lex, last )
 import Text.ParserCombinators.Parsec (
                      Parser, CharParser, GenParser, parse, runParser,
                      getState, setState,
-                     choice, try, (<|>),
-                     many1, many, eof, lookAhead,
+                     choice, try, (<|>), (<?>),
+                     skipMany, many1, many, eof, lookAhead,
                      char, letter, alphaNum, digit,
                      oneOf, noneOf, anyChar )
 
 import System.Console.ShSh.Operator ( Operator(..), toOperator )
 
-data Lexeme = Delimiter         -- ^spaces/tabs
-            | Quote Char        -- ^we need to retain the quote chars
+data Lexeme = Quote Char        -- ^we need to retain the quote chars
             | Literal Char      -- ^a letter
             | Quoted Lexeme     -- ^a quoted letter (or other thing)
-            | Oper Operator     -- ^basic operator
             | ParamExp [Lexeme] -- ^parameter expansion $... and ${...}
-            | Command [Lexeme]  -- ^command substitution `...` and $(...)
+            | Command [Token]   -- ^command substitution `...` and $(...)
             | ArithExp String   -- ^arithmetic expansion
-            | Newline           -- ^simple enough...
-            | EOF               -- ^what does this do?
             deriving ( Eq, Show )
+
+data Token = Word [Lexeme]        -- ^several lexemes make up a word
+           | IONum Int            -- ^digits before @<@ or @>@
+           | Oper Operator        -- ^operator (split into redir/cont?)
+           | Newline              -- ^simple enough...
+           | EOF                  -- ^what does this do?
+           -- That's all we do in this module...
+           | ReservedWord String  -- ^eventually we'll turn them into this
+           | Separator Operator   -- ^@;@ or @&@
+           | SubShell [Token]     -- ^pre-grouping...?
+           | SimpleCommand [Token]
+           | Pipeline [Token]     -- ^token list for each command
+           | AndOrList [Token]    -- ^build up hierarchical structure...
+           deriving ( Eq, Show )
+-- We might need to add others here...?
 
 -- when parsing `...`, we first slurp everything up into a String,
 -- quoting \\, \`, and \$ into \, `, $, and leavinf all other \ alone...
@@ -45,20 +56,8 @@ data Lexeme = Delimiter         -- ^spaces/tabs
 -- First pass: classify characters as quoted or not, spaces as
 -- delimiters or not (grouped), and identify candidates for expansion.
 
--- This could possibly go into a separate Lister module...
-data CmdList = Simple [Lexeme]
-             | SubShell CmdList
-             | CmdList :||: CmdList
-             | CmdList :&&: CmdList
-             | CmdList :>>: CmdList -- what about terminal ;?
-             | CmdList :>>>: CmdList -- terminal \n?
-             | CmdList :&: CmdList
-             | CmdList :|: CmdList
 
--- Second pass: group lists - note that control structures make use
--- of ; and \n, etc, so we can't go too crazy with the above... maybe
--- merge them together?  Get rid of the Untokenized constructor, and
--- as soon as we start a new CmdList, check for aliases, etc...
+
 
 -- We need to wait until we know we need to run the branch to even
 -- try to parse the lexemes into tokens, since false && ${B$} doesn't
@@ -66,15 +65,6 @@ data CmdList = Simple [Lexeme]
 -- interpret the expansions till we actually need to do them!  But then
 -- we never need to bother storing the tokens in the AST...
 
--- This will probably go into the separate parser module...
-data Token = For   -- these need data...?
-           | While
-           | Case
-           | If    -- ...
-           | Redirection Redir
-           | Word String
-           | CommandTok String
-           | Assignment String String
 
 -- rudimentary structure for redirections...?
 data InOut = Input | Output | ReadWrite
@@ -85,22 +75,22 @@ data Redir = Redir InOut Target Target
 -- needed...
 
 -- |State: current tok, output so far
-type Lexer = CharParser [Lexeme]
+type Lexer = CharParser ([Lexeme],[Token])
 
-tell :: Lexeme -> Lexer ()
-tell t = getState >>= (setState . (t:))
+store :: Lexeme -> Lexer ()
+store l = getState >>= \(ls,ts) -> setState (l:ls,ts)
 
 -- |Tell a quote
-tellQ :: Char -> Lexer ()
-tellQ = tell . Quote
+storeQ :: Char -> Lexer ()
+storeQ = store . Quote
 
 -- |Tell a literal
-tellL :: Char -> Lexer ()
-tellL = tell . Literal
+storeL :: Char -> Lexer ()
+storeL = store . Literal
 
 -- |Tell a quoted literal
-tellQL :: Char -> Lexer ()
-tellQL = tell . Quoted . Literal
+storeQL :: Char -> Lexer ()
+storeQL = store . Quoted . Literal
 
 -- |Aliases for return True/False
 loop,done :: Lexer Bool
@@ -124,17 +114,34 @@ blank = oneOf " \t" >> return ()
 
 -- |Add a delimiter if there's not already one there...
 delimit :: Lexer ()
-delimit = do ts <- getState
-             case ts of
-               Delimiter:_ -> return ()
-               _ -> setState $ Delimiter:ts
+delimit = do (ls,ts) <- getState
+             unless (null ls) $ setState ([],Word (reverse ls):ts)
+
+delimitIO :: Lexer ()
+delimitIO = do (ls,ts) <- getState
+               unless (null ls) $
+                    setState $ if digits ls
+                               then ([],IONum (read $ reverse $
+                                               map fromLiteral ls):ts)
+                               else ([],Word (reverse ls):ts)
+    where digits [] = True
+          digits (Literal c:xs) = c `elem` "0123456789"
+          fromLiteral (Literal c) = c
+          fromLiteral _ = error "Impossible"
 
 -- |Return the accumulated tokens (in the correct order)
-output :: Lexer [Lexeme]
-output = fmap reverse getState
+output :: Lexer [Token]
+output = fmap (reverse.snd) getState
 
 last :: Lexer (Maybe Lexeme)
-last = fmap listToMaybe getState
+last = fmap (listToMaybe.fst) getState
+
+tell :: Token -> Lexer ()
+tell t = do (ls,ts) <- getState
+            let ts' = t:(if null ls then id else (Word (reverse ls):)) ts
+            setState ([],ts')
+
+
 
 infixl 3 +++
 (+++) :: Monoid w => GenParser i s w -> GenParser i s w -> GenParser i s w
@@ -158,8 +165,8 @@ special :: Stringy s => Lexer s
 special = fmap fromChar $ oneOf "*@#?-$!" <|> digit -- $1, etc, also
 
 -- Here's another attempt...
-lex :: [Lexer Bool] -> Lexer [Lexeme]
-lex m = whileM_ (choice m) >> output
+lex :: [Lexer Bool] -> Lexer [Token]
+lex m = whileM_ (choice m) >> delimit >> output -- this is extra unless no EOF
 
 -- |@lex@ takes a delimiter that it's looking for to stop...
 normalLex :: Maybe Char -> [Lexer Bool]
@@ -171,14 +178,14 @@ normalLex d | isJust d  = endOn (fromJust d):rest
                           newline >> delimit >> tell Newline >> loop,
                           blank >> delimit >> loop,
                           lexComment,
-                          anyChar >>= tellL >> loop]
+                          anyChar >>= storeL >> loop]
 
 lexOperator :: String -> Lexer Bool
 lexOperator x = do o <- oneOf "<>|&;)"
+                   if trace ("lexOperator(x="++x++", o="++[o]++")") o `elem` "<>" then delimitIO else delimit
                    case toOperator $ x++[o] of
                      Just op -> (try $ lexOperator $ x++[o]) <|>
-                                do tell $ Oper $ fromJust $ toOperator x
-                                   delimit -- never have Oper as last tok
+                                do tell $ Oper op
                                    loop
                      Nothing -> fail "" -- unread last char...
 
@@ -189,7 +196,9 @@ lexEOF :: Maybe Char -> Lexer Bool
 lexEOF d = do tok <- last
               eof
               when (isJust d) $ fail $ "expected "++[fromJust d]
-              when (tok == Just Delimiter) $ tell EOF
+              if (isJust tok)
+                 then delimit
+                 else tell EOF
               done
 
 -- |This takes a lexer, either anyChar or oneOf "..."
@@ -197,17 +206,17 @@ lexBackslash :: Lexer Char -> Lexer Bool
 lexBackslash f = do char '\\'
                     choice [newline -- just gobble the \ and the \n
                            ,do c <- f -- fails on line continuation
-                               tellQ '\\'
-                               tellQL c
+                               storeQ '\\'
+                               storeQL c
                            ,eof >> fail "" -- @@@TEST THIS!
-                           ,tellL '\\']
+                           ,storeL '\\']
                     loop
 
 lexSingleQuotes :: Lexer Bool
 lexSingleQuotes = do char '\''
                      s <- many $ noneOf "'"
                      char '\''
-                     tellQ '\'' >> mapM_ tellQL s >> tellQ '\''
+                     storeQ '\'' >> mapM_ storeQL s >> storeQ '\''
                      loop
 
 -- Instead, just make lex be "many $ choice modules" and have modules
@@ -217,7 +226,7 @@ lexSingleQuotes = do char '\''
 
 subLex :: Lexer a -> Lexer a
 subLex job = do s <- getState
-                setState []
+                setState ([],[])
                 res <- job
                 setState s
                 return res
@@ -231,17 +240,17 @@ lexDollar = do char '$'
                                              lexDoubleQuotes,
                                              lexSingleQuotes,
                                              lexDollar, lexBacktick,
-                                             anyChar >>= tellL >> loop]
+                                             anyChar >>= storeL >> loop]
                           char '}'
-                          tell $ ParamExp s
+                          store $ ParamExp $ fromTok s
                       ,do char '('
                           choice [do char '(' -- arithmetic expansion
                                      s <- subLex lexArithmetic
-                                     tell $ ArithExp s
+                                     store $ ArithExp s
                                  ,do t <- subLex $ lex $ normalLex $ Just ')'
                                      char ')'
-                                     tell $ Command t]
-                      ,(name <|> special) >>= (tell . ParamExp)]
+                                     store $ Command t]
+                      ,(name <|> special) >>= (store . ParamExp)]
                loop
 
 lexBacktick :: Lexer Bool
@@ -250,21 +259,26 @@ lexBacktick = do char '`'
                                    ,char '\\' >> (one (oneOf "\\`$]") <|>
                                                   fmap ('\\':) (one anyChar))
                                    ,one anyChar]
-                 case runParser (lex $ normalLex Nothing) [] "" s of
+                 case runParser (lex $ normalLex Nothing) ([],[]) "" s of
                    Left e  -> fail (show e) -- is this all we can do?
-                   Right x -> tell $ Command x
+                   Right x -> store $ Command x
                  loop
 
-quoted :: Lexer [Lexeme] -> Lexer ()
-quoted job = (mapM_ $ tell . Quoted) =<< subLex job
+fromTok :: [Token] -> [Lexeme]
+fromTok [] = []
+fromTok [Word ls] = ls
+fromTok x = error $ "Impossible? frokTok on "++show x
+
+quoted :: Lexer [Token] -> Lexer ()
+quoted job = (mapM_ $ store . Quoted) `fmap` fromTok =<< subLex job
 
 lexDoubleQuotes :: Lexer Bool
-lexDoubleQuotes = do char '"' >> tellQ '"'
+lexDoubleQuotes = do char '"' >> storeQ '"'
                      quoted $ lex [endOn '"',
                                    lexBackslash $ oneOf "\\\"$`",
                                    lexDollar, lexBacktick,
-                                   anyChar >>= tellL >> loop]
-                     char '"' >> tellQ '"'
+                                   anyChar >>= storeL >> loop]
+                     char '"' >> storeQ '"'
                      loop
 
 lexParen :: Lexer Bool
@@ -274,39 +288,32 @@ lexParen = do char '('
               lex $ normalLex $ Just ')'-- go up to next paren...
               char ')' -- make sure it's actually there...
               tell $ Oper RParen
-              delimit -- ???
               loop
 
 lexComment :: Lexer Bool
 lexComment = do char '#'
                 mt <- last
-                if isComment mt then many_ $ noneOf "\n"
-                                else tellL '#'
+                if isJust mt then storeL '#'
+                             else skipMany $ noneOf "\n"
                 loop
-    where isComment Nothing = True
-          isComment (Just Newline) = True
-          isComment (Just EOF) = True
-          isComment (Just (Oper _)) = True
-          isComment _ = False
 
 one :: Functor f => f a -> f [a]
 one = fmap (\a -> [a])
 cat :: Monoid a => Lexer a -> Lexer a
 cat = fmap mconcat . many
-many_ :: Lexer a -> Lexer ()
-many_ f = many f >> return ()
 
 lexArithmetic :: Lexer String
 lexArithmetic = cat parens +++ closeArith
     where closeArith = do char ')' -- first unmatched rparen...
                           ((char ')' >> return "") <|> -- suppress "))" output
                            return ")" +++ cat parens +++ closeArith)
+                        <?> "\"))\""
           parens :: Lexer String
           parens = one (char '(') +++ cat parens +++ one (char ')') 
-                   <|> many1 (noneOf "()")
+                   <|> many1 (noneOf "()") <?> ""
 
-runLexer :: String -> Maybe [Lexeme]
-runLexer s = case runParser (lex $ normalLex Nothing) [] "" s of
+runLexer :: String -> Maybe [Token]
+runLexer s = case runParser (lex $ normalLex Nothing) ([],[]) "" s of
                Left e  -> trace ("Error: "++show e) Nothing
                Right x -> Just x
 \end{code}
