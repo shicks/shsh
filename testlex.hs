@@ -2,6 +2,7 @@ import Control.Monad ( when )
 import System.Exit ( exitWith, ExitCode(..) )
 import System.IO ( hIsEOF, stdin, hFlush, stdout )
 import System.Console.ShSh.Lexer ( runLexer )
+import System.Console.ShSh.Parser ( parse )
 --import System.Console.ShSh.Expansions ( expansions )
 
 import System.Console.ShSh.Shell ( Shell, startShell )
@@ -18,6 +19,10 @@ loop pre = do let prompt = if null pre then "$ " else "> "
                                Nothing -> loop (pre++x++"\n")
 
 process ts = do putStrLn $ "After Lexing: "++show ts
+                case parse ts of
+                  Left e -> putStrLn $ "No Parse: " ++ e
+                  Right e -> putStrLn $ "After Parsing: " ++ show e
+
 --                startShell $ do ts' <- expansions ts
 --                                oPutStrLn $ "After Expand: "++show ts'
 

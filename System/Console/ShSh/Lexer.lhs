@@ -40,12 +40,12 @@ data Token = Word [Lexeme]        -- ^several lexemes make up a word
            | Newline              -- ^simple enough...
            | EOF                  -- ^what does this do?
            -- That's all we do in this module...
-           | ReservedWord String  -- ^eventually we'll turn them into this
-           | Separator Operator   -- ^@;@ or @&@
-           | SubShell [Token]     -- ^pre-grouping...?
-           | SimpleCommand [Token]
-           | Pipeline [Token]     -- ^token list for each command
-           | AndOrList [Token]    -- ^build up hierarchical structure...
+--           | ReservedWord String  -- ^eventually we'll turn them into this
+--           | Separator Operator   -- ^@;@ or @&@
+--           | SubShell [Token]     -- ^pre-grouping...?
+--           | SimpleCommand [Token]
+--           | Pipeline [Token]     -- ^token list for each command
+--           | AndOrList [Token]    -- ^build up hierarchical structure...
            deriving ( Eq, Show )
 -- We might need to add others here...?
 
@@ -182,7 +182,7 @@ normalLex d | isJust d  = endOn (fromJust d):rest
 
 lexOperator :: String -> Lexer Bool
 lexOperator x = do o <- oneOf "<>|&;)"
-                   if trace ("lexOperator(x="++x++", o="++[o]++")") o `elem` "<>" then delimitIO else delimit
+                   if o `elem` "<>" then delimitIO else delimit
                    case toOperator $ x++[o] of
                      Just op -> (try $ lexOperator $ x++[o]) <|>
                                 do tell $ Oper op
