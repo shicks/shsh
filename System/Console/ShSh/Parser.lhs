@@ -5,7 +5,8 @@ from the first stage and turn them into an AST.
 
 \begin{code}
 
-module System.Console.ShSh.Parser ( parse ) where
+module System.Console.ShSh.Parser ( Expression(..),
+                                    parse, reservedWords ) where
 
 import Debug.Trace ( trace )
 
@@ -128,4 +129,9 @@ parse :: [Token] -> Either String Expression
 parse ts = case runParser expr () "" (map (\x->(initialPos "",x)) ts) of
              Left e  -> Left $ show e
              Right x -> Right x
+
+reservedWords :: [String]
+reservedWords = ["!", "{", "}", "case", "do", "done", "elif", "else",
+                 "esac", "fi", "for", "fi", "in", "then", "until", "while"]
+
 \end{code}

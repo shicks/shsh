@@ -113,6 +113,9 @@ blank :: Lexer ()
 blank = oneOf " \t" >> return ()
 
 -- |Add a delimiter if there's not already one there...
+-- We should hold onto some state - maybe a bool - for whether the
+-- next token is subject to alias expansion.  Basically, this is at
+-- the beginning, as well as after any control operator (;, \n, &, &&, ||, |).
 delimit :: Lexer ()
 delimit = do (ls,ts) <- getState
              unless (null ls) $ setState ([],Word (reverse ls):ts)
