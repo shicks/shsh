@@ -41,7 +41,7 @@ main = do term <- hIsTerminalDevice stdin
 #ifdef HAVE_SIGNALS
           installHandler sigPIPE Ignore Nothing
 #endif
-          startShell (sourceProfile >> eventLoop h) >>= exitWith
+          startShell (sourceProfile >> eventLoop "" h) >>= exitWith
 
 \end{code}
 

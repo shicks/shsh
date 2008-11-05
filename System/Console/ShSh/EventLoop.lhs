@@ -8,7 +8,7 @@ module System.Console.ShSh.EventLoop ( eventLoop, sourceProfile, source )
 import System.Console.ShSh.Command ( process )
 -- import System.Console.ShSh.Expansions ( shellExpansions )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr )
-import System.Console.ShSh.Parse ( parseLine, Command(..) )
+import System.Console.ShSh.Lexer ( runLexer, Token )
 import System.Console.ShSh.Shell ( Shell, getEnv, getFlag, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
 import System.IO ( hFlush, hIsEOF, openFile, IOMode(..),
@@ -26,7 +26,7 @@ import System.Console.Haskeline ( runInputT, getInputLine,
 
 source :: FilePath -> Shell ()
 source f = do h <- liftIO $ openFile f ReadMode
-              eventLoop $ Just h
+              eventLoop "" $ Just h
 
 sourceProfile :: Shell ExitCode
 sourceProfile = withHandler $ do dir <- getEnv "HOME"
@@ -35,10 +35,10 @@ sourceProfile = withHandler $ do dir <- getEnv "HOME"
                                  when exists $ ePutStrLn ("Sourcing "++file) >>
                                                source file
 
-eventLoop :: Maybe Handle -> Shell ()
-eventLoop h = do
+eventLoop :: String -> Maybe Handle -> Shell ()
+eventLoop i h = do
   s' <- case h of
-          Nothing -> getInput =<< prompt
+          Nothing -> getInput =<< prompt i
           Just h' -> getNoninteractiveInput h'
   case s' of
     Nothing -> return ()
@@ -47,13 +47,12 @@ eventLoop h = do
                   if am_v then ePutStrLn s
                           else return ()
 --                  s' <- shellExpansions s
-                  code <- case parseLine s of -- Later, add more to s' (PS2)
-                            Left e -> do ePutStrLn e
-                                         return $ ExitFailure 1 -- ????
-                            Right cmd -> process cmd
-                  if am_e && code /= ExitSuccess
-                    then fail ""
-                    else eventLoop h
+                  case runLexer (i++s) of -- Later, add more to s' (PS2)
+                    Nothing -> eventLoop (i++s++"\n") h
+                    Just cmd -> do code <- process cmd
+                                   if am_e && code /= ExitSuccess
+                                     then fail ""
+                                     else eventLoop "" h
 
 -- What do we want to do with history?  Bash defines a $HISTFILE variable,
 -- but that only deals with saving the history on exit - apparently readline

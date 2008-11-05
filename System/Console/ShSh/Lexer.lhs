@@ -57,6 +57,12 @@ data Token = Word [Lexeme]        -- ^several lexemes make up a word
 -- delimiters or not (grouped), and identify candidates for expansion.
 
 
+-- NEW:
+-------
+-- We need a lexer with _state_ and with _lookahead delimiting_...
+-- Alias expansion occurs within the lexer...
+-- While we're at it, we should keep track of the SourcePos too...
+
 
 
 -- We need to wait until we know we need to run the branch to even

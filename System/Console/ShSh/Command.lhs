@@ -7,9 +7,13 @@ Here we run commands.
 module System.Console.ShSh.Command ( process ) where
 
 import System.Console.ShSh.Builtins ( runBuiltin )
-import System.Console.ShSh.IO ( oPutStrLn )
+import System.Console.ShSh.Expansions ( expansions )
+import System.Console.ShSh.Expression ( mapExprM, parseExpr, Expression(..) )
+import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn )
+import System.Console.ShSh.Lexer ( Token )
 import System.Console.ShSh.Options ( setOpts )
-import System.Console.ShSh.Parse ( parseLine, Command(..) )
+import System.Console.ShSh.Parser ( parse )
+import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, pipeShells, runInShell,
                                    getEnv, setEnv, getAllEnv, withExitHandler,
                                    tryEnv, withEnv, getFlag, unsetFlag )
@@ -19,23 +23,28 @@ import System.Process ( proc, waitForProcess )
 import System ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
 
-process :: Command -> Shell ExitCode -- do we quit or not?
-process (Builtin b args) = runBuiltin b args
-process (Cmd (s:ss)) = withExitHandler $ tryToRun s ss
-process EmptyCommand = do liftIO $ putStrLn ""; return ExitSuccess
-process (c1 :&&: c2) = do ec1 <- process c1
-                          if ec1 == ExitSuccess
-                             then process c2
-                             else return ec1
-process (c1 :||: c2) = do ec1 <- process c1
-                          if ec1 /= ExitSuccess
-                             then process c2
-                             else return ec1
-process (c1 :>>: c2) = do am_e <- getFlag 'e'
-                          ec1 <- process c1
-                          if am_e && ec1 /= ExitSuccess
-                             then liftIO $ exitWith ec1
-                             else process c2
+process :: [Token] -> Shell ExitCode
+process ts = do case parse ts of
+                  Left err -> do ePutStrLn $ "shsh: "++show err
+                                 return $ ExitFailure 1
+                  Right e  -> process' =<< parseExpr =<< mapExprM expansions e
+
+process' :: Expression -> Shell ExitCode -- do we quit or not?
+process' (Builtin b args r) = runBuiltin b args r
+process' (Cmd s ss _) = withExitHandler $ tryToRun s ss
+process' (c1 :&&: c2) = do ec1 <- process' c1
+                           if ec1 == ExitSuccess
+                              then process' c2
+                              else return ec1
+process' (c1 :||: c2) = do ec1 <- process' c1
+                           if ec1 /= ExitSuccess
+                              then process' c2
+                              else return ec1
+process' (c1 :>>: c2) = do am_e <- getFlag 'e'
+                           ec1 <- process' c1
+                           if am_e && ec1 /= ExitSuccess
+                              then liftIO $ exitWith ec1
+                              else process' c2
 -- This isn't quite right yet.  In real sh, the PARENS guard from
 -- the effects of -e.  That is,
 --   $ set -e
@@ -53,11 +62,11 @@ process (c1 :|: (Cmd (c2:args))) h =
        process c1 h' -- assume c2 is a command for now...!
        liftIO $ hClose h' >> waitForPipes pipes >> waitForProcess pid
 -}
-process (c1 :|: c2) =  -- pipeShells rethrows from c2...
-    pipeShells (process c1) (process c2)
+process' (c1 :|: c2) =  -- pipeShells rethrows from c2...
+    pipeShells (process' c1) (process' c2)
 -- #endif
-process cmd = do oPutStrLn $ "I can't handle:  "++show cmd
-                 return $ ExitFailure 1
+process' cmd = do oPutStrLn $ "I can't handle:  "++show cmd
+                  return $ ExitFailure 1
 
 tryToRun :: String -> [String] -> Shell ExitCode
 tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?

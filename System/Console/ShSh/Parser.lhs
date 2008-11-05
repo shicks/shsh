@@ -12,6 +12,7 @@ import Debug.Trace ( trace )
 
 import System.Console.ShSh.Lexer ( Lexeme(..), Token(..) )
 import System.Console.ShSh.Operator ( Operator(..) )
+import System.Console.ShSh.Expression ( Expression(..) )
 
 import Text.ParserCombinators.Parsec ( SourcePos, GenParser, runParser,
                                        choice, try, (<|>), (<?>),
@@ -63,19 +64,6 @@ word = parseToken $ \s -> case s of
 
 anyToken :: P Token
 anyToken = parseToken $ \s -> Just s
-
-data Expression = Simple [Token]
-                | SubShell Expression
-                | Expression :|: Expression
-                | Expression :&&: Expression
-                | Expression :||: Expression
-                | Expression :>>: Expression -- semicolon
-                | RunAsync Expression
-                deriving ( Show )
-
-infixl 4 :>>:
-infixl 5 :||:,:&&:
-infixr 6 :|:
 
 simple :: P Expression
 simple = fmap Simple $ many1 $ word <|> redirectionOperator <|> ioNum

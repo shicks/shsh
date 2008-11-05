@@ -35,13 +35,15 @@ expandAll ('\\':c:rest) = expand c >>= \x -> (x++) `fmap` expandAll rest
 expandAll (c:rest) = (c:) `fmap` expandAll rest
 expandAll "" = return ""
 
-prompt :: Shell String
-prompt = do -- pwd <- fromMaybe "\\s-\\v\\$ " `fmap` getEnv "PS1"
-            pwd <- fromMaybe "\\s-\\v: \\w \\$ " `fmap` getEnv "PS1"
-            expandAll pwd
-            --return $ pwd ++ " $ "
-            --Just user <- getEnv "USER"
-            --Just hostname <- getEnv "HOSTNAME"
-            --return $ user ++ "@" ++ hostname ++ " " ++ pwd ++ " $ "
+prompt :: String -> Shell String
+prompt "" = do -- pwd <- fromMaybe "\\s-\\v\\$ " `fmap` getEnv "PS1"
+              pwd <- fromMaybe "\\s-\\v: \\w \\$ " `fmap` getEnv "PS1"
+              expandAll pwd
+              --return $ pwd ++ " $ "
+              --Just user <- getEnv "USER"
+              --Just hostname <- getEnv "HOSTNAME"
+              --return $ user ++ "@" ++ hostname ++ " " ++ pwd ++ " $ "
+promp _ = do pwd <- fromMaybe "> " `fmap` getEnv "PS2"
+             expandAll pwd
 
 \end{code}

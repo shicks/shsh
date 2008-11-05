@@ -7,8 +7,8 @@ Here is where we do the various expansions.
 module System.Console.ShSh.Expansions ( expansions ) where
 
 import System.Console.ShSh.Operator ( Operator(..) )
-import System.Console.ShSh.Lexer ( Token(..), runLexer )
-import System.Console.ShSh.Parser ( Expression(..), parse, reservedWords )
+import System.Console.ShSh.Lexer ( Lexeme(..), Token(..), runLexer )
+import System.Console.ShSh.Parser ( parse, reservedWords )
 
 import Control.Monad.Trans ( lift, liftIO )
 
@@ -25,30 +25,13 @@ import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
 import System.Console.ShSh.Shell ( Shell, setEnv, getEnv )
 import System.Console.ShSh.ShellError ( throw )
 
-mapExpr :: ([Token] -> [Token]) -> Expression -> Expression
-mapExpr f (Simple xs) = Simple $ f xs
-mapExpr f (SubShell e) = SubShell $ mapExpr f e
-mapExpr f (e :|: e') = mapExpr f e :|: mapExpr f e'
-mapExpr f (e :&&: e') = mapExpr f e :&&: mapExpr f e'
-mapExpr f (e :||: e') = mapExpr f e :||: mapExpr f e'
-mapExpr f (e :>>: e') = mapExpr f e :>>: mapExpr f e'
-mapExpr f (RunAsync e) = RunAsync $ mapExpr f e
-
-mapExprM :: ([Token] -> m [Token]) -> Expression -> m Expression
-mapExprM f (Simple xs) = Simple `fmap` f xs
-mapExprM f (SubShell e) = SubShell `fmap` mapExpr f e
-mapExprM f (e :|: e') = liftM2 (:|:) (mapExprM f e) (mapExprM f e')
-mapExprM f (e :&&: e') = liftM2 (:&&:) (mapExprM f e) (mapExprM f e')
-mapExprM f (e :||: e') = liftM2 (:||:) (mapExprM f e) (mapExprM f e')
-mapExprM f (e :>>: e') = liftM2 (:>>:) (mapExprM f e) (mapExprM f e')
-mapExprM f (RunAsync e) = RunAsync `fmap` mapExprM f e
-
 mapWords :: ([Lexeme] -> [Lexeme]) -> Token -> Token
 mapWords f (Word x) = Word $ f x
 mapWords _ x = x
 
-removeQuotes :: Expression -> Expression
-removeQuotes =  mapExpr $ map $ mapWords $ f
+removeQuotes :: [Token] -> [Token]
+--removeQuotes =  mapExpr $ map $ mapWords $ f
+removeQuotes = map $ mapWords f
     where f (Quote _:x) = f x
           f (Literal c:x) = Literal c:f x
           f (Quoted (Literal c):x) = Literal c:f x
@@ -56,7 +39,7 @@ removeQuotes =  mapExpr $ map $ mapWords $ f
           f l = error $ "Cannot removeQuotes on "++show l
 
 -- This is TOO LATE!  Alias expansion needs to occur DURING
--- PARSING...  i.e.
+-- LEXING...  i.e.
 --   $ alias foo='echo 1; sort'
 --   $ df | foo | cat
 --   vs.
@@ -64,25 +47,21 @@ removeQuotes =  mapExpr $ map $ mapWords $ f
 -- We see that the ; in the foo is taken OUTSIDE of the pipeline...!
 -- We might go so far as to do this during LEXING...  Likewise with
 -- tilde expansion...?
-aliasExpansion :: Expression -> Shell Expression
-aliasExpansion = mapExprM ae
-    where ae (Word x:ts)
-              | s <- fromLiteral x, not $ s `in` reservedWords
-                  = do al <- getAlias [] s
-                       case al of
-                         Nothing -> return $ Word x:ts
-                         Just s' -> case last s' of
-                                      ' ' -> return $ literal (dropLast s')
-                                                       :ae ts
-                                      _   -> return $ literal s':ts
 
-getAlias :: [String] -> String -> Shell String
--- We pass the list of strings to prevent infinite recursion
-getAlias xs x | x `elem` xs = return x
-              | otherwise   = do lookup 
+-- But there was another issue, too... something about late-binding of aliases...
+--   $ unalias foo
+--   $ alias foo=echo && alias foo
+--   foo='echo'
+--   $ unalias foo
+--   $ alias foo=echo && foo bar
+--   dash: foo: not found
+--   $ unalias foo
+--   $ alias foo=echo; foo bar
+--   dash: foo: not found
+-- Same thing happens in bash......  so we're fine there too...?
 
 fromLiteral :: [Lexeme] -> Maybe String
-fromLiteral = mapM $ do {Literal c <- x; return c}
+fromLiteral = mapM $ \x -> do {Literal c <- return x; return c}
 
 literal :: String -> [Lexeme]
 literal = map Literal
@@ -90,6 +69,11 @@ literal = map Literal
 dropLast :: [a] -> [a]
 dropLast xs = take (length xs - 1) xs
 
+expansions :: [Token] -> Shell [Token]
+expansions ts = return $ removeQuotes ts -- for now, this is all we'll do
+                -- After this, everything should be literal...
+
+{-
 -- |This is the main function.  Every expansion we do only acts on
 -- words, so we single them out and move on otherwise.  And we make
 -- sure to do them in the correct order.
@@ -297,5 +281,7 @@ clean :: [Token] -> [Token]
 clean = map cl
     where cl (Word x) = Word $ catLiterals $ removeNulls x
           cl x = x
+
+-}
 
 \end{code}
