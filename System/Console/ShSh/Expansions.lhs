@@ -29,6 +29,10 @@ mapWords :: ([Lexeme] -> [Lexeme]) -> Token -> Token
 mapWords f (Word x) = Word $ f x
 mapWords _ x = x
 
+mapWordsM :: ([Lexeme] -> Shell [Lexeme]) -> Token -> Shell Token
+mapWordsM f (Word x) = Word `fmap` f x
+mapWordsM _ x = return x
+
 removeQuotes :: [Token] -> [Token]
 --removeQuotes =  mapExpr $ map $ mapWords $ f
 removeQuotes = map $ mapWords f
@@ -70,8 +74,46 @@ dropLast :: [a] -> [a]
 dropLast xs = take (length xs - 1) xs
 
 expansions :: [Token] -> Shell [Token]
-expansions ts = return $ removeQuotes ts -- for now, this is all we'll do
+expansions ts = fmap removeQuotes $ tildeExpansion ts -- for now, this is all we'll do
                 -- After this, everything should be literal...
+
+
+
+splitAtChar :: Eq a => a -> [a] -> ([a],[a])
+splitAtChar c' (c:cs) | c==c'     = ([],cs)
+                      | otherwise = let (f,s) = splitAtChar c' cs
+                                    in  (c:f,s)
+splitAtChar _ []  = ([],[])
+
+-- |The first step in expansion is tilde expansion, so we define that
+-- here.  Note that there is a discrepancy between bash and sh here, which
+-- makes things like Setup.hs more usable: echo prefix=~ tilde expands in
+-- bash, though this is non-compliant.  We /could/ add a non-compliance
+-- mode if we wanted to...  As it is, parsing for "=" will be tricky (we'll
+-- want to look for /unquoted/ '=' in a command name...)
+takeLiteral :: [Lexeme] -> (String,[Lexeme])
+takeLiteral (Literal x:xs) = let (x',xs') = takeLiteral xs
+                             in (x:x',xs')
+takeLiteral x = ("",x)
+
+tildeExpansion' :: [Lexeme] -> Shell [Lexeme]
+tildeExpansion' x@(Literal '~':xs)
+    | '/' `elem` rest = do let (user,path) = splitAtChar '/' rest
+                           dir <- homedir user
+                           return $ (map Literal $ dir++"/"++path)++es
+    | null es         = do dir <- homedir rest
+                           return $ map Literal dir
+    where (rest,es) = takeLiteral xs
+tildeExpansion' x = return x -- everybody else...
+
+tildeExpansion :: [Token] -> Shell [Token]
+tildeExpansion = mapM $ mapWordsM tildeExpansion'
+
+homedir :: String -> Shell String
+homedir "" = getEnv "HOME"
+--homedir user = return $ "/fakehome/"++user -- for now
+homedir user = liftIO $ fromMaybe ("~"++user) `fmap` getHomeDir user
+
 
 {-
 -- |This is the main function.  Every expansion we do only acts on
