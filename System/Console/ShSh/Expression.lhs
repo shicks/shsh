@@ -3,10 +3,11 @@
 \begin{code}
 
 module System.Console.ShSh.Expression ( Expression(..), Redir,
-                                        parseExpr, mapExpr, mapExprM ) where
+                                        parseExpr, mapExpr, mapExprM,
+                                        concatMapExprM ) where
 
 import System.Console.ShSh.Lexer ( Lexeme(..), Token(..) )
-import System.Console.ShSh.Builtins ( BuiltinCommand, toBuiltin )
+import System.Console.ShSh.Builtins ( BuiltinCommand(..), toBuiltin )
 import System.Console.ShSh.Redirection ( Redir )
 
 import Control.Monad ( liftM2 )
@@ -68,6 +69,10 @@ mapExprME f (e :>>: e') = liftM2 (:>>:) (mapExprME f e) (mapExprME f e')
 mapExprME f (RunAsync e) = RunAsync `fmap` mapExprME f e
 mapExprME _ x = return x
 
+concatMapExprM :: (Monad m, Functor m) => (Token -> m [Token])
+                                       -> Expression -> m Expression
+concatMapExprM f = mapExprM $ concatMapM f
+
 -- This is duplicated...
 fromLiteral :: [Lexeme] -> Maybe String
 fromLiteral = mapM $ \x -> do {Literal c <- return x; return c}
@@ -81,11 +86,15 @@ toStr = mapM $ \x -> case x of
                                     Just x'' -> return x''
                        x' -> fail $ "impossible "++show x'++" in toStr."
 
-parseExpr :: (Functor m, Monad m) => Expression -> m Expression
+parseExpr :: (Monad m, Functor m) => Expression -> m Expression
 parseExpr = mapExprME $ fmap f . toStr
     where f :: [String] -> Expression
           f (x:xs) = case toBuiltin x of
                        Just b  -> Builtin b xs []
                        Nothing -> Cmd x xs []
+          f [] = Builtin Exec [] [] -- no-op...
+
+concatMapM :: (Monad m, Functor m) => (a -> m [b]) -> [a] -> m [b]
+concatMapM f xs = concat `fmap` mapM f xs
 
 \end{code}
