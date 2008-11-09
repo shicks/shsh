@@ -12,7 +12,6 @@ import System.Console.ShSh.ShellError ( exit )
 import Control.Monad ( when )
 import Control.Monad.State ( get, modify )
 import Control.Monad.Trans ( liftIO )
-import Data.List ( intercalate )
 import System.Console.GetOpt
 import System.Directory ( getCurrentDirectory, doesDirectoryExist,
                           setCurrentDirectory, createDirectory )
@@ -58,7 +57,7 @@ mkDir args = do withSubStateCalled "mkdir" (sequence_ opts>>run) noOpts
                 return ExitSuccess
     where (opts,dirs,errs) = getOpt Permute optSpec args
           run :: ShellT Opts ()
-          run = do when (not $ null errs) $ fail $ intercalate ", " errs
+          run = do when (not $ null errs) $ fail $ unlines errs
                    mapM_ mk dirs -- would like to do these in parallel...
           mk d = do let die e = fail $ "cannot create directory `"++d++"': "++e
                     Opts m p v <- get

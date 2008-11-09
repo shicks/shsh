@@ -6,7 +6,6 @@ true_version = "0.0.1"
 configure = do version true_version
                defineAs "PACKAGE_VERSION" true_version
                ghcFlags ["-threaded","-O2"]
-               requireModuleExporting "Data.List" "intercalate" "intercalate"
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
                withModuleExporting "System.Process" "createProcess, shell"
