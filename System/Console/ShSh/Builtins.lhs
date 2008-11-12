@@ -22,7 +22,7 @@ import System.Directory ( getCurrentDirectory, getDirectoryContents )
 import System.Exit ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
 
-data BuiltinCommand = Exec | Exit | Set | Pwd | Cd | Ls | MkDir
+data BuiltinCommand = Exec | Exit | Set | Pwd | Cd | Ls | MkDir | Echo
      deriving ( Enum, Eq, Ord, Show )
 
 {- What else do we want...? list here:
@@ -38,6 +38,8 @@ runBuiltin Exec _ _   = return ExitSuccess
 runBuiltin Exit _ _   = liftIO $ exitWith ExitSuccess -- message?
 runBuiltin Set [] _   = showEnv >> return ExitSuccess
 runBuiltin Set foo _  = setOpts foo
+runBuiltin Echo ss _  = do oPutStrLn $ unwords ss
+                           return ExitSuccess
 runBuiltin Pwd _ _    = do cwd <- liftIO getCurrentDirectory
                            oPutStrLn cwd
                            return ExitSuccess
@@ -62,6 +64,7 @@ toBuiltin "exec" = Just Exec -- currently a no-op...
 toBuiltin "exit" = Just Exit
 toBuiltin "set" = Just Set
 toBuiltin "pwd" = Just Pwd
+toBuiltin "echo" = Just Echo
 toBuiltin "cd" = Just Cd
 toBuiltin "ls" = Just Ls
 toBuiltin "mkdir" = Just MkDir
