@@ -8,10 +8,19 @@ module System.Console.ShSh.Prompt ( prompt )
 import Control.Monad.Trans ( liftIO )
 import Data.Char ( chr )
 import Data.Maybe ( fromMaybe )
+import Data.List ( isPrefixOf )
 import System.Environment ( getProgName )
 
 import System.Console.ShSh.Constants ( version )
 import System.Console.ShSh.Shell ( Shell, getEnv )
+
+tildeSub :: String -> Shell String
+tildeSub s = do home <- getEnv "HOME"
+                case home of
+                  Just h -> if h `isPrefixOf` s
+                               then return $ '~':drop (length h) s
+                               else return s
+                  Nothing -> return s
 
 expand :: Char -> Shell String
 expand 'e' = return [chr 27]
@@ -20,9 +29,9 @@ expand 'H' = (takeWhile (/='.') . fromMaybe "") `fmap` getEnv "HOSTNAME"
 expand 's' = liftIO getProgName
 expand 'u' = fromMaybe "" `fmap` getEnv "USER"
 expand 'v' = return version
-expand 'w' = fromMaybe "" `fmap` getEnv "PWD" -- need to sub ~
-expand 'W' = maybe "" (reverse . takeWhile notSep . reverse)
-                          `fmap` getEnv "PWD" -- basename only (and ~)
+expand 'w' = tildeSub =<< fromMaybe "" `fmap` getEnv "PWD"
+expand 'W' = tildeSub =<< maybe "" (reverse . takeWhile notSep . reverse)
+                            `fmap` getEnv "PWD"
     where notSep c = c /= '/' && c /= '\\'
 expand '$' = do uid <- fromMaybe "1" `fmap` getEnv "UID"
                 return $ case uid of
