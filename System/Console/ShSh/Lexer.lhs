@@ -81,10 +81,10 @@ data Redir = Redir InOut Target Target
 -- needed...
 
 -- |State: current tok, output so far
-type Lexer = CharParser ([Lexeme],[Token],[(String,String)])
+type Lexer = CharParser ([Lexeme],[Token])
 
 store :: Lexeme -> Lexer ()
-store l = getState >>= \(ls,ts,as,a) -> setState (l:ls,ts,as,a)
+store l = getState >>= \(ls,ts) -> setState (l:ls,ts)
 
 -- |Tell a quote
 storeQ :: Char -> Lexer ()
@@ -123,65 +123,8 @@ blank = oneOf " \t" >> return ()
 -- next token is subject to alias expansion.  Basically, this is at
 -- the beginning, as well as after any control operator (;, \n, &, &&, ||, |).
 delimit :: Lexer ()
-delimit = do (ls,ts,as,a) <- getState
-             unless null ls $ if a
-                              then expandAlias as (reverse ls) ts
-                              else setState ([],Word (reverse ls):ts,as,False)
-
--- This is disturbing...!
---  $ alias foo='echo "hello '
---  $ foo world"
--- New plan:
---  fullyExpand :: [(S,S)] -> String -> String
--- This way we can prevent cycles, but not do any lexing prematurely.
--- Also, we need to call delimit using *lookAhead* only!
---  to wit: $ alias foo='echo "hello '; alias bar='world"'
---          $ foo bar
---          > "
---          hello  bar\n
--- Note also the extra space: we just dumped the extra aliased tokens on
--- and started lexing again....
---          $ alias baz='echo '
---          $ baz bar
---          > "
---          world\n
--- So when do we actually go about unaliasing?  might be best to
--- save the stream, do a non-state-preserving sub-lex
--- and then restore the stream upon exhaustion...?
---  $ alias foo='echo hello '
---  $ alias bar=world
---  $ foo bar    # => hello world
---  $ alias hello=foo
---  $ foo bar    # same
---
--- Aliases come before reserved words...
---  $ alias foo=for
---  $ foo a in f o o; do echo $a; done
---
--- Eeek!
---  $ alias foo='echo hello #'
---  $ foo bar
-
-expandAlias :: [(String,String)] -> [Lexeme] -> [Token] -> Lexer ()
-expandAlias as ls ts = do ml <- fromLiteral ls
-                          case ml of
-                            Nothing   -> noAlias
-                            Just name -> case lookup name as of
-                                           Nothing   -> noAlias
-                                           Just repl -> alias name repl
-    where noAlias = setState ([],Word ls:ts,as,False)
-          alias name repl = do let a' = " " `isSuffixOf` repl
-                                   as' = as \\ [(name,repl)]
-                                   case runLexer repl as' of
-                                     Just ts' -> 
-                                     Nothing  ->
-
--- export these and remove from Expansions
-fromLiteral :: [Lexeme] -> Maybe String
-fromLiteral = mapM $ do {Literal c <- x; return c}
-
-literal :: String -> [Lexeme]
-literal = map Literal
+delimit = do (ls,ts) <- getState
+             unless (null ls) $ setState ([],Word (reverse ls):ts)
 
 delimitIO :: Lexer ()
 delimitIO = do (ls,ts) <- getState
@@ -291,10 +234,10 @@ lexSingleQuotes = do char '\''
 -- return the bool of the last successful one...?  hmm...
 
 subLex :: Lexer a -> Lexer a
-subLex job = do (ls,ts,as,a) <- getState
-                setState ([],[],as,a)
+subLex job = do s <- getState
+                setState ([],[])
                 res <- job
-                setState (ls,ts,as,a)
+                setState s
                 return res
 
 lexDollar :: Lexer Bool
@@ -319,17 +262,6 @@ lexDollar = do char '$'
                       ,(name <|> special) >>= (store . ParamExp)]
                loop
 
--- This isn't going to work so well...  we need to store as a string
--- and then only lex when needed!!!
---  cf. $ alias foo='echo' && echo `foo 1`
--- Or else we don't do alias expansion at lex-time...
--- It appears that bash does lazy parsing... that is, we parse up to
--- a (non-pipe) control operator and leave the rest for next time...
--- We could implement this without too much difficulty as well by
--- simply returning a "thunk" lexeme whenever we see ;, ||, etc
--- Note also that bash is atomic in pipelines:
---  $ alias foo=echo | foo 1 | alias bar=foo
--- doesn't actually define *either* alias!
 lexBacktick :: Lexer Bool
 lexBacktick = do char '`'
                  s <- cat $ choice [char '`' >> fail "" -- done
@@ -389,13 +321,8 @@ lexArithmetic = cat parens +++ closeArith
           parens = one (char '(') +++ cat parens +++ one (char ')') 
                    <|> many1 (noneOf "()") <?> ""
 
--- |This is the function that does the job of lexing.  Returns @Nothing@ if
--- there's an error (which generally means quotes need to be closed, etc),
--- or @Just@ the token list.
-runLexer :: String            -- ^input string to be lexed.
-         -> [(String,String)] -- ^list of aliases.
-         -> Maybe [Token]
-runLexer s a = case runParser (lex $ normalLex Nothing) ([],[],a) "" s of
-                 Left e  -> trace ("Error: "++show e) Nothing
-                 Right x -> Just x
+runLexer :: String -> Maybe [Token]
+runLexer s = case runParser (lex $ normalLex Nothing) ([],[]) "" s of
+               Left e  -> trace ("Error: "++show e) Nothing
+               Right x -> Just x
 \end{code}
