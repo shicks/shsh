@@ -6,6 +6,7 @@ This module exports a list of builtin commands and how we handle them.
 
 module System.Console.ShSh.Builtins ( BuiltinCommand(..), runBuiltin, toBuiltin ) where
 
+import Text.Regex.Posix ( (=~) )
 import System.Exit ( ExitCode(..), exitWith )
 import Control.Monad ( forM_ )
 import Data.List ( sort, sortBy )
@@ -22,7 +23,8 @@ import System.Directory ( getCurrentDirectory, getDirectoryContents )
 import System.Exit ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
 
-data BuiltinCommand = Exec | Exit | Set | Pwd | Cd | Ls | MkDir | Echo | Cat
+data BuiltinCommand = Exec | Exit | Set | Pwd | Cd | Ls | MkDir
+                    | Echo | Cat | Grep
      deriving ( Enum, Eq, Ord, Show )
 
 {- What else do we want...? list here:
@@ -45,6 +47,21 @@ runBuiltin Cat [] _  = do x <- iGetContents
                           return ExitSuccess
 runBuiltin Cat fs _  = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
                           return ExitSuccess
+runBuiltin Grep [] _  = fail "grep requires an argument!"
+runBuiltin Grep [p] _  = do x <- iGetContents
+                            case filter (=~ p) $ lines x of
+                              [] -> return $ ExitFailure 1
+                              ls -> do oPutStr $ unlines ls
+                                       return ExitSuccess
+runBuiltin Grep (p:fs) _  = do x <- mapM (liftIO . readFile) fs
+                               let fm = zip fs $ map (filter (=~ p) . lines) x
+                                   pretty (f,ls) = if length fs > 1
+                                                   then map ((f++":")++) ls
+                                                   else ls
+                               if null $ concatMap snd fm
+                                  then return $ ExitFailure 1
+                                  else do oPutStr $ unlines $ concatMap pretty fm
+                                          return ExitSuccess
 runBuiltin Pwd _ _    = do cwd <- liftIO getCurrentDirectory
                            oPutStrLn cwd
                            return ExitSuccess
@@ -73,6 +90,7 @@ toBuiltin "set" = Just Set
 toBuiltin "pwd" = Just Pwd
 toBuiltin "echo" = Just Echo
 toBuiltin "cat" = Just Cat
+toBuiltin "grep" = Just Grep
 toBuiltin "cd" = Just Cd
 toBuiltin "ls" = Just Ls
 toBuiltin "mkdir" = Just MkDir
