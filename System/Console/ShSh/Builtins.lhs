@@ -48,12 +48,14 @@ runBuiltin Cat fs _  = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
 runBuiltin Pwd _ _    = do cwd <- liftIO getCurrentDirectory
                            oPutStrLn cwd
                            return ExitSuccess
-runBuiltin Ls _ _     = do let unboring ('.':_) = False
+runBuiltin Ls [] _    = do let unboring ('.':_) = False
                                unboring _ = True
                            fs <- liftIO (getDirectoryContents ".")
                            oPutStr $ unlines $ sort $
                                     filter unboring fs
                            return ExitSuccess
+runBuiltin Ls fs _   = do oPutStrLn "TODO"
+                          return ExitSuccess
 runBuiltin Cd ss _    = withHandler $ withPrefix "cd" $ chDir ss
 runBuiltin MkDir ss _ = withHandler $ mkDir ss
 
