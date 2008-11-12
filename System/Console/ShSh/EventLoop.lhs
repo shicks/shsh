@@ -7,7 +7,11 @@ module System.Console.ShSh.EventLoop ( eventLoop, sourceProfile, source )
 
 import System.Console.ShSh.Command ( process )
 -- import System.Console.ShSh.Expansions ( shellExpansions )
-import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr )
+import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr,
+#ifndef HAVE_HASKELINE
+                                oFlush, iIsEOF, iGetLine
+#endif
+                              )
 import System.Console.ShSh.Lexer ( runLexer, Token )
 import System.Console.ShSh.Shell ( Shell, getEnv, getFlag, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
