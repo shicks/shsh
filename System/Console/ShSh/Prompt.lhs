@@ -21,7 +21,9 @@ expand 's' = liftIO getProgName
 expand 'u' = fromMaybe "" `fmap` getEnv "USER"
 expand 'v' = return version
 expand 'w' = fromMaybe "" `fmap` getEnv "PWD" -- need to sub ~
-expand 'W' = fromMaybe "" `fmap` getEnv "PWD" -- basename only (and ~)
+expand 'W' = maybe "" (reverse . takeWhile notSep . reverse)
+                          `fmap` getEnv "PWD" -- basename only (and ~)
+    where notSep c = c /= '/' && c /= '\\'
 expand '$' = do uid <- fromMaybe "1" `fmap` getEnv "UID"
                 return $ case uid of
                            "0" -> "#"
