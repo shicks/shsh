@@ -29,6 +29,7 @@ expand '$' = do uid <- fromMaybe "1" `fmap` getEnv "UID"
 expand '[' = return ""
 expand ']' = return ""
 expand '\\' = return "\\"
+expand x = return ['\\',x]
 
 expandAll :: String -> Shell String -- this is maybe bad recursion, but oh well
 expandAll ('\\':c:rest) = expand c >>= \x -> (x++) `fmap` expandAll rest
