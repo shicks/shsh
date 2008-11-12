@@ -24,7 +24,7 @@ import System.Exit ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
 
 data BuiltinCommand = Exec | Exit | Set | Pwd | Cd | Ls | MkDir
-                    | Echo | Cat | Grep
+                    | Echo | Cat | Grep | Tru | Fals
      deriving ( Enum, Eq, Ord, Show )
 
 {- What else do we want...? list here:
@@ -75,6 +75,8 @@ runBuiltin Ls fs _   = do oPutStrLn "TODO"
                           return ExitSuccess
 runBuiltin Cd ss _    = withHandler $ withPrefix "cd" $ chDir ss
 runBuiltin MkDir ss _ = withHandler $ mkDir ss
+runBuiltin Tru _ _ = return ExitSuccess
+runBuiltin Fals _ _ = return $ ExitFailure 1
 
 -- The BASH version escapes dangerous values with single-quotes, i.e.
 --   spaces, parens, etc..., make the output runnable.
@@ -94,6 +96,8 @@ toBuiltin "grep" = Just Grep
 toBuiltin "cd" = Just Cd
 toBuiltin "ls" = Just Ls
 toBuiltin "mkdir" = Just MkDir
+toBuiltin "true" = Just Tru
+toBuiltin "false" = Just Fals
 toBuiltin _ = Nothing
 
 \end{code}
