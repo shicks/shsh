@@ -13,7 +13,7 @@ import Data.Ord ( comparing )
 import System.Console.ShSh.Builtins.Cd ( chDir )
 import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Exit ( exit )
-import System.Console.ShSh.IO ( oPutStrLn, oPutStr )
+import System.Console.ShSh.IO ( oPutStrLn, oPutStr, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Redirection ( Redir )
 import System.Console.ShSh.Shell ( Shell, withHandler, getAllEnv )
@@ -22,7 +22,7 @@ import System.Directory ( getCurrentDirectory, getDirectoryContents )
 import System.Exit ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
 
-data BuiltinCommand = Exec | Exit | Set | Pwd | Cd | Ls | MkDir | Echo
+data BuiltinCommand = Exec | Exit | Set | Pwd | Cd | Ls | MkDir | Echo | Cat
      deriving ( Enum, Eq, Ord, Show )
 
 {- What else do we want...? list here:
@@ -40,6 +40,11 @@ runBuiltin Set [] _   = showEnv >> return ExitSuccess
 runBuiltin Set foo _  = setOpts foo
 runBuiltin Echo ss _  = do oPutStrLn $ unwords ss
                            return ExitSuccess
+runBuiltin Cat [] _  = do x <- iGetContents
+                          oPutStr x
+                          return ExitSuccess
+runBuiltin Cat fs _  = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
+                          return ExitSuccess
 runBuiltin Pwd _ _    = do cwd <- liftIO getCurrentDirectory
                            oPutStrLn cwd
                            return ExitSuccess
@@ -65,6 +70,7 @@ toBuiltin "exit" = Just Exit
 toBuiltin "set" = Just Set
 toBuiltin "pwd" = Just Pwd
 toBuiltin "echo" = Just Echo
+toBuiltin "cat" = Just Cat
 toBuiltin "cd" = Just Cd
 toBuiltin "ls" = Just Ls
 toBuiltin "mkdir" = Just MkDir
