@@ -21,8 +21,8 @@ buildable = do have_pwd <- isDefined "HAVE_PWD"
                let cfiles = if have_pwd then ["hspwd.c"]
                                         else []
                    cfiles' = map ("System/Console/ShSh/Foreign/"++) cfiles
-               executable "shsh" "shsh.lhs" cfiles'
                executable "testlex" "testlex.hs" cfiles'
+               executable "shsh" "shsh.lhs" cfiles'
 
 main = build [] configure buildable
 
