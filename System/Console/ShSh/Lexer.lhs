@@ -80,11 +80,16 @@ data Redir = Redir InOut Target Target
 -- Third pass: expansions, classifications, etc... - only when
 -- needed...
 
+data LexerState = LS { word :: [Lexeme],
+                       stream :: [Token],
+                       aliases :: [(String,String)],
+                       modes :: [Lexer ()] }
+
 -- |State: current tok, output so far
-type Lexer = CharParser ([Lexeme],[Token])
+type Lexer = CharParser LexerState
 
 store :: Lexeme -> Lexer ()
-store l = getState >>= \(ls,ts) -> setState (l:ls,ts)
+store l = getState >>= \s -> setState $ s { word = l:word s }
 
 -- |Tell a quote
 storeQ :: Char -> Lexer ()
@@ -123,8 +128,100 @@ blank = oneOf " \t" >> return ()
 -- next token is subject to alias expansion.  Basically, this is at
 -- the beginning, as well as after any control operator (;, \n, &, &&, ||, |).
 delimit :: Lexer ()
-delimit = do (ls,ts) <- getState
-             unless (null ls) $ setState ([],Word (reverse ls):ts)
+delimit = do LS ls ts as ms <- getState
+             unless (null ls) $ setState $ LS [] (Word (reverse ls):ts) as ms
+--             unless null ls $ if a
+--                              then expandAlias as (reverse ls) ts
+--                              else setState $ LS [] (Word (reverse ls):ts) as ms
+
+-- This is disturbing...!
+--  $ alias foo='echo "hello '
+--  $ foo world"
+-- New plan:
+--  fullyExpand :: [(S,S)] -> String -> String
+-- This way we can prevent cycles, but not do any lexing prematurely.
+-- Also, we need to call delimit using *lookAhead* only!
+--  to wit: $ alias foo='echo "hello '; alias bar='world"'
+--          $ foo bar
+--          > "
+--          hello  bar\n
+-- Note also the extra space: we just dumped the extra aliased tokens on
+-- and started lexing again....
+--          $ alias baz='echo '
+--          $ baz bar
+--          > "
+--          world\n
+-- So when do we actually go about unaliasing?  might be best to
+-- save the stream, do a non-state-preserving sub-lex
+-- and then restore the stream upon exhaustion...?
+--  $ alias foo='echo hello '
+--  $ alias bar=world
+--  $ foo bar    # => hello world
+--  $ alias hello=foo
+--  $ foo bar    # same
+--
+-- Aliases come before reserved words...
+--  $ alias foo=for
+--  $ foo a in f o o; do echo $a; done
+--
+-- Eeek!
+--  $ alias foo='echo hello #'
+--  $ foo bar
+
+
+-- MORE WEIRD STUFF:
+{-
+
+bash$ alias foo='echo "hello'
+$ foo bar"
+hello  bar  #--> wrong?
+
+dash$ alias foo='echo "hello'
+$ foo bar"
+hello bar
+$ alias foo='echo "hello '
+$ foo bar"
+hello  bar
+$ alias foo='echo hello\'
+$ foo bar
+hello bar
+$ alias bar='world'
+$ foo bar
+hello bar
+$ foo>bar
+hello>bar
+$ foo #bar
+hello #bar
+$ echo hello\ #bar
+hello #bar
+$ echo hello #bar
+hello
+
+-}
+
+
+{-
+expandAlias :: [(String,String)] -> [Lexeme] -> [Token] -> Lexer ()
+expandAlias as ls ts = do ml <- fromLiteral ls
+                          case ml of
+                            Nothing   -> noAlias
+                            Just name -> case lookup name as of
+                                           Nothing   -> noAlias
+                                           Just repl -> alias name repl
+    where noAlias = setState ([],Word ls:ts,as,False)
+          alias name repl = do let a' = " " `isSuffixOf` repl
+                                   as' = as \\ [(name,repl)]
+                                   case runLexer repl as' of
+                                     Just ts' -> 
+                                     Nothing  ->
+-}
+
+-- export these and remove from Expansions
+fromLiteral :: [Lexeme] -> Maybe String
+fromLiteral = mapM $ do {Literal c <- x; return c}
+
+literal :: String -> [Lexeme]
+literal = map Literal
 
 delimitIO :: Lexer ()
 delimitIO = do (ls,ts) <- getState
