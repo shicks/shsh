@@ -14,10 +14,11 @@ import System.Console.ShSh.Lexer ( Token )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Parser ( parse )
 import System.Console.ShSh.ShellError ( announceError )
-import System.Console.ShSh.Shell ( Shell, pipeShells, runInShell,
+import System.Console.ShSh.Shell ( Shell, pipeShells, runInShell, withOutRedirected,
                                    getEnv, setEnv, getAllEnv, withExitHandler,
                                    tryEnv, withEnv, getFlag, unsetFlag )
 import System.Console.ShSh.Prompt ( prompt )
+import System.Console.ShSh.Redirection ( Redir(..) )
 import System.Directory ( findExecutable, doesFileExist )
 import System.Process ( proc, waitForProcess )
 import System ( ExitCode(..), exitWith )
@@ -30,8 +31,13 @@ process ts = do case parse ts of
                   Right e  -> process' =<< parseExpr =<< mapExprM expansions e
 
 process' :: Expression -> Shell ExitCode -- do we quit or not?
-process' (Builtin b args r) = runBuiltin b args r
-process' (Cmd s ss _) = withExitHandler $ tryToRun s ss
+process' (Builtin b args (OutTo f:rs)) =
+    withOutRedirected f $ process' (Builtin b args rs)
+process' (Builtin b args []) = runBuiltin b args []
+process' (Cmd s ss (OutTo f:rs)) =
+    withOutRedirected f $ process' (Cmd s ss rs)
+process' (Cmd s ss []) = withExitHandler $ tryToRun s ss
+
 process' (c1 :&&: c2) = do ec1 <- process' c1
                            if ec1 == ExitSuccess
                               then process' c2

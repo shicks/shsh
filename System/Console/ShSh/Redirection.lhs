@@ -2,8 +2,9 @@
 
 \begin{code}
 
-module System.Console.ShSh.Redirection ( Redir ) where
+module System.Console.ShSh.Redirection ( Redir(..) ) where
 
-data Redir = Redir deriving ( Show )
+data Redir = OutTo String | AppendTo String | InFrom String
+             deriving ( Show )
 
 \end{code}

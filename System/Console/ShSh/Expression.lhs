@@ -8,7 +8,8 @@ module System.Console.ShSh.Expression ( Expression(..), Redir,
 
 import System.Console.ShSh.Lexer ( Lexeme(..), Token(..) )
 import System.Console.ShSh.Builtins ( BuiltinCommand(..), toBuiltin )
-import System.Console.ShSh.Redirection ( Redir )
+import System.Console.ShSh.Redirection ( Redir(..) )
+import System.Console.ShSh.Operator ( Operator(..) )
 
 import Control.Monad ( liftM2 )
 
@@ -74,25 +75,42 @@ concatMapExprM :: (Monad m, Functor m) => (Token -> m [Token])
 concatMapExprM f = mapExprM $ concatMapM f
 
 -- This is duplicated...
-fromLiteral :: [Lexeme] -> Maybe String
+fromLiteral :: Monad m => [Lexeme] -> m String
 fromLiteral = mapM $ \x -> do {Literal c <- return x; return c}
 
-toStr :: Monad m => [Token] -> m [String]
-toStr = mapM $ \x -> case x of
-                       Word x' -> case fromLiteral x' of
-                                    Nothing -> fail $ "unexpanded "++show x'
-                                                 ++": either it's unsupported, "
-                                                 ++"or a bug."
-                                    Just x'' -> return x''
-                       x' -> fail $ "impossible "++show x'++" in toStr."
+toStr :: Monad m => [Token] -> m ([String], [Redir])
+toStr [] = return ([], [])
+toStr (x:xs) = case x of
+               Word x' -> case fromLiteral x' of
+                          Nothing -> fail $ "unexpanded "++show x'
+                                          ++": either it's unsupported, "
+                                          ++"or a bug."
+                          Just x'' -> do (xs',redirs) <- toStr xs
+                                         return (x'':xs', redirs)
+               x' -> do redirs <- toRedirs (x:xs)
+                        return ([],redirs)
+
+toRedirs :: Monad m => [Token] -> m ([Redir])
+toRedirs [] = return []
+toRedirs (Oper Great:Word outf:xs) = do rest <- toRedirs xs
+                                        outf' <- fromLiteral outf
+                                        return (OutTo outf':rest)
+toRedirs (Oper Less:Word inf:xs) = do rest <- toRedirs xs
+                                      inf' <- fromLiteral inf
+                                      return (InFrom inf':rest)
+toRedirs (Oper DGreat:Word apf:xs) = do rest <- toRedirs xs
+                                        apf' <- fromLiteral apf
+                                        return (AppendTo apf':rest)
+toRedirs xs = fail $ "Weird redirection: "++ show xs
 
 parseExpr :: (Monad m, Functor m) => Expression -> m Expression
 parseExpr = mapExprME $ fmap f . toStr
-    where f :: [String] -> Expression
-          f (x:xs) = case toBuiltin x of
-                       Just b  -> Builtin b xs []
-                       Nothing -> Cmd x xs []
-          f [] = Builtin Exec [] [] -- no-op...
+    where f :: ([String],[Redir]) -> Expression
+          f (x:xs,redirs) = case toBuiltin x of
+                            Just b  -> Builtin b xs redirs
+                            Nothing -> Cmd x xs redirs
+          f ([],[]) = Builtin Exec [] [] -- no-op...
+          f ([],redirs) = error $ "redirection with no command? "++ show redirs
 
 concatMapM :: (Monad m, Functor m) => (a -> m [b]) -> [a] -> m [b]
 concatMapM f xs = concat `fmap` mapM f xs

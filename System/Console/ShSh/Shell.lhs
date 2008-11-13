@@ -16,6 +16,7 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getShellState, runShell_, runShell,
                                    pipeShells, runInShell,
                                    startShell,
+                                   withOutRedirected, withErrRedirected,
                                    withPipes, runWithPipes, runWithPipes_,
                                    withHandler, withHandler_,
                                    withExitHandler, failOnError,
@@ -36,7 +37,7 @@ import Data.Monoid ( Monoid, mempty, mappend )
 import System.Directory ( getCurrentDirectory, getHomeDirectory )
 import System ( ExitCode(..) )
 import System.Environment ( getEnvironment )
-import System.IO ( stdin, stdout, stderr )
+import System.IO ( stdin, stdout, stderr, openFile, IOMode(..) )
 
 import System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle )
 import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
@@ -45,7 +46,7 @@ import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
                                          toReadHandle, toWriteHandle,
                                          wIsOpen, rIsOpen )
 import System.Console.ShSh.Internal.Process ( CreateProcess, ProcessHandle,
-                                              launch,
+                                              launch, toWriteStream,
                                               Pipe, PipeState(..), waitForPipe,
                                               ReadStream(..), WriteStream(..),
                                               fromReadStream, fromWriteStream
@@ -230,6 +231,16 @@ withPipes p (Shell s) = Shell $ do
                           ret <- s
                           modify $ \st -> st { pipeState = ps }
                           return ret
+
+withOutRedirected :: FilePath -> ShellT e a -> ShellT e a
+withOutRedirected f j =
+    do h <- liftIO $ openFile f WriteMode
+       withPipes (mempty { p_out = toWriteStream h }) j
+
+withErrRedirected :: FilePath -> ShellT e a -> ShellT e a
+withErrRedirected f j =
+    do h <- liftIO $ openFile f WriteMode
+       withPipes (mempty { p_err = toWriteStream h }) j
 
 -- |This is a convenience function to act like runShell . withPipes
 runWithPipes :: PipeState -> ShellState e -> ShellT e a -> IO ExitCode

@@ -12,7 +12,8 @@ therefore Shell can depend on it.
 module System.Console.ShSh.Internal.Process (
   CreateProcess(..), ProcessHandle, -- re-export this...
   Pipe, waitForPipe, PipeState(..), launch,
-  ReadStream(..), fromReadStream, WriteStream(..), fromWriteStream
+  ReadStream(..), fromReadStream, WriteStream(..), fromWriteStream,
+  toWriteStream,
 ) where
 
 import Control.Concurrent ( MVar, newEmptyMVar, takeMVar, putMVar, forkIO )
@@ -72,6 +73,9 @@ fromWriteStream :: Handle -> WriteStream -> WriteHandle
 fromWriteStream h WInherit = toWriteHandle h
 fromWriteStream _ (WUseHandle h) = h
 fromWriteStream _ (WCreatePipe) = undefined -- fail "Pipe not yet created!"
+
+toWriteStream :: Handle -> WriteStream
+toWriteStream = WUseHandle . toWriteHandle
 
 fromReadStream :: Handle -> ReadStream -> ReadHandle
 fromReadStream h RInherit = toReadHandle h
