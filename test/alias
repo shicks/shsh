@@ -1,0 +1,63 @@
+Alias Expansion
+===============
+
+
+Alias expansion is pretty tricky.  Here are some test cases.
+
+\begin{file}{alias1.sh}
+alias foo=echo\ hello
+alias bar=world
+foo bar          # "hello bar"
+alias foo="echo hello "
+foo bar          # "hello world"
+alias foo='echo "hello '
+foo bar"         # "hello bar"
+
+alias foo=bar
+alias bar=echo
+foo bar          # "bar"
+alias foo="bar "
+foo bar          # "echo"
+alias foo=bar
+alias bar="echo "
+foo bar          # "echo"
+
+alias foo="echo \\"
+foo bar          # dash: " bar", bash: "  bar" (?)
+
+alias foo="echo hello #"
+foo bar          # "hello"
+
+alias foo='$(('
+alias bar='echo '
+bar foo 1+2 ))   # "3" (!)
+
+unset A
+alias foo=\${A:-
+bar foo test}    # "test" (no prespace, either!)
+\end{file}
+
+
+Plan
+----
+
+The plan for implementing this is to make a stateful lexer,
+of the same type we had before,
+  runLexer :: String -> [(String,String)] -> [Token]
+where Token = Word [Lexeme] | ... as before, but now we can
+just have the Lexer push/pop the state and loop.  The state
+must include
+  * Parsing mode (normal, dquotes, paramexp, arith, command,
+    backticks, ...?)
+  * Aliases allowed?
+  * Current word.
+Additionally, we must use a lookAhead approach to delimit
+words.  That is, when the current word is nonempty, we peek
+at the next character and if it's an operator, etc, then we
+do the delimiting action, which includes
+  * alias expansion (recursively, updating state at space),
+  * changing the type to IONum.
+
+The parsing mode can be as simple as a stack, with a list
+of Lexer ()'s.  On EOF, we can pop the final mode, and this
+will give the signal to quit.
