@@ -13,12 +13,9 @@ import System.Console.ShSh.Operator ( Operator(..) )
 
 import Control.Monad ( liftM2 )
 
-data Assignment = String := [Lexeme]
-                deriving ( Show )
-
 data Expression = Simple [Token]
-                | Cmd String [String] [Redir] [Assignment] -- ...?
-                | Builtin BuiltinCommand [String] [Redir] [Assignment]
+                | Cmd String [String] [Redir] -- ...?
+                | Builtin BuiltinCommand [String] [Redir]
                 | SubShell Expression
                 | Expression :|: Expression
                 | Expression :&&: Expression
@@ -108,11 +105,12 @@ toRedirs xs = fail $ "Weird redirection: "++ show xs
 
 parseExpr :: (Monad m, Functor m) => Expression -> m Expression
 parseExpr = mapExprME $ fmap f . toStr
-    where f :: [String] -> Expression
-          f (x:xs) = case toBuiltin x of
-                       Just b  -> Builtin b xs []
-                       Nothing -> Cmd x xs []
-          f [] = Builtin Exec [] [] -- no-op...
+    where f :: ([String],[Redir]) -> Expression
+          f (x:xs,redirs) = case toBuiltin x of
+                            Just b  -> Builtin b xs redirs
+                            Nothing -> Cmd x xs redirs
+          f ([],[]) = Builtin Exec [] [] -- no-op...
+          f ([],redirs) = error $ "redirection with no command? "++ show redirs
 
 concatMapM :: (Monad m, Functor m) => (a -> m [b]) -> [a] -> m [b]
 concatMapM f xs = concat `fmap` mapM f xs

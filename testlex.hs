@@ -13,10 +13,10 @@ loop pre = do let prompt = if null pre then "$ " else "> "
               eof <- hIsEOF stdin
               if eof then putStrLn "" >> exitWith ExitSuccess
                      else do x <- getLine
-                             let l = runLexer (pre++x)
+                             let l = runLexer [] $ pre++x
                              case l of
-                               Just ts -> process ts >> hFlush stdout >> loop ""
-                               Nothing -> loop (pre++x++"\n")
+                               Right ts -> process ts >> hFlush stdout >> loop ""
+                               Left _ -> loop $ pre++x++"\n"
 
 process ts = do putStrLn $ "After Lexing: "++show ts
                 case parse ts of

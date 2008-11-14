@@ -1,3 +1,4 @@
+
 \chapter{Lexer module}
 
 This is the module that breaks up the input into tokens.  It comes before
@@ -10,21 +11,18 @@ parsing, and is where we stop if we need to ask for another line of input.
 module System.Console.ShSh.Lexer where
 
 import Control.Monad ( when, unless )
+import Control.Monad.State ( State, execState, gets, modify )
+
+import Data.Char ( isLetter, isDigit, isAlphaNum )
 import Data.Maybe ( isJust, fromJust, listToMaybe )
 import Data.Monoid ( Monoid, mappend, mconcat )
 
 import Debug.Trace ( trace )
 
-import Prelude hiding ( lex, last )
-import Text.ParserCombinators.Parsec (
-                     Parser, CharParser, GenParser, parse, runParser,
-                     getState, setState,
-                     choice, try, (<|>), (<?>),
-                     skipMany, many1, many, eof, lookAhead,
-                     char, letter, alphaNum, digit,
-                     oneOf, noneOf, anyChar )
-
 import System.Console.ShSh.Operator ( Operator(..), toOperator )
+
+tr = const id
+--tr = trace
 
 data Lexeme = Quote Char        -- ^we need to retain the quote chars
             | Literal Char      -- ^a letter
@@ -80,16 +78,64 @@ data Redir = Redir InOut Target Target
 -- Third pass: expansions, classifications, etc... - only when
 -- needed...
 
-data LexerState = LS { word :: [Lexeme],
+data LexerMode = Normal
+               | Op String
+               | DQuote
+               | SQuote String
+               | Backslash LexerMode   -- ^behavior depends on prev mode
+               | Paren LexerMode       -- ^subshell (could save "parent" mode!)
+               | Dollar String         -- ^varname (so far)
+               | DollarBrace           -- ^collect lexemes (incl $(), etc)
+               | DollarParen
+               | DollarDParen String
+               | Backtick String       -- ^lex afterwards
+               | Eat Char
+               | Comment
+               deriving ( Show )
+
+data LexerState = LS { input :: String,
+                       word :: [Lexeme],
                        stream :: [Token],
                        aliases :: [(String,String)],
-                       modes :: [Lexer ()] }
+                       aliasOK :: Bool,
+                       modes :: [LexerMode],
+                       prevState :: [LexerState] -- move whole stack here?
+                     } -- or just store words & stream?  aliases?
 
--- |State: current tok, output so far
-type Lexer = CharParser LexerState
+-- Try something simpler...
+type Lexer = State LexerState
 
+runLexer :: [(String,String)] -> String -> Either String [Token]
+runLexer as s = let result = execState (lexInput >> lexEOF) $
+                             LS s [] [] as True [Normal] []
+                in case modes result of
+                     [] -> undefined -- impossible "Normal is always at bottom"
+                     [Normal] -> Right $ reverse $ stream result
+                     (Op _:_) -> Left "Impossible: Unterminated operator"
+                     (DQuote:_) -> Left "Expecting `\"'"
+                     (SQuote _:_) -> Left "Expecting `''"
+                     (Backslash _:_) -> Left "Unexpected EOF"
+                     (Paren _:_) -> Left "Expecting `)'"
+                     (Dollar _:_) -> Left "Impossible: Unterminated varname"
+                     (DollarBrace:_) -> Left "Expecting `}'"
+                     (DollarParen:_) -> Left "Expecting `)'"
+                     (DollarDParen _:_) -> Left "Expecting `))'"
+                     (Backtick _:_) -> Left "Expecting ``'"
+                     (Comment:_) -> Left "Impossible: Unterminated comment"
+
+-- |This is the main loop (very simple now!)
+lexInput :: Lexer ()
+lexInput = do i <- gets input
+              case i of
+                ""   -> return ()
+                c:cs -> do m <- head `fmap` gets modes -- unsafe?
+                           tr ("Input: "++[c]++", Mode: "++show m) consume
+                           lexChar m c
+                           lexInput
+
+-- |Add a single lexeme onto the accumulating word
 store :: Lexeme -> Lexer ()
-store l = getState >>= \s -> setState $ s { word = l:word s }
+store l = modify $ \s -> s { word = l:word s }
 
 -- |Tell a quote
 storeQ :: Char -> Lexer ()
@@ -103,323 +149,203 @@ storeL = store . Literal
 storeQL :: Char -> Lexer ()
 storeQL = store . Quoted . Literal
 
--- |Aliases for return True/False
-loop,done :: Lexer Bool
-loop = return True
-done = return False
+-- |Consume the front character off the input stream.  This happens
+-- by default before calling 'lexChar'.
+consume :: Lexer ()
+consume = modify $ \s -> s { input = drop 1 $ input s }
 
--- |repeat a job until it returns false
-whileM_ :: Monad m => m Bool -> m ()
-whileM_ job = do res <- job
-                 when (res) $ whileM_ job
+-- |Replace the given character back onto the input stream
+replace :: Char -> Lexer ()
+replace c = modify $ \s -> s { input = c:input s }
 
--- |Lex a newline
-newline :: Lexer ()
-newline = do (char '\n' >> try (char '\r'))
-               <|> (char '\r' >> try (char '\n'))
-             return ()
+-- |Pop a lexer mode
+popMode :: Lexer ()
+popMode = modify $ \s -> tr ("popMode: "++show (head $ modes s)) $ s { modes = drop 1 $ modes s }
 
--- |Lex a blank (space or tab)
-blank :: Lexer ()
-blank = oneOf " \t" >> return ()
+-- |Push a lexer mode
+pushMode :: LexerMode -> Lexer ()
+pushMode m = modify $ \s -> tr ("pushMode: "++show m) $ s { modes = m:modes s }
+
+-- |Replace the current (top) mode
+setMode :: LexerMode -> Lexer ()
+setMode m = do ms <- gets modes
+               tr ("setMode: "++show m++" (modes="++show ms) $
+                     popMode >> pushMode m
+               ms' <- gets modes
+               modify $ \s -> tr ("after: "++show ms') s
+
+-- |Return the current mode
+getMode :: Lexer LexerMode
+getMode = head `fmap` gets modes
+
+-- |This is the work horse.  A few of the more complicated modes
+-- are broken out into dedicated functions.
+lexChar :: LexerMode -> Char -> Lexer ()
+
+lexChar Normal c = lexNormal c
+
+lexChar (Op s) c = lexOperator s c
+
+lexChar DQuote c = lexDQuote c
+
+lexChar (SQuote s) '\'' = do mapM_ storeQL $ reverse s
+                             storeQ '\''
+                             popMode
+lexChar (SQuote s) c = setMode $ SQuote $ c:s
+
+lexChar (Backslash m) c = lexEscape m c
+
+lexChar (Paren _) ')' = popMode >> replace ')' >> lexInput
+lexChar (Paren m) c = lexChar m c -- doesn't matter if inside $()...
+
+lexChar (Dollar "") '{' = pushState >> setMode DollarBrace
+lexChar (Dollar "") '(' = pushState >> setMode DollarParen
+lexChar (Dollar "") c | isLetter c || c=='_' = setMode $ Dollar [c]
+                      | isDigit c || c `elem` "*@#?-$!" -- test: echo $A^
+                          = do store $ ParamExp $ [Literal c]
+                               popMode
+                      | otherwise = do replace c
+                                       popMode
+                                       m <- getMode
+                                       case m of
+                                         DQuote -> storeQL '$'
+                                         _      -> storeL '$'
+                                       
+lexChar (Dollar s) c | isAlphaNum c || c=='_' = setMode $ Dollar $ c:s
+                     | otherwise = do store $ ParamExp $ reverse $ literal s
+                                      replace c
+                                      popMode
+
+lexChar DollarBrace '}' = undefined -- end expansion here (popState, etc)
+lexChar DollarBrace c = undefined -- should be sort of like normalLex
+
+lexChar DollarParen '(' = undefined -- check if no input yet
+lexChar DollarParen ')' = undefined -- do stuff, pop state/mode...
+lexChar DollarParen c = lexNormal c
+
+lexChar (DollarDParen _) _ = undefined -- ???
+
+lexChar (Backtick s) '`' = undefined
+lexChar (Backtick s) '\\' = pushMode $ Backslash $ Backtick s
+lexChar (Backtick s) c = setMode $ Backtick $ c:s
+
+lexChar (Eat c) c' | c==c'     = popMode
+                   | otherwise = replace c' >> popMode
+
+lexChar Comment '\n' = replace '\n' >> popMode -- combine these?!?
+lexChar Comment '\r' = replace '\r' >> popMode
+lexChar Comment _ = return ()
+
+
+-- |@lexEOF@ takes care of wrapping up anything like 'Dollar' mode
+-- that can end on an EOF.  We do this by calling a helper function,
+-- @lexEOF'@, which will often call @lexEOF@ back again after popping
+-- the mode.
+lexEOF :: Lexer ()
+lexEOF = getMode >>= lexEOF'
+
+lexEOF' :: LexerMode -> Lexer ()
+lexEOF' (Dollar s) = store (ParamExp $ reverse $ literal s) >> popMode >> lexEOF
+lexEOF' Comment = popMode >> lexEOF
+lexEOF' (Op s) = do tell $ Oper $ fromJust $ toOperator s
+                    popMode >> lexEOF
+lexEOF' Normal = delimit
+lexEOF' _ = return () -- no recovery possible...
+
+pushState = undefined
+popState = undefined
+
+isNewline :: Char -> Bool
+isNewline = (`elem` "\n\r")
+
+eatOtherNewline :: Char -> Lexer ()
+eatOtherNewline c = pushMode $ Eat $ fromJust $ lookup c
+                                                [('\n','\r'),('\r','\n')]
+isBlank :: Char -> Bool
+isBlank = (`elem` " \t")
+
+lexNormal '\\' = pushMode $ Backslash Normal
+lexNormal '"' = storeQ '"' >> pushMode DQuote
+lexNormal '\'' = storeQ '\'' >> pushMode (SQuote "")
+lexNormal '$' = pushMode $ Dollar ""
+lexNormal '`' = pushMode $ Backtick ""
+lexNormal '(' = tell (Oper LParen) >> pushMode (Paren Normal)
+lexNormal c | c `elem` "<>" = delimitIO >> pushMode (Op [c])
+            | c `elem` ")&|;" = delimit >> pushMode (Op [c])
+            | isNewline c = delimit >> tell Newline >> eatOtherNewline c
+            | isBlank c   = delimit
+lexNormal '#' = do w <- gets word
+                   if null w then storeL '#'
+                             else pushMode Comment
+lexNormal c = storeL c
+
+-- somewhere buried here is where aliases go...
+
+lexOperator :: String -> Char -> Lexer ()
+lexOperator s c = case toOperator $ s++[c] of
+                    Just op -> setMode $ Op $ s++[c]
+                    Nothing -> do replace c
+                                  popMode
+                                  tell $ Oper $ fromJust $ toOperator s
+
+-- |Deal with backslashes...
+lexEscape _ c | isNewline c = popMode >> eatOtherNewline c
+lexEscape Normal c = storeQ '\\' >> storeL c >> popMode
+lexEscape DQuote c | c `elem` "\"$`" = storeQ '\\' >> storeQL c
+                   | otherwise       = storeQL '\\' >> storeQL c
+lexEscape DollarBrace c = undefined -- ,,,? - probably escape ANY (cf Normal)
+lexEscape DollarParen c = undefined -- ... - cf normal
+lexEscape (DollarDParen s) c = undefined -- just add to s...?
+
+-- |@lexDQuote@ just builds onto the current literal - never tokenizes
+lexDQuote '$' = pushMode $ Dollar ""
+lexDQuote '"' = store (Quote '"') >> popMode
+lexDQuote '`' = pushMode $ Backtick ""
+lexDQuote '\\' = pushMode $ Backslash DQuote
+lexDQuote c = storeQL c
+
+
+
+
+
 
 -- |Add a delimiter if there's not already one there...
 -- We should hold onto some state - maybe a bool - for whether the
 -- next token is subject to alias expansion.  Basically, this is at
 -- the beginning, as well as after any control operator (;, \n, &, &&, ||, |).
 delimit :: Lexer ()
-delimit = do LS ls ts as ms <- getState
-             unless (null ls) $ setState $ LS [] (Word (reverse ls):ts) as ms
---             unless null ls $ if a
---                              then expandAlias as (reverse ls) ts
---                              else setState $ LS [] (Word (reverse ls):ts) as ms
+delimit = do (ls,ts) <- gets $ \s -> (word s,stream s)
+             unless (null ls) $ modify $
+                        \s -> s { word = [], stream = Word (reverse ls):ts }
+--             unless (null ls) $ if a
+--                                then expandAlias as (reverse ls) ts
+--                                else setState $ LS [] (Word (reverse ls):ts) as ms
 
--- This is disturbing...!
---  $ alias foo='echo "hello '
---  $ foo world"
--- New plan:
---  fullyExpand :: [(S,S)] -> String -> String
--- This way we can prevent cycles, but not do any lexing prematurely.
--- Also, we need to call delimit using *lookAhead* only!
---  to wit: $ alias foo='echo "hello '; alias bar='world"'
---          $ foo bar
---          > "
---          hello  bar\n
--- Note also the extra space: we just dumped the extra aliased tokens on
--- and started lexing again....
---          $ alias baz='echo '
---          $ baz bar
---          > "
---          world\n
--- So when do we actually go about unaliasing?  might be best to
--- save the stream, do a non-state-preserving sub-lex
--- and then restore the stream upon exhaustion...?
---  $ alias foo='echo hello '
---  $ alias bar=world
---  $ foo bar    # => hello world
---  $ alias hello=foo
---  $ foo bar    # same
---
--- Aliases come before reserved words...
---  $ alias foo=for
---  $ foo a in f o o; do echo $a; done
---
--- Eeek!
---  $ alias foo='echo hello #'
---  $ foo bar
-
-
--- MORE WEIRD STUFF:
-{-
-
-bash$ alias foo='echo "hello'
-$ foo bar"
-hello  bar  #--> wrong?
-
-dash$ alias foo='echo "hello'
-$ foo bar"
-hello bar
-$ alias foo='echo "hello '
-$ foo bar"
-hello  bar
-$ alias foo='echo hello\'
-$ foo bar
-hello bar
-$ alias bar='world'
-$ foo bar
-hello bar
-$ foo>bar
-hello>bar
-$ foo #bar
-hello #bar
-$ echo hello\ #bar
-hello #bar
-$ echo hello #bar
-hello
-
--}
-
-
-{-
-expandAlias :: [(String,String)] -> [Lexeme] -> [Token] -> Lexer ()
-expandAlias as ls ts = do ml <- fromLiteral ls
-                          case ml of
-                            Nothing   -> noAlias
-                            Just name -> case lookup name as of
-                                           Nothing   -> noAlias
-                                           Just repl -> alias name repl
-    where noAlias = setState ([],Word ls:ts,as,False)
-          alias name repl = do let a' = " " `isSuffixOf` repl
-                                   as' = as \\ [(name,repl)]
-                                   case runLexer repl as' of
-                                     Just ts' -> 
-                                     Nothing  ->
--}
+-- |This is a version that incidentally checks if the word it's delimiting
+-- is eligible to be an @IONum@.
+delimitIO :: Lexer ()
+delimitIO = do (ls,ts) <- gets $ \s -> (word s,stream s)
+               unless (null ls) $
+                      if digits ls
+                      then modify $ \s ->
+                          s { word = [], 
+                              stream = IONum (read $ reverse $
+                                              map fromLiteral ls):ts }
+                      else modify $ \s -> s { word = [],
+                                              stream = Word (reverse ls):ts }
+    where digits [] = True
+          digits (Literal c:xs) = c `elem` "0123456789"
+          fromLiteral (Literal c) = c -- overwrites what we define just below
+          fromLiteral _ = error "Impossible"
 
 -- export these and remove from Expansions
-fromLiteral :: [Lexeme] -> Maybe String
-fromLiteral = mapM $ do {Literal c <- x; return c}
+fromLiteral :: Monad m => [Lexeme] -> m String
+fromLiteral = mapM $ \x -> do {Literal c <- return x; return c}
 
 literal :: String -> [Lexeme]
 literal = map Literal
 
-delimitIO :: Lexer ()
-delimitIO = do (ls,ts) <- getState
-               unless (null ls) $
-                    setState $ if digits ls
-                               then ([],IONum (read $ reverse $
-                                               map fromLiteral ls):ts)
-                               else ([],Word (reverse ls):ts)
-    where digits [] = True
-          digits (Literal c:xs) = c `elem` "0123456789"
-          fromLiteral (Literal c) = c
-          fromLiteral _ = error "Impossible"
-
--- |Return the accumulated tokens (in the correct order)
-output :: Lexer [Token]
-output = fmap (reverse.snd) getState
-
-last :: Lexer (Maybe Lexeme)
-last = fmap (listToMaybe.fst) getState
-
 tell :: Token -> Lexer ()
-tell t = do (ls,ts) <- getState
-            let ts' = t:(if null ls then id else (Word (reverse ls):)) ts
-            setState ([],ts')
-
-
-
-infixl 3 +++
-(+++) :: Monoid w => GenParser i s w -> GenParser i s w -> GenParser i s w
-a +++ b = do w <- a
-             w' <- b
-             return $ w `mappend` w'
-
--- name :: Stringy s => CharParser st s
-class Stringy s where
-    fromString :: String -> s
-    fromChar :: Char -> s
-    fromChar c = fromString [c]
-instance Stringy String where fromString = id
-instance Stringy [Lexeme] where fromString l = map Literal l
-
-name :: Stringy s => Lexer s
-name = fmap fromString $ many1 (letter <|> char '_')
-                         +++ many (alphaNum <|> char '_')
-
-special :: Stringy s => Lexer s
-special = fmap fromChar $ oneOf "*@#?-$!" <|> digit -- $1, etc, also
-
--- Here's another attempt...
-lex :: [Lexer Bool] -> Lexer [Token]
-lex m = whileM_ (choice m) >> delimit >> output -- this is extra unless no EOF
-
--- |@lex@ takes a delimiter that it's looking for to stop...
-normalLex :: Maybe Char -> [Lexer Bool]
-normalLex d | isJust d  = endOn (fromJust d):rest
-            | otherwise = rest
-            where rest = [lexEOF d, lexBackslash anyChar, lexDoubleQuotes,
-                          lexSingleQuotes, lexDollar, lexBacktick,
-                          lexOperator "", lexParen,
-                          newline >> delimit >> tell Newline >> loop,
-                          blank >> delimit >> loop,
-                          lexComment,
-                          anyChar >>= storeL >> loop]
-
-lexOperator :: String -> Lexer Bool
-lexOperator x = do o <- oneOf "<>|&;)"
-                   if o `elem` "<>" then delimitIO else delimit
-                   case toOperator $ x++[o] of
-                     Just op -> (try $ lexOperator $ x++[o]) <|>
-                                do tell $ Oper op
-                                   loop
-                     Nothing -> fail "" -- unread last char...
-
-endOn :: Char -> Lexer Bool
-endOn delim = lookAhead (char delim) >> done
-
-lexEOF :: Maybe Char -> Lexer Bool
-lexEOF d = do tok <- last
-              eof
-              when (isJust d) $ fail $ "expected "++[fromJust d]
-              if (isJust tok)
-                 then delimit
-                 else tell EOF
-              done
-
--- |This takes a lexer, either anyChar or oneOf "..."
-lexBackslash :: Lexer Char -> Lexer Bool
-lexBackslash f = do char '\\'
-                    choice [newline -- just gobble the \ and the \n
-                           ,do c <- f -- fails on line continuation
-                               storeQ '\\'
-                               storeQL c
-                           ,eof >> fail "" -- @@@TEST THIS!
-                           ,storeL '\\']
-                    loop
-
-lexSingleQuotes :: Lexer Bool
-lexSingleQuotes = do char '\''
-                     s <- many $ noneOf "'"
-                     char '\''
-                     storeQ '\'' >> mapM_ storeQL s >> storeQ '\''
-                     loop
-
--- Instead, just make lex be "many $ choice modules" and have modules
--- return a Bool for done...?  endOn then gets a fail instead of a done.
--- We may need to modify many to instead run as many as possible and
--- return the bool of the last successful one...?  hmm...
-
-subLex :: Lexer a -> Lexer a
-subLex job = do s <- getState
-                setState ([],[])
-                res <- job
-                setState s
-                return res
-
-lexDollar :: Lexer Bool
-lexDollar = do char '$'
-               choice [do char '{'
-                          s <- subLex $ lex [endOn '}',
-                                             lexBackslash $
-                                               oneOf "}\\\"'$`",
-                                             lexDoubleQuotes,
-                                             lexSingleQuotes,
-                                             lexDollar, lexBacktick,
-                                             anyChar >>= storeL >> loop]
-                          char '}'
-                          store $ ParamExp $ fromTok s
-                      ,do char '('
-                          choice [do char '(' -- arithmetic expansion
-                                     s <- subLex lexArithmetic
-                                     store $ ArithExp s
-                                 ,do t <- subLex $ lex $ normalLex $ Just ')'
-                                     char ')'
-                                     store $ Command t]
-                      ,(name <|> special) >>= (store . ParamExp)]
-               loop
-
-lexBacktick :: Lexer Bool
-lexBacktick = do char '`'
-                 s <- cat $ choice [char '`' >> fail "" -- done
-                                   ,char '\\' >> (one (oneOf "\\`$]") <|>
-                                                  fmap ('\\':) (one anyChar))
-                                   ,one anyChar]
-                 case runParser (lex $ normalLex Nothing) ([],[]) "" s of
-                   Left e  -> fail (show e) -- is this all we can do?
-                   Right x -> store $ Command x
-                 loop
-
-fromTok :: [Token] -> [Lexeme]
-fromTok [] = []
-fromTok [Word ls] = ls
-fromTok x = error $ "Impossible? frokTok on "++show x
-
-quoted :: Lexer [Token] -> Lexer ()
-quoted job = (mapM_ $ store . Quoted) `fmap` fromTok =<< subLex job
-
-lexDoubleQuotes :: Lexer Bool
-lexDoubleQuotes = do char '"' >> storeQ '"'
-                     quoted $ lex [endOn '"',
-                                   lexBackslash $ oneOf "\\\"$`",
-                                   lexDollar, lexBacktick,
-                                   anyChar >>= storeL >> loop]
-                     char '"' >> storeQ '"'
-                     loop
-
-lexParen :: Lexer Bool
-lexParen = do char '('
-              delimit -- probably doesn't matter...?
-              tell $ Oper LParen
-              lex $ normalLex $ Just ')'-- go up to next paren...
-              char ')' -- make sure it's actually there...
-              tell $ Oper RParen
-              loop
-
-lexComment :: Lexer Bool
-lexComment = do char '#'
-                mt <- last
-                if isJust mt then storeL '#'
-                             else skipMany $ noneOf "\n"
-                loop
-
-one :: Functor f => f a -> f [a]
-one = fmap (\a -> [a])
-cat :: Monoid a => Lexer a -> Lexer a
-cat = fmap mconcat . many
-
-lexArithmetic :: Lexer String
-lexArithmetic = cat parens +++ closeArith
-    where closeArith = do char ')' -- first unmatched rparen...
-                          ((char ')' >> return "") <|> -- suppress "))" output
-                           return ")" +++ cat parens +++ closeArith)
-                        <?> "\"))\""
-          parens :: Lexer String
-          parens = one (char '(') +++ cat parens +++ one (char ')') 
-                   <|> many1 (noneOf "()") <?> ""
-
-runLexer :: String -> Maybe [Token]
-runLexer s = case runParser (lex $ normalLex Nothing) ([],[]) "" s of
-               Left e  -> trace ("Error: "++show e) Nothing
-               Right x -> Just x
+tell t = do delimit
+            modify $ \s -> s { stream = t:stream s }
 \end{code}

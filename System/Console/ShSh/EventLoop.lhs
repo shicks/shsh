@@ -22,6 +22,7 @@ import System.FilePath ( (</>) )
 import System.Exit ( ExitCode(..) )
 import Control.Monad ( when )
 import Control.Monad.Trans ( liftIO )
+import Data.Maybe ( fromJust, isJust )
 
 #ifdef HAVE_HASKELINE
 import System.Console.Haskeline ( runInputT, getInputLine,
@@ -51,12 +52,15 @@ eventLoop i h = do
                   if am_v then ePutStrLn s
                           else return ()
 --                  s' <- shellExpansions s
-                  case runLexer (i++s) of -- Later, add more to s' (PS2)
-                    Nothing -> eventLoop (i++s++"\n") h
-                    Just cmd -> do code <- process cmd
-                                   if am_e && code /= ExitSuccess
-                                     then fail ""
-                                     else eventLoop "" h
+                  case runLexer [] (i++s) of -- Later, add more to s' (PS2)
+                    Left err -> do when (isJust h) $ do
+                                     eof <- liftIO $ hIsEOF $ fromJust h
+                                     when eof $ fail err
+                                   eventLoop (i++s++"\n") h
+                    Right cmd -> do code <- process cmd
+                                    if am_e && code /= ExitSuccess
+                                      then fail ""
+                                      else eventLoop "" h
 
 -- What do we want to do with history?  Bash defines a $HISTFILE variable,
 -- but that only deals with saving the history on exit - apparently readline
