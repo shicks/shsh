@@ -78,16 +78,16 @@ data Redir = Redir InOut Target Target
 -- Third pass: expansions, classifications, etc... - only when
 -- needed...
 
-data LexerMode = Normal
+data LexerMode = Normal -- make an Alias mode, like normal but preventing loops?
                | Op String
                | DQuote
                | SQuote String
                | Backslash LexerMode   -- ^behavior depends on prev mode
-               | Paren LexerMode       -- ^subshell (could save "parent" mode!)
+               | Paren       -- ^subshell (could save "parent" mode!)
                | Dollar String         -- ^varname (so far)
                | DollarBrace           -- ^collect lexemes (incl $(), etc)
                | DollarParen
-               | DollarDParen String
+               | DollarDParen String Int
                | Backtick String       -- ^lex afterwards
                | Eat Char
                | Comment
@@ -99,7 +99,8 @@ data LexerState = LS { input :: String,
                        aliases :: [(String,String)],
                        aliasOK :: Bool,
                        modes :: [LexerMode],
-                       prevState :: [LexerState] -- move whole stack here?
+                       stack :: [([Lexeme],[Token])],
+                       inputStack :: [String]
                      } -- or just store words & stream?  aliases?
 
 -- Try something simpler...
@@ -107,19 +108,19 @@ type Lexer = State LexerState
 
 runLexer :: [(String,String)] -> String -> Either String [Token]
 runLexer as s = let result = execState (lexInput >> lexEOF) $
-                             LS s [] [] as True [Normal] []
+                             LS s [] [] as True [Normal] [] []
                 in case modes result of
-                     [] -> undefined -- impossible "Normal is always at bottom"
+                     [] -> Left "Impossible: Normal is always at bottom"
                      [Normal] -> Right $ reverse $ stream result
                      (Op _:_) -> Left "Impossible: Unterminated operator"
                      (DQuote:_) -> Left "Expecting `\"'"
                      (SQuote _:_) -> Left "Expecting `''"
                      (Backslash _:_) -> Left "Unexpected EOF"
-                     (Paren _:_) -> Left "Expecting `)'"
+                     (Paren:_) -> Left "Expecting `)'"
                      (Dollar _:_) -> Left "Impossible: Unterminated varname"
                      (DollarBrace:_) -> Left "Expecting `}'"
                      (DollarParen:_) -> Left "Expecting `)'"
-                     (DollarDParen _:_) -> Left "Expecting `))'"
+                     (DollarDParen _ _:_) -> Left "Expecting `))'"
                      (Backtick _:_) -> Left "Expecting ``'"
                      (Comment:_) -> Left "Impossible: Unterminated comment"
 
@@ -130,6 +131,8 @@ lexInput = do i <- gets input
                 ""   -> return ()
                 c:cs -> do m <- head `fmap` gets modes -- unsafe?
                            tr ("Input: "++[c]++", Mode: "++show m) consume
+                           w <- gets word
+                           unless (null w) $ lexDelimiter m
                            lexChar m c
                            lexInput
 
@@ -195,11 +198,11 @@ lexChar (SQuote s) c = setMode $ SQuote $ c:s
 
 lexChar (Backslash m) c = lexEscape m c
 
-lexChar (Paren _) ')' = popMode >> replace ')' >> lexInput
-lexChar (Paren m) c = lexChar m c -- doesn't matter if inside $()...
+lexChar Paren ')' = popMode >> replace ')' >> lexInput
+lexChar Paren c = lexNormal c -- doesn't matter if inside $()...
 
-lexChar (Dollar "") '{' = pushState >> setMode DollarBrace
-lexChar (Dollar "") '(' = pushState >> setMode DollarParen
+lexChar (Dollar "") '{' = saveState >> setMode DollarBrace
+lexChar (Dollar "") '(' = saveState >> setMode DollarParen
 lexChar (Dollar "") c | isLetter c || c=='_' = setMode $ Dollar [c]
                       | isDigit c || c `elem` "*@#?-$!" -- test: echo $A^
                           = do store $ ParamExp $ [Literal c]
@@ -216,16 +219,37 @@ lexChar (Dollar s) c | isAlphaNum c || c=='_' = setMode $ Dollar $ c:s
                                       replace c
                                       popMode
 
+-- Extended expansions ${ ... }
 lexChar DollarBrace '}' = undefined -- end expansion here (popState, etc)
 lexChar DollarBrace c = undefined -- should be sort of like normalLex
 
-lexChar DollarParen '(' = undefined -- check if no input yet
-lexChar DollarParen ')' = undefined -- do stuff, pop state/mode...
+-- Command substitutions $( ... )
+lexChar DollarParen '(' = do ws <- getWS
+                             if null (fst ws) && null (snd ws)
+                                then setMode $ DollarDParen "" 0
+                                else lexNormal '('
+lexChar DollarParen ')' = do delimit -- maybe?
+                             ts <- gets stream
+                             store $ ParamExp $ reverse ts
+                             restoreState
 lexChar DollarParen c = lexNormal c
 
-lexChar (DollarDParen _) _ = undefined -- ???
+-- Arithmetic substitutions $(( ... ))
+lexChar (DollarDParen s n) '(' = setMode $ DollarDParen ('(':s) (n+1)
+lexChar (DollarDParen s (-1)) ')' = do popMode
+                                       storeQQ $ ArithExp $
+                                               take (length s - 1) s
+lexChar (DollarDParen s n) ')' = setMode $ DollarDParen (')':s) (n-1)
+lexChar (DollarDParen s n) c = setMode $ DollarDParen (c:s) n
 
-lexChar (Backtick s) '`' = undefined
+-- Backtick substitution ` ... `
+lexChar (Backtick s) '`' = do case runLexer s of
+                                Left err -> fail err -- FATAL error...?
+                                Right ts -> store $ CommandSub ts
+                              popMode
+-- cf. $ false && echo `echo "1` && "
+--     dash: Syntax error
+
 lexChar (Backtick s) '\\' = pushMode $ Backslash $ Backtick s
 lexChar (Backtick s) c = setMode $ Backtick $ c:s
 
@@ -235,7 +259,6 @@ lexChar (Eat c) c' | c==c'     = popMode
 lexChar Comment '\n' = replace '\n' >> popMode -- combine these?!?
 lexChar Comment '\r' = replace '\r' >> popMode
 lexChar Comment _ = return ()
-
 
 -- |@lexEOF@ takes care of wrapping up anything like 'Dollar' mode
 -- that can end on an EOF.  We do this by calling a helper function,
@@ -249,11 +272,18 @@ lexEOF' (Dollar s) = store (ParamExp $ reverse $ literal s) >> popMode >> lexEOF
 lexEOF' Comment = popMode >> lexEOF
 lexEOF' (Op s) = do tell $ Oper $ fromJust $ toOperator s
                     popMode >> lexEOF
-lexEOF' Normal = delimit
+lexEOF' Normal = do delimit -- could put this in an unless...
 lexEOF' _ = return () -- no recovery possible...
 
-pushState = undefined
-popState = undefined
+saveState :: Lexer ()
+saveState = modify $ \s -> s { word = [], stream = [],
+                               stack = (word s,stream s):stack s }
+
+restoreState :: Lexer ()
+restoreState = modify $ \s -> let w = fst $ head $ stack s
+                                  t = snd $ head $ stack s
+                              in s { word = w, stream = s,
+                                     stack = drop 1 $ stack s }
 
 isNewline :: Char -> Bool
 isNewline = (`elem` "\n\r")
@@ -269,7 +299,7 @@ lexNormal '"' = storeQ '"' >> pushMode DQuote
 lexNormal '\'' = storeQ '\'' >> pushMode (SQuote "")
 lexNormal '$' = pushMode $ Dollar ""
 lexNormal '`' = pushMode $ Backtick ""
-lexNormal '(' = tell (Oper LParen) >> pushMode (Paren Normal)
+lexNormal '(' = tell (Oper LParen) >> pushMode Paren
 lexNormal c | c `elem` "<>" = delimitIO >> pushMode (Op [c])
             | c `elem` ")&|;" = delimit >> pushMode (Op [c])
             | isNewline c = delimit >> tell Newline >> eatOtherNewline c
@@ -295,7 +325,9 @@ lexEscape DQuote c | c `elem` "\"$`" = storeQ '\\' >> storeQL c
                    | otherwise       = storeQL '\\' >> storeQL c
 lexEscape DollarBrace c = undefined -- ,,,? - probably escape ANY (cf Normal)
 lexEscape DollarParen c = undefined -- ... - cf normal
-lexEscape (DollarDParen s) c = undefined -- just add to s...?
+lexEscape (DollarDParen s n) c = undefined -- EEK!  `` and $() are allowed!
+-- We might want to make DollarDParen behave more like DollarParen... storing
+-- words and tokens, etc...!
 
 -- |@lexDQuote@ just builds onto the current literal - never tokenizes
 lexDQuote '$' = pushMode $ Dollar ""
@@ -306,15 +338,15 @@ lexDQuote c = storeQL c
 
 
 
-
-
+getWS :: Lexer ([Lexeme],[Token])
+getWS = gets $ \s -> (word s,stream s)
 
 -- |Add a delimiter if there's not already one there...
 -- We should hold onto some state - maybe a bool - for whether the
 -- next token is subject to alias expansion.  Basically, this is at
 -- the beginning, as well as after any control operator (;, \n, &, &&, ||, |).
 delimit :: Lexer ()
-delimit = do (ls,ts) <- gets $ \s -> (word s,stream s)
+delimit = do (ls,ts) <- getWS
              unless (null ls) $ modify $
                         \s -> s { word = [], stream = Word (reverse ls):ts }
 --             unless (null ls) $ if a
@@ -324,7 +356,7 @@ delimit = do (ls,ts) <- gets $ \s -> (word s,stream s)
 -- |This is a version that incidentally checks if the word it's delimiting
 -- is eligible to be an @IONum@.
 delimitIO :: Lexer ()
-delimitIO = do (ls,ts) <- gets $ \s -> (word s,stream s)
+delimitIO = do (ls,ts) <- getWS
                unless (null ls) $
                       if digits ls
                       then modify $ \s ->
