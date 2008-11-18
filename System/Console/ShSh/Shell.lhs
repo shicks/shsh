@@ -66,7 +66,13 @@ data ShellState e = ShellState {
 
 type InnerShell e = ErrorT ShellError (StateT (ShellState e) IO)
 newtype ShellT e a = Shell ((InnerShell e) a)
-    deriving ( Functor, Monad, MonadIO, MonadSIO, MonadError ShellError )
+    deriving ( Functor, Monad, MonadSIO, MonadError ShellError )
+
+instance MonadIO (ShellT e) where
+    liftIO j = Shell $ do me <- liftIO (fmap Right j `catch` \e -> return $ Left e)
+                          case me of
+                            Right x -> return x
+                            Left e -> fail $ show e
 
 instance MonadSIO (InnerShell e) where
     iHandle = (fromReadStream stdin . p_in) `fmap` gets pipeState

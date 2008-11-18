@@ -16,6 +16,7 @@ import System.Console.ShSh.Parser ( parse )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, pipeShells, runInShell, withOutRedirected,
                                    getEnv, setEnv, getAllEnv, withExitHandler,
+                                   withHandler,
                                    tryEnv, withEnv, getFlag, unsetFlag )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Console.ShSh.Redirection ( Redir(..) )
@@ -33,7 +34,7 @@ process ts = do case parse ts of
 process' :: Expression -> Shell ExitCode -- do we quit or not?
 process' (Builtin b args (OutTo f:rs)) =
     withOutRedirected f $ process' (Builtin b args rs)
-process' (Builtin b args []) = runBuiltin b args []
+process' (Builtin b args []) = withHandler $ runBuiltin b args []
 process' (Cmd s ss (OutTo f:rs)) =
     withOutRedirected f $ process' (Cmd s ss rs)
 process' (Cmd s ss []) = withExitHandler $ tryToRun s ss
