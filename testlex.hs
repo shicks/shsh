@@ -14,7 +14,8 @@ loop pre = do let prompt = if null pre then "$ " else "> "
                      else do x <- getLine
                              let l = parse [("foo","echo "),("bar","baz"),
                                             ("baz","foo bar"),
-                                            ("foobar","sort && echo foo")] $
+                                            ("foobar","sort && echo foo"),
+                                            ("blah","echo \" ")] $
                                      pre++x
                              case l of
                                Right ts -> do process ts

@@ -106,10 +106,9 @@ injectAlias :: String -> String -> [(String,String)] -> Bool -> P ()
 injectAlias a s as ip = do i <- getInput
                            let (h,t) = splitAt 1 i
                            setInput $ map Chr s ++
-                                      h ++
+                                      Ctl (IncPos ip):h ++
                                       Ctl (Aliases as):
                                       -- These next two may be gratuitous
-                                      Ctl (IncPos ip):
                                       Ctl (AliasOn $ isBlank $ last s):
                                       t
                            setAliasInfo (True,as\\[(a,s)],False)
