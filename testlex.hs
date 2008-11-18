@@ -15,7 +15,7 @@ loop pre = do let prompt = if null pre then "$ " else "> "
                              let l = parse [("foo","echo "),("bar","baz"),
                                             ("baz","foo bar"),
                                             ("foobar","sort && echo foo"),
-                                            ("blah","echo \" ")] $
+                                            ("blah","echo #")] $
                                      pre++x
                              case l of
                                Right ts -> do process ts

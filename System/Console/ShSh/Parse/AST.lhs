@@ -7,6 +7,8 @@ simple and compound statements.
 
 module System.Console.ShSh.Parse.AST where
 
+import Data.Monoid ( Monoid, mempty, mappend )
+
 import Debug.Trace ( trace )
 
 impossible = const undefined
@@ -70,6 +72,19 @@ fromLiteral _ = Nothing
 
 ql :: Char -> Lexeme
 ql = Quoted . Literal
+
+instance Monoid Word where
+    mempty = LitWord ""
+    mappend a b | isJust la && isJust lb = let Just a' = la
+                                               Just b' = lb
+                                           in LitWord $ a'++b'
+                | otherwise = let GenWord a' = toGenWord a
+                                  GenWord b' = toGenWord b
+                              in GenWord $ a'++b'
+                where la = fromLiteral a
+                      lb = fromLiteral b
+                           toGenWord (LitWord s) = GenWord $ map Literal s
+                           toGenWord (GenWord w) = GenWord w
 
 {-
 -- Here's an example of use (explaining associativity):

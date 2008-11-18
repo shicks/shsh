@@ -4,11 +4,12 @@ Here is where we do the various expansions.
 
 \begin{code}
 
-module System.Console.ShSh.Expansions ( expansions ) where
+module System.Console.ShSh.Expansions ( expand ) where
 
-import System.Console.ShSh.Operator ( Operator(..) )
-import System.Console.ShSh.Lexer ( Lexeme(..), Token(..), runLexer )
-import System.Console.ShSh.Parser ( parse, reservedWords )
+import System.Console.ShSh.Parse (  )
+import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
+import System.Console.ShSh.Shell ( Shell, setEnv, getEnv )
+import System.Console.ShSh.ShellError ( throw )
 
 import Control.Monad.Trans ( lift, liftIO )
 
@@ -17,13 +18,106 @@ import Data.List ( takeWhile, dropWhile )
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( Monoid, mappend )
 
-import Text.Parsec ( ParsecT, runParserT, (<|>),
-                     choice, try, many, many1, eof,
-                     string, char, anyChar, letter, alphaNum, oneOf, digit )
+-- |This is the primary function now.  We simply take a 'Word' and
+-- turn it into a 'LitWord'.  Later we'll need to be a bit more careful
+-- with whether or not to field-split, among other things.  Also,
+-- we might make convenience functions for expanding a whole 'Statement'
+-- (at least, so long as it's not a subshell - these runtime checks are
+-- pretty hokey).  Note that 'Word's inside 'Redir's are never split
+-- regardless of the value of @$IFS@.
+expand :: Word -> Shell Word
+expand w = do w' <- expandParams =<< expandTilde w
+              return $ removeQuotes w'
 
-import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
-import System.Console.ShSh.Shell ( Shell, setEnv, getEnv )
-import System.Console.ShSh.ShellError ( throw )
+
+-- |First step: tilde expansion.
+expandTilde :: Word -> Shell Word
+expandTilde w = let (pre,rest) = getLiteralPrefix w
+                in case pre of
+                     '~':s -> exp s rest
+                     _     -> return w
+    where exp s r | '/' `elem` s = do let (user,path) = splitAtChar '/' s
+                                      dir <- homedir user
+                                      return $ LitWord (dir++"/"++path)
+                                                 `mappend` r
+          exp s (GenWord []) = do dir <- homedir s
+                                  return $ LitWord dir
+          exp s r = LitWord s `mappend` r
+
+getLiteralPrefix :: Word -> (String,Word)
+getLiteralPrefix (LitWord s) = (s,mempty)
+getLiteralPrefix (GenWord []) = ("",mempty)
+getLiteralPrefix (GenWord (Literal c:xs))
+    = let (s',w') = getLiteralPrefix $ GenWord xs in (c:s',w')
+
+
+-- |Parameter expansion
+expandParams :: Word -> Shell Word
+expandParams = expandWith e
+    where e b (SimpleExpansion n) = getEnvQ b n
+          e b (FancyExpansion n o c w)
+              = do v <- getEnvQC b c n
+                   case o of
+                     '-' -> return $ fromMaybe w v
+                     '=' -> case v of
+                              Nothing -> setEnvW n w >> return w
+                              Just v' -> return v'
+                     '?' -> case v of
+                              Nothing -> fail $ n++": undefined or null"
+                              Just v' -> return v'
+                     '+' -> return $ maybe mempty (const w) v
+
+-- |Helper functions...
+setEnvW :: String -> Word -> Shell () -- set an environment variable
+setEnvW = undefined
+
+genEnvQC :: Bool -> Bool -> String -> Shell Word
+genEnvQC = undefined
+
+getEnvQ :: Bool -> String -> Shell Word
+getEnvQ True "*" = undefined -- special treatment
+getEnvQ b n = do v <- getEnv n
+                 case v of
+                   Nothing -> return $ LitWord ""
+                   Just v' -> if b then return $ GenWord $ map ql v'
+                                   else return $ LitWord v'
+
+-- |Helper function for expansions...  The @Bool@ argument is for
+-- whether or not we're quoted.
+expandWith :: (Bool -> Expansion -> Shell Word) -> Word -> Shell Word
+expandWith _ (LitWord s) = return $ LitWord s
+expandWith f (GenWord (Expand x:xs)) = do x' <- f False x
+                                          xs' <- expandWith f $ GenWord xs
+                                          return $ x' `mappend` xs'
+expandWith f (GenWord (Quoted (Expand x):xs)) = do x' <- f True x
+                                                   xs' <- expandWith f $
+                                                            GenWord xs
+                                                   return $ x' `mappend` xs'
+expandWith f (GenWord (x:xs)) = do x' <- GenWord [x]
+                                   xs' <- expandWith f $ GenWord xs
+                                   return $ x'  `mappend` xs'
+
+splitFields :: [Word] -> Shell [Word]
+splitFields w = do ifs <- getEnv "IFS"
+                   return $ concatmap $ sf (fromMaybe " \t" ifs) w
+    where sf ifs (LitWord (c:cs)) = undefined -- recursive.  NOT all literal...
+          chop ifs (LitWord (c:cs)) | c `elem` ifs = undefined
+          -- use chop after split to prevent "  " from splitting twice
+
+-- Would we be better off converting the whole thing to [Lexeme]s first???
+
+
+-- |This always returns a LitWord.
+removeQuotes :: Word -> Word
+removeQuotes (LitWord s) = LitWord s
+removeQuotes (GenWord []) = LitWord ""
+removeQuotes (GenWord (Quote _:xs)) = removeQuotes $ GenWord xs
+removeQuotes (GenWord (Quoted x:xs)) = removeQuotes $ GenWord $ x:xs
+removeQuotes (GenWord (Expand _:xs)) = undefined -- shouldn't happen
+removeQuotes (GenWord (Literal c:xs)) = LitWord [c] `mappend`
+                                        removeQuotes (GenWord xs)
+
+{-
 
 mapWords :: ([Lexeme] -> [Lexeme]) -> Token -> Token
 mapWords f (Word x) = Word $ f x
@@ -113,6 +207,8 @@ homedir :: String -> Shell String
 homedir "" = getEnv "HOME"
 --homedir user = return $ "/fakehome/"++user -- for now
 homedir user = liftIO $ fromMaybe ("~"++user) `fmap` getHomeDir user
+
+-}
 
 
 {-

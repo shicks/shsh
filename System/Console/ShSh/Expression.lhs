@@ -108,11 +108,20 @@ toRedirs xs = fail $ "Weird redirection: "++ show xs
 
 parseExpr :: (Monad m, Functor m) => Expression -> m Expression
 parseExpr = mapExprME $ fmap f . toStr
+v v v v v v v
+    where f :: ([String],[Redir]) -> Expression
+          f (x:xs,redirs) = case toBuiltin x of
+                            Just b  -> Builtin b xs redirs
+                            Nothing -> Cmd x xs redirs
+          f ([],[]) = Builtin Exec [] [] -- no-op...
+          f ([],redirs) = error $ "redirection with no command? "++ show redirs
+*************
     where f :: [String] -> Expression
           f (x:xs) = case toBuiltin x of
-                       Just b  -> Builtin b xs []
-                       Nothing -> Cmd x xs []
-          f [] = Builtin Exec [] [] -- no-op...
+                       Just b  -> Builtin b xs [] []
+                       Nothing -> Cmd x xs [] []
+          f [] = Builtin Exec [] [] [] -- no-op...
+^ ^ ^ ^ ^ ^ ^
 
 concatMapM :: (Monad m, Functor m) => (a -> m [b]) -> [a] -> m [b]
 concatMapM f xs = concat `fmap` mapM f xs

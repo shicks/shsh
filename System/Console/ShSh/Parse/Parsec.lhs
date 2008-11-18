@@ -161,6 +161,11 @@ satisfy' _ = satisfy'' False
 -- the @Ctl@ tokens immediately along with anything else, so that
 -- @Consumed@ will be accurate...
 
+-- The other option, I guess, would be to use a type
+--   @data MChar = MChar [Control] Char@
+-- and then just stack the control codes on either the space or else
+-- the next eligible letter.
+
 satisfy = satisfy'' False
 
 -- This is for debugging...
