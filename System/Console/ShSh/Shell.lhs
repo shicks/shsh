@@ -172,7 +172,8 @@ startState = do e <- liftIO getEnvironment
                 f <- liftIO parseFlags -- better way to integrate these
                 cwd <- liftIO getCurrentDirectory
                 home <- liftIO getHomeDirectory
-                let e' = updateWith "PWD" (fromMaybe cwd) $
+                let e' = updateWith "SHELL" (const "shsh") $
+                         updateWith "PWD" (fromMaybe cwd) $
                          updateWith "HOME" (fromMaybe home) $
                          updateWith "-" (fromMaybe f) e
                 return $ ShellState e' [] [] mempty mempty
