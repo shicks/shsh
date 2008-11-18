@@ -12,9 +12,14 @@ loop pre = do let prompt = if null pre then "$ " else "> "
               eof <- hIsEOF stdin
               if eof then putStrLn "" >> exitWith ExitSuccess
                      else do x <- getLine
-                             let l = parse [] $ pre++x
+                             let l = parse [("foo","echo "),("bar","baz"),
+                                            ("baz","foo bar"),
+                                            ("foobar","sort && echo foo")] $
+                                     pre++x
                              case l of
-                               Right ts -> process ts >> hFlush stdout >> loop ""
+                               Right ts -> do process ts
+                                              hFlush stdout
+                                              loop ""
                                Left err -> do putStrLn $ show err
                                               loop $ pre++x++"\n"
 

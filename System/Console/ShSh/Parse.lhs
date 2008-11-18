@@ -21,7 +21,7 @@ import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
 import Control.Monad ( unless )
 import Data.List ( (\\) )
 import Data.Char ( isDigit )
--- import Debug.Trace ( trace )
+import Debug.Trace ( trace )
 
 -- We don't actually really need Parsec3 - could adapt that Parsec2 source...
 -- Also, this should maybe be a debug switch...?
@@ -91,22 +91,38 @@ expandAlias = try $ do (aok,as,ip) <- getAliasInfo
                          Nothing -> fail ""
                          Just s  -> injectAlias a s as ip
 
+-- |We do some weird (scary) stuff here...  in particular, we inject
+-- the control codes /after/ the first character in the stream, which
+-- must have been a delimiter of some sort.  This is so that /all/ the
+-- sub-expansions that occur here will stack properly and /not/ consume
+-- the @Aliases@ token prematurely, thus permanently losing the outermost
+-- alias.  I.e.
+--   $ alias foo="echo "; alias bar=foo
+--   $ foo bar bar
+-- If we just inject before @i@ then we end up with "echo echo bar", because
+-- the bar expands to "foo\CTRL ..." and then the control codes get eaten
+-- up when expanding foo, and that's bad.
 injectAlias :: String -> String -> [(String,String)] -> Bool -> P ()
 injectAlias a s as ip = do i <- getInput
-                           setInput $ map Right s ++
-                                      Left (Aliases as):
+                           let (h,t) = splitAt 1 i
+                           setInput $ map Chr s ++
+                                      h ++
+                                      Ctl (Aliases as):
                                       -- These next two may be gratuitous
-                                      Left (IncPos ip):
-                                      Left (AliasOn $ isBlank $ last s):
-                                      i
+                                      Ctl (IncPos ip):
+                                      Ctl (AliasOn $ isBlank $ last s):
+                                      t
                            setAliasInfo (True,as\\[(a,s)],False)
+                           unless True $
+                                do l <- getInput
+                                   setInput $ trace ("input: "++show l) l
 
 pipeline :: P Pipeline
 pipeline = fmap Pipeline $ statement `sepBy1` pipe
 
 pipe :: P ()
 pipe = try $ do char '|'
-                notFollowedBy $ fmap Right $ char '|'
+                notFollowedBy $ fmap Chr $ char '|'
 
 assocL :: P a -> P (b -> a -> b) -> (a -> b) -> P b
 assocL p op single = do x <- p
@@ -259,17 +275,13 @@ assignment = do spaces
              <?> "assignment"
 
 redirection :: P Redir
-redirection = do spaces
-                 choice [try $ do d <- many1 digit
-                                  o <- redirOperator
-                                  spaces
-                                  t <- word NormalContext
-                                  mkRedir o (Just $ read d) t
-                        ,do o <- redirOperator
-                            spaces
-                            t <- word NormalContext
-                            mkRedir o Nothing t]
-              <?> "redirection"
+redirection = try (do spaces
+                      d <- many digit
+                      o <- redirOperator
+                      spaces
+                      t <- word NormalContext
+                      mkRedir o (if null d then Nothing else Just $ read d) t)
+                <?> "redirection"
 
 redirOperator :: P String
 redirOperator = choice [do char '>'
@@ -304,7 +316,7 @@ wordToInt (LitWord ds) | null $ filter (not . isDigit) ds = Just $ read ds
 wordToInt _ = Nothing
 
 --parse :: [(String,String)] -> String -> Either String [Command]
-parse as s = case runParser (many command) (startState as) "" (map Right s) of
+parse as s = case runParser (many command) (startState as) "" (map Chr s) of
                Left err -> Left $ err
                Right cs -> Right cs
 
