@@ -1,5 +1,6 @@
 #!/usr/bin/runhaskell
 import Distribution.Franchise
+import Data.List ( isSuffixOf )
 
 true_version = "0.0.1"
 
@@ -22,6 +23,7 @@ buildable = do have_pwd <- isDefined "HAVE_PWD"
                let cfiles = if have_pwd then ["hspwd.c"]
                                         else []
                    cfiles' = map ("System/Console/ShSh/Foreign/"++) cfiles
+               buildDoc
                executable "testlex" "testlex.hs" cfiles'
                executable "shsh" "shsh.lhs" cfiles'
 
@@ -30,3 +32,25 @@ main = build [] configure buildable
 tryHeader h job warn = (checkHeader h >> putS ("found header "++h) >> job)
                        `catchC` \_ -> putS ("failed to find working "++h++": "
                                             ++warn)
+
+buildDoc =
+    do addExtraData "haddock-directory" "doc/haddock"
+       rm_rf "tmp"
+       alltests <- mapDirectory buildOneTest "test"
+       beginTestWith (pwd >>= addToPath)
+       withDirectory "doc" $
+           do htmls <- concat `fmap` mapM (\i -> markdownToHtml "../doc.css" i "")
+                       (concatMap fst alltests)
+              addTarget $ ["*manual*","*html*"] :<
+                            ("manual/index.html":htmls) |<- defaultRule
+       test $ concatMap snd alltests
+    where buildOneTest f | ".splits" `isSuffixOf` f = return ([],[])
+          buildOneTest f =
+              do xxx <- splitMarkdown f ("../doc/"++f++".txt")
+                 case xxx of
+                   txtf:tests ->
+                       do ts <- mapM (\ (d, t) -> withDirectory d $
+                                                  testOne t "shsh" t >> return t)
+                                $ map splitPath tests
+                          return ([txtf],ts)
+                   [] -> return ([],[])

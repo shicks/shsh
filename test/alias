@@ -4,7 +4,7 @@ Alias Expansion
 
 Alias expansion is pretty tricky.  Here are some test cases.
 
-\begin{file}{alias1.sh}
+~~~~ ../tmp/alias1.sh
 alias foo=echo\ hello
 alias bar=world
 foo bar          # "hello bar"
@@ -54,7 +54,7 @@ alias baz='foo'
 foo bar          # "foo echo"
 foo foo          # "foo echo foo"
 
-\end{file}
+~~~~
 
 
 Plan

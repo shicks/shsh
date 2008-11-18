@@ -37,33 +37,34 @@ runBuiltin :: BuiltinCommand
            -> [String] -> [Redir] -> [Assignment]
            -> Shell ExitCode
 
-runBuiltin Exec _ _   = return ExitSuccess
-runBuiltin Exit _ _   = liftIO $ exitWith ExitSuccess -- message?
-runBuiltin Set [] _   = showEnv >> return ExitSuccess
-runBuiltin Set foo _  = setOpts foo
-runBuiltin Echo ss _  = do oPutStrLn $ unwords ss
-                           return ExitSuccess
-runBuiltin Cat [] _  = do x <- iGetContents
-                          oPutStr x
-                          return ExitSuccess
-runBuiltin Cat fs _  = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
-                          return ExitSuccess
-runBuiltin Grep [] _  = fail "grep requires an argument!"
-runBuiltin Grep [p] _  = do x <- iGetContents
-                            case filter (=~ p) $ lines x of
-                              [] -> return $ ExitFailure 1
-                              ls -> do oPutStr $ unlines ls
-                                       return ExitSuccess
-runBuiltin Grep (p:fs) _  = do x <- mapM (liftIO . readFile) fs
-                               let fm = zip fs $ map (filter (=~ p) . lines) x
-                                   pretty (f,ls) = if length fs > 1
-                                                   then map ((f++":")++) ls
-                                                   else ls
-                               if null $ concatMap snd fm
-                                  then return $ ExitFailure 1
-                                  else do oPutStr $ unlines $ concatMap pretty fm
-                                          return ExitSuccess
-runBuiltin Pwd _ _    = do cwd <- liftIO getCurrentDirectory
+runBuiltin Exec _ _ _   = return ExitSuccess
+runBuiltin Exit _ _ _   = liftIO $ exitWith ExitSuccess -- message?
+runBuiltin Set [] _ _   = showEnv >> return ExitSuccess
+runBuiltin Set foo _ _  = setOpts foo
+runBuiltin Echo ss _ _  = do oPutStrLn $ unwords ss
+                             return ExitSuccess
+runBuiltin Cat [] _ _   = do x <- iGetContents
+                             oPutStr x
+                             return ExitSuccess
+runBuiltin Cat fs _ _   = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
+                             return ExitSuccess
+runBuiltin Grep [] _ _  = fail "grep requires an argument!"
+runBuiltin Grep [p] _ _ = do x <- iGetContents
+                             case filter (=~ p) $ lines x of
+                               [] -> return $ ExitFailure 1
+                               ls -> do oPutStr $ unlines ls
+                                        return ExitSuccess
+runBuiltin Grep (p:fs) _ _ = do x <- mapM (liftIO . readFile) fs
+                                let fm = zip fs $ map (filter (=~ p) . lines) x
+                                    pretty (f,ls) = if length fs > 1
+                                                    then map ((f++":")++) ls
+                                                    else ls
+                                if null $ concatMap snd fm
+                                   then return $ ExitFailure 1
+                                   else do oPutStr $ unlines $
+                                                   concatMap pretty fm
+                                           return ExitSuccess
+runBuiltin Pwd _ _ _  = do cwd <- liftIO getCurrentDirectory
                            oPutStrLn cwd
                            return ExitSuccess
 runBuiltin Ls [] _ _  = do let unboring ('.':_) = False
