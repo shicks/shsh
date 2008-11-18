@@ -11,9 +11,11 @@ configure = do version true_version
                withModuleExporting "System.Process" "createProcess, shell"
                    "createProcess (shell \"echo 1\") >> return ()" $
                    define "HAVE_CREATEPROCESS"
+               withModule "Text.Parsec" $ define "HAVE_PARSEC3"
                tryHeader "pwd.h" (define "HAVE_PWD") -- test function?!
                          "tilde expansion will not work fully."
                replace "@VERSION@" true_version
+               ghcFlags ["-I."]
                createFile "System/Console/ShSh/Constants.lhs"
 
 buildable = do have_pwd <- isDefined "HAVE_PWD"
