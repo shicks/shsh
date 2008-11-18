@@ -20,7 +20,7 @@ import System.Console.ShSh.Shell ( Shell, pipeShells, runInShell, withOutRedirec
 import System.Console.ShSh.Prompt ( prompt )
 import System.Console.ShSh.Redirection ( Redir(..) )
 import System.Directory ( findExecutable, doesFileExist )
-import System.Process ( proc, waitForProcess )
+import System.Process ( waitForProcess )
 import System ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
 
@@ -84,7 +84,7 @@ tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
                         if path && exists
                            then fail $ cmd++": Permission denied"
                            else fail $ cmd++": No such file or directory"
-          run x = do (_,_,_,pid) <- runInShell $ proc x args
+          run x = do (_,_,_,pid) <- runInShell x args
                      liftIO $ waitForProcess pid
 
 {-

@@ -10,7 +10,7 @@ therefore Shell can depend on it.
 -- us to use the 6.10 API even if we don't have the package.  We
 -- hide all the dirty laundry in here.
 module System.Console.ShSh.Internal.Process (
-  CreateProcess(..), ProcessHandle, -- re-export this...
+  ProcessHandle, -- re-export this...
   Pipe, waitForPipe, PipeState(..), launch,
   ReadStream(..), fromReadStream, WriteStream(..), fromWriteStream,
   toWriteStream,
@@ -20,7 +20,8 @@ import Control.Concurrent ( MVar, newEmptyMVar, takeMVar, putMVar, forkIO )
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
 import System.IO ( Handle )
-import System.Process ( CreateProcess(..), ProcessHandle, StdStream(..),
+import System.Process ( std_in, std_out, std_err, proc,
+                        ProcessHandle, StdStream(..),
                         createProcess )
 
 import System.Console.ShSh.Internal.IO ( WriteHandle, ReadHandle,
@@ -84,21 +85,22 @@ fromReadStream _ (RCreatePipe) = undefined -- fail "Pipe not yet created!"
 
 -- This is a tricky function...  This PipeState needs to have CreatePipe.
 -- But the Shell's stored one does not.
-launch :: CreateProcess -> PipeState -> IO (PipeState,
-                                            Maybe WriteHandle,
-                                            Maybe ReadHandle,
-                                            Maybe ReadHandle,
-                                            ProcessHandle)
-launch pr ps = do let is = rMkStream $ p_in  ps
-                      os = wMkStream $ p_out ps
-                      es = wMkStream $ p_err ps
-                  (i,o,e,pid) <- createProcess $ pr { std_in  = is,
-                                                      std_out = os,
-                                                      std_err = es }
-                  (ih,ps') <- rProcess i (p_in ps) ps
-                  (oh,ps'') <- wProcess o (p_out ps) ps'
-                  (eh,ps''') <- wProcess e (p_err ps) ps''
-                  return (ps''',ih,oh,eh,pid)
+launch :: String -> [String] -> PipeState -> IO (PipeState,
+                                                 Maybe WriteHandle,
+                                                 Maybe ReadHandle,
+                                                 Maybe ReadHandle,
+                                                 ProcessHandle)
+launch c args ps = do let is = rMkStream $ p_in  ps
+                          os = wMkStream $ p_out ps
+                          es = wMkStream $ p_err ps
+                      (i,o,e,pid) <- createProcess $
+                                     (proc c args) { std_in  = is,
+                                                     std_out = os,
+                                                     std_err = es }
+                      (ih,ps') <- rProcess i (p_in ps) ps
+                      (oh,ps'') <- wProcess o (p_out ps) ps'
+                      (eh,ps''') <- wProcess e (p_err ps) ps''
+                      return (ps''',ih,oh,eh,pid)
     where rMkStream RInherit    = Inherit
           rMkStream RCreatePipe = CreatePipe
           rMkStream (RUseHandle h) = fromMaybe CreatePipe $

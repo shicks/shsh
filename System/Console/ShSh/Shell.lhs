@@ -35,7 +35,7 @@ import Data.List ( lookup, union, (\\) )
 import Data.Maybe ( fromMaybe, isJust, listToMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
 import System.Directory ( getCurrentDirectory, getHomeDirectory )
-import System ( ExitCode(..) )
+import System.Exit ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 import System.IO ( stdin, stdout, stderr, openFile, IOMode(..) )
 
@@ -45,7 +45,7 @@ import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
                                          fromReadHandle, fromWriteHandle,
                                          toReadHandle, toWriteHandle,
                                          wIsOpen, rIsOpen )
-import System.Console.ShSh.Internal.Process ( CreateProcess, ProcessHandle,
+import System.Console.ShSh.Internal.Process ( ProcessHandle,
                                               launch, toWriteStream,
                                               Pipe, PipeState(..), waitForPipe,
                                               ReadStream(..), WriteStream(..),
@@ -259,12 +259,12 @@ computationWithPipes_ :: PipeState -> ShellT e a -> ShellT e (IO ())
 computationWithPipes_ p s = do c <- computationWithPipes p s
                                return $ c >> return ()
 
-runInShell :: CreateProcess -> ShellT e (Maybe WriteHandle, Maybe ReadHandle,
-                                         Maybe ReadHandle, ProcessHandle)
-runInShell p = Shell $ do ps <- gets pipeState
-                          (ps',a,b,c,d) <- liftIO $ launch p ps
-                          modify $ \s -> s { pipeState = ps' }
-                          return (a,b,c,d)
+runInShell :: String -> [String] -> ShellT e (Maybe WriteHandle, Maybe ReadHandle,
+                                              Maybe ReadHandle, ProcessHandle)
+runInShell c args = Shell $ do ps <- gets pipeState
+                               (ps',a,b,c,d) <- liftIO $ launch c args ps
+                               modify $ \s -> s { pipeState = ps' }
+                               return (a,b,c,d)
 
 pipeShells :: ShellT e a -> ShellT e ExitCode -> ShellT e ExitCode
 pipeShells source dest = do
