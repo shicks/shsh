@@ -12,6 +12,8 @@ alias foo="echo hello "
 foo bar          # "hello world"
 alias foo='echo "hello '
 foo bar"         # "hello bar"
+alias foo="echo 'hello "
+foo bar'         # "hello bar"
 
 alias foo=bar
 alias bar=echo
@@ -35,6 +37,23 @@ bar foo 1+2 ))   # "3" (!)
 unset A
 alias foo=\${A:-
 bar foo test}    # "test" (no prespace, either!)
+
+
+
+alias foo=echo
+A=1 foo bar      # "bar"  (variable settings don't unset aliases)
+
+alias foo='echo ` '
+alias bar=echo
+foo bar baz`     # "baz"  (some modes still expand second alias...)
+
+# Nested expansions
+alias foo='bar baz '
+alias bar='echo '
+alias baz='foo'
+foo bar          # "foo echo"
+foo foo          # "foo echo foo"
+
 \end{file}
 
 

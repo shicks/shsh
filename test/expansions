@@ -1,0 +1,16 @@
+Expansions
+==========
+
+This is a test for more general expansions, and general parsing
+matters.
+
+\begin{file}{expansions1.sh}
+echo $(echo $(( 1+2 ) ))
+# dash: waits for closing ) then can't parse " 1+2 ) "
+# bash: reinterprets $(( as $( (
+
+\end{file}
+
+The moral of the story so far: we need to be smartly lexing inside
+command substitutions, and not just scooping up strings until we
+balance the unescaped parens.
