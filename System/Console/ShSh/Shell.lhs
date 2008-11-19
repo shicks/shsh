@@ -12,6 +12,7 @@ This is where we do stuff.
 module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
                                    tryEnv, withEnv,
+                                   setAlias, getAlias, getAliases,
                                    getFlag, setFlag, unsetFlag, getFlags,
                                    getShellState, runShell_, runShell,
                                    pipeShells, runInShell,
@@ -125,17 +126,17 @@ instance Monad m => Stringy m String where
 -- |I've gone a bit overboard on the flexibility here.  If we just want
 -- a string, we'll get a fail.  If we put it in a MonadPlus then we
 -- guarantee no failure.
-getEnv :: Stringy (InnerShell a) s => String -> ShellT a s
+getEnv :: Stringy (InnerShell e) s => String -> ShellT e s
 getEnv s = Shell $ do e <- gets environment
                       maybeToStringy (lookup s e) s
 
 -- |This is a simpler version because we also give a default.
-tryEnv :: String -> String -> ShellT a String
+tryEnv :: String -> String -> ShellT e String
 tryEnv d s = Shell $ gets environment >>= return . fromMaybe d . lookup s
 
 -- |Not much here - we don't care if the thing is currently defined or not:
 -- we just set it either way.
-setEnv :: String -> String -> ShellT a ()
+setEnv :: String -> String -> ShellT e ()
 setEnv s x = Shell $ modify $ \st ->
              st { environment = update s x (environment st) }
 
@@ -161,7 +162,19 @@ withEnv s f = do e <- getEnv s
 getAllEnv :: ShellT a [(String,String)]
 getAllEnv = Shell $ gets environment
 
--- Flag commands - moved from Options
+-- *Alias commands
+setAlias :: String -> String -> ShellT e ()
+setAlias s x = Shell $ modify $ \st ->
+               st { aliases = update s x (aliases st) }
+
+getAlias :: Stringy (InnerShell e) s => String -> ShellT e s
+getAlias s = Shell $ do e <- gets environment
+                        maybeToStringy (lookup s e) s
+
+getAliases :: ShellT e [(String,String)]
+getAliases = Shell $ gets aliases
+
+-- *Flag commands - moved from Options
 setFlag :: Char -> ShellT a ()
 setFlag c = withEnv "-" (`union`[c])
 

@@ -13,7 +13,8 @@ import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr,
 #endif
                               )
 import System.Console.ShSh.Parse ( parse )
-import System.Console.ShSh.Shell ( Shell, getEnv, getFlag, withHandler )
+import System.Console.ShSh.Shell ( Shell, getAliases,
+                                   getEnv, getFlag, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
 import System.IO ( hFlush, hIsEOF, openFile, IOMode(..),
                    stdin, stdout, stderr, hGetLine, Handle )
@@ -51,7 +52,8 @@ eventLoop i h = do
                   am_v <- getFlag 'v'
                   if am_v then ePutStrLn s
                           else return ()
-                  case parse [] (i++s) of -- Later, add more to s' (PS2)
+                  as <- getAliases
+                  case parse as (i++s) of -- Later, add more to s' (PS2)
                     Left err -> do when (isJust h) $ do
                                      eof <- liftIO $ hIsEOF $ fromJust h
                                      when eof $ fail $ show err

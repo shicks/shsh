@@ -28,10 +28,11 @@ runCommand (Synchronous list) = withExitHandler $ runList True list
 runCommand (Asynchronous list) = do runAsync $ withExitHandler $
                                              runList False list
                                     return ExitSuccess
-runCommand c = fail $ "Command "++show c++" not yet supported."
+runCommand c = fail $ "Control structure "++show c++" not yet supported."
 
-runAsync :: Shell a -> Shell ()
+runAsync :: Shell a -> Shell ExitCode
 runAsync _ = fail "Asyncronous commands not yet supported"
+             >> return ExitSuccess -- i.e. (false &) && echo 1
 
 -- |Run an 'AndOrList'.  We pass a @Bool@ for whether to check the @-e@
 -- option to exit on a nonzero exit code.
@@ -62,8 +63,7 @@ runStatement False s = run s
 
 run :: Statement -> Shell ExitCode
 run (Builtin b args rs as) = do args' <- expandWords args
-                                withEnvironment expandWord rs as $
-                                  runBuiltin b args' rs as
+                                runBuiltin b args' rs as
 run (Statement ws [] []) = do ws' <- expandWords ws
                               if null ws' then return ExitSuccess
                                           else runWithArgs (head ws') $ tail ws'

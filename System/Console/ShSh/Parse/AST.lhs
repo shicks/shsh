@@ -54,17 +54,18 @@ data Assignment = String := Word
                   deriving ( Show )
 
 -- |This doesn't seem like it quite belongs here...
-data BuiltinCommand = Cat | Cd | Echo | Exec | Exit | Fals
-                    | Grep | Ls | MkDir | Pwd | Set | Tru
+data BuiltinCommand = Alias | Cat | Cd | Echo | Exec | Exit | Fals
+                    | Grep | Ls | MkDir | Pwd | Set | Source | Tru
                     | SetVarInternal
                     deriving ( Eq, Show )
 
 toBuiltin :: String -> Maybe BuiltinCommand
-toBuiltin = flip lookup [("cat",Cat),("cd",Cd)
+toBuiltin = flip lookup [(".",Source),("alias",Alias),
+                         ("cat",Cat),("cd",Cd)
                         ,("echo",Echo),("exec",Exec),("exit",Exit)
                         ,("false",Fals),("grep",Grep),("ls",Ls)
                         ,("mkdir",MkDir),("pwd",Pwd)
-                        ,("set",Set),("true",Tru)
+                        ,("set",Set),("source",Source),("true",Tru)
                         ]
                          
 addAssignment :: Assignment -> Statement -> Statement
