@@ -70,11 +70,14 @@ type InnerShell e = ErrorT ShellError (StateT (ShellState e) IO)
 newtype ShellT e a = Shell ((InnerShell e) a)
     deriving ( Functor, Monad, MonadSIO, MonadError ShellError )
 
+catchIO :: MonadIO m => IO a -> m a
+catchIO j = do me <- liftIO (fmap Right j `catch` \e -> return $ Left e)
+               case me of
+                 Right x -> return x
+                 Left e -> fail $ show e
+
 instance MonadIO (ShellT e) where
-    liftIO j = Shell $ do me <- liftIO (fmap Right j `catch` \e -> return $ Left e)
-                          case me of
-                            Right x -> return x
-                            Left e -> fail $ show e
+    liftIO j = Shell $ catchIO j
 
 unshell :: ShellT e a -> InnerShell e a
 unshell (Shell s) = s
@@ -179,10 +182,10 @@ getShellState :: ShellT e (ShellState e)
 getShellState = Shell $ get
 
 startState :: Monoid e => IO (ShellState e)
-startState = do e <- liftIO getEnvironment
-                f <- liftIO parseFlags -- better way to integrate these
-                cwd <- liftIO getCurrentDirectory
-                home <- liftIO getHomeDirectory
+startState = do e <- getEnvironment
+                f <- parseFlags -- better way to integrate these
+                cwd <- getCurrentDirectory
+                home <- getHomeDirectory
                 let e' = updateWith "SHELL" (const "shsh") $
                          updateWith "PWD" (fromMaybe cwd) $
                          updateWith "HOME" (fromMaybe home) $
@@ -306,7 +309,7 @@ withSubState' :: (ShellError -> ShellError) -- ^an error processor
 withSubState' f (Shell sub) e = Shell $ do
   s <- get
   let saveExtra = extra s
-  (result,s') <- liftIO $ runStateT (runErrorT sub) $ convertState s e
+  (result,s') <- catchIO $ runStateT (runErrorT sub) $ convertState s e
   case result of
     Right a  -> do put $ convertState s' saveExtra
                    return a
@@ -378,16 +381,16 @@ assign expand e (n:=w) = do v <- unshell $ expand w
 redir :: (Word -> Shell String) -> PipeState -> Redir
       -> InnerShell () PipeState
 redir expand p (n:>w) = do f <- unshell $ expand w
-                           h <- liftIO $ openFile f WriteMode
+                           h <- catchIO $ openFile f WriteMode
                            return $ toFile n h p
 redir expand p (n:>>w) = do f <- unshell $ expand w
-                            h <- liftIO $ openFile f AppendMode
+                            h <- catchIO $ openFile f AppendMode
                             return $ toFile n h p
 redir expand p (n:<w) = do f <- unshell $ expand w
-                           h <- liftIO $ openFile f ReadMode
+                           h <- catchIO $ openFile f ReadMode
                            return $ fromFile n h p
 redir expand p (n:<>w) = do f <- unshell $ expand w -- probably doesn't work...?
-                            h <- liftIO $ openFile f ReadWriteMode
+                            h <- catchIO $ openFile f ReadWriteMode
                             return $ fromFile n h p
 redir _ _ r = fail $ show r ++ " not yet supported"
 
@@ -401,13 +404,13 @@ fromFile 0 h p = p { p_in = toReadStream h }
 fromFile _ _ _ = undefined
 
 withEnvironment :: (Word -> Shell String) -> [Redir] -> [Assignment]
-                -> Shell a -> Shell a
+                -> Shell ExitCode -> Shell ExitCode
 withEnvironment exp rs as (Shell sub) = Shell $ do
   s <- get
   p <- flip (foldM (redir exp)) rs =<< gets pipeState
   e <- flip (foldM (assign exp)) as =<< gets environment
-  (result,_) <- liftIO $ runStateT (runErrorT sub) $ s { pipeState = p,
-                                                         environment = e }
+  (result,_) <- catchIO $ runStateT (runErrorT sub) $
+                s { pipeState = p, environment = e }
   case result of
     Right a  -> return a
     Left err -> throwError err
