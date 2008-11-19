@@ -55,7 +55,7 @@ prompt "" = do -- pwd <- fromMaybe "\\s-\\v\\$ " `fmap` getEnv "PS1"
               --Just user <- getEnv "USER"
               --Just hostname <- getEnv "HOSTNAME"
               --return $ user ++ "@" ++ hostname ++ " " ++ pwd ++ " $ "
-promp _ = do pwd <- fromMaybe "> " `fmap` getEnv "PS2"
-             expandAll pwd
+prompt _ = do pwd <- fromMaybe "> " `fmap` getEnv "PS2"
+              expandAll pwd
 
 \end{code}
