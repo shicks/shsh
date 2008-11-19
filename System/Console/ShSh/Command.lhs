@@ -12,11 +12,9 @@ import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn )
 import System.Console.ShSh.Parse.AST ( Command(..), AndOrList(..),
                                        Pipeline(..), Statement(..) )
 import System.Console.ShSh.ShellError ( announceError )
-import System.Console.ShSh.Shell ( Shell, pipeShells, runInShell, withOutRedirected,
-                                   getEnv, setEnv, getAllEnv, withExitHandler,
-                                   tryEnv, withEnv, getFlag, unsetFlag )
-import System.Console.ShSh.Prompt ( prompt )
-import System.Console.ShSh.Redirection ( Redir(..) )
+import System.Console.ShSh.Shell ( Shell, pipeShells, runInShell,
+                                   withEnvironment, withExitHandler,
+                                   getFlag )
 import System.Directory ( findExecutable, doesFileExist )
 import System.Process ( waitForProcess )
 import System.Exit ( ExitCode(..), exitWith )
@@ -48,44 +46,19 @@ runList b (l :||: p)    = do ec <- runList False l
                                 then runPipeline b p
                                 else return ec
 
-process' :: Expression -> Shell ExitCode -- do we quit or not?
-process' (Builtin b args r) = runBuiltin b args r
-process' (Cmd s ss _) = withExitHandler $ tryToRun s ss
-process' (c1 :&&: c2) = do ec1 <- process' c1
-                           if ec1 == ExitSuccess
-                              then process' c2
-                              else return ec1
-process' (c1 :||: c2) = do ec1 <- process' c1
-                           if ec1 /= ExitSuccess
-                              then process' c2
-                              else return ec1
-process' (c1 :>>: c2) = do am_e <- getFlag 'e'
-                           ec1 <- process' c1
-                           if am_e && ec1 /= ExitSuccess
-                              then liftIO $ exitWith ec1
-                              else process' c2
--- This isn't quite right yet.  In real sh, the PARENS guard from
--- the effects of -e.  That is,
---   $ set -e
---   $ (false)   # doesn't exit
---   $ false     # exits
--- We want to replicate this behavior somehow...?  Maybe just
--- keep track of the nesting depth in process...?  This also means
--- that we can't just have the check happen in the EventLoop... it
--- needs to happen at "statement terminators" like ;, &, and EOL...?
--- Check the spec.
--- #ifdef HAVE_CREATEPROCESS
-{-
-process (c1 :|: (Cmd (c2:args))) h = 
-    do (h',pid,pipes) <- runWithInput c2 args h
-       process c1 h' -- assume c2 is a command for now...!
-       liftIO $ hClose h' >> waitForPipes pipes >> waitForProcess pid
--}
-process' (c1 :|: c2) =  -- pipeShells rethrows from c2...
-    pipeShells (process' c1) (process' c2)
--- #endif
-process' cmd = do oPutStrLn $ "I can't handle:  "++show cmd
-                  return $ ExitFailure 1
+-- |Run a 'Pipeline'.  We need to keep passing along the @Bool@.
+runPipeline :: Bool -> Pipeline -> Shell ExitCode
+runPipeline b (Pipeline [s]) = runStatement b s
+runPipeline b (Pipeline (s:ss)) = pipeShells (runStatement False s)
+                                      (runPipeline b $ Pipeline ss)
+
+-- |Run a 'Statement'.
+runStatement :: Bool -> Statement -> Shell ExitCode
+runStatement True s = do am_e <- getFlag 'e'
+                         ec <- run s
+                         when (am_e && ec/=ExitSuccess) $ liftIO $ exitWith ec
+                         return ec
+runStatement False s = run s
 
 run :: Statement -> Shell ExitCode
 run (Builtin b args rs as) = do args' <- expandWords args

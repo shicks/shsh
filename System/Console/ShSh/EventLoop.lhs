@@ -51,7 +51,6 @@ eventLoop i h = do
                   am_v <- getFlag 'v'
                   if am_v then ePutStrLn s
                           else return ()
---                  s' <- shellExpansions s
                   case parse [] (i++s) of -- Later, add more to s' (PS2)
                     Left err -> do when (isJust h) $ do
                                      eof <- liftIO $ hIsEOF $ fromJust h
