@@ -62,7 +62,8 @@ runStatement False s = run s
 
 run :: Statement -> Shell ExitCode
 run (Builtin b args rs as) = do args' <- expandWords args
-                                runBuiltin b args' rs as
+                                withEnvironment expandWord rs as $
+                                  runBuiltin b args' rs as
 run (Statement ws [] []) = do ws' <- expandWords ws
                               if null ws' then return ExitSuccess
                                           else runWithArgs (head ws') $ tail ws'
