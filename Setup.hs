@@ -2,7 +2,7 @@
 import Distribution.Franchise
 import Data.List ( isSuffixOf )
 
-true_version = "0.0.1"
+true_version = "0.0.2"
 
 configure = do version true_version
                defineAs "PACKAGE_VERSION" true_version
