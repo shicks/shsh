@@ -321,8 +321,11 @@ wordToInt :: Word -> Maybe Int
 wordToInt (LitWord ds) | null $ filter (not . isDigit) ds = Just $ read ds
 wordToInt _ = Nothing
 
+commands :: P [Command]
+commands = many command >>= (\s -> eof >> return s)
+
 --parse :: [(String,String)] -> String -> Either String [Command]
-parse as s = case runParser (many command) (startState as) "" (map Chr s) of
+parse as s = case runParser commands (startState as) "" (map Chr s) of
                Left err -> Left $ err
                Right cs -> Right cs
 
