@@ -5,14 +5,14 @@
 module System.Console.ShSh.EventLoop ( eventLoop, sourceProfile, source )
     where
 
-import System.Console.ShSh.Command ( process )
+import System.Console.ShSh.Command ( runCommand )
 -- import System.Console.ShSh.Expansions ( shellExpansions )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr,
 #ifndef HAVE_HASKELINE
                                 oFlush, iIsEOF, iGetLine
 #endif
                               )
-import System.Console.ShSh.Lexer ( runLexer, Token )
+import System.Console.ShSh.Parse ( parse )
 import System.Console.ShSh.Shell ( Shell, getEnv, getFlag, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
 import System.IO ( hFlush, hIsEOF, openFile, IOMode(..),
@@ -52,15 +52,12 @@ eventLoop i h = do
                   if am_v then ePutStrLn s
                           else return ()
 --                  s' <- shellExpansions s
-                  case runLexer [] (i++s) of -- Later, add more to s' (PS2)
+                  case parse [] (i++s) of -- Later, add more to s' (PS2)
                     Left err -> do when (isJust h) $ do
                                      eof <- liftIO $ hIsEOF $ fromJust h
-                                     when eof $ fail err
+                                     when eof $ fail $ show err
                                    eventLoop (i++s++"\n") h
-                    Right cmd -> do code <- process cmd
-                                    if am_e && code /= ExitSuccess
-                                      then fail ""
-                                      else eventLoop "" h
+                    Right cmd -> mapM_ runCommand cmd >> eventLoop "" h
 
 -- What do we want to do with history?  Bash defines a $HISTFILE variable,
 -- but that only deals with saving the history on exit - apparently readline

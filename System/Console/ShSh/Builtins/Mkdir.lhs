@@ -6,7 +6,7 @@ module System.Console.ShSh.Builtins.Mkdir ( mkDir ) where
 
 import System.Console.ShSh.Directory ( parentDir )
 import System.Console.ShSh.IO ( oPutStrLn, ePutStrLn )
-import System.Console.ShSh.Shell ( Shell, ShellT, withSubStateCalled, (.~) )
+import System.Console.ShSh.Shell ( Shell, ShellT, withSubStateCalled )
 import System.Console.ShSh.ShellError ( exit )
 
 import Control.Monad ( when )
@@ -30,7 +30,7 @@ data Opts = Opts { mode :: String,
 noOpts = Opts { mode = "644", parents = False, verbose = False }
 
 optSpec = [Option "m" ["mode"]
-             (ReqArg .~ "MODE" $ \s -> modify (\o -> o { mode = s }))
+             (ReqArg `flip` "MODE" $ \s -> modify (\o -> o { mode = s }))
              "set file mode (as in chmod), not a=rwx - umask",
            Option "p" ["parents"]
              (NoArg $ modify $ \o -> o { parents = True })

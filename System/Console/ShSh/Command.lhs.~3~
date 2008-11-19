@@ -4,49 +4,32 @@ Here we run commands.
 
 \begin{code}
 {-# OPTIONS_GHC -cpp #-}
-module System.Console.ShSh.Command ( runCommand ) where
+module System.Console.ShSh.Command ( process ) where
 
 import System.Console.ShSh.Builtins ( runBuiltin )
-import System.Console.ShSh.Expansions ( expandWords, expandWord )
+import System.Console.ShSh.Expansions ( expansions )
+import System.Console.ShSh.Expression ( mapExprM, parseExpr, Expression(..) )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn )
-import System.Console.ShSh.Parse.AST ( Command(..), AndOrList(..),
-                                       Pipeline(..), Statement(..) )
+import System.Console.ShSh.Lexer ( Token )
+import System.Console.ShSh.Options ( setOpts )
+import System.Console.ShSh.Parser ( parse )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, pipeShells, runInShell, withOutRedirected,
                                    getEnv, setEnv, getAllEnv, withExitHandler,
+                                   withHandler,
                                    tryEnv, withEnv, getFlag, unsetFlag )
 import System.Console.ShSh.Prompt ( prompt )
 import System.Console.ShSh.Redirection ( Redir(..) )
 import System.Directory ( findExecutable, doesFileExist )
 import System.Process ( waitForProcess )
-import System.Exit ( ExitCode(..), exitWith )
-
+import System ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
-import Control.Monad ( when )
 
--- |Simply run a 'Command'.
-runCommand :: Command -> Shell ExitCode
-runCommand (Synchronous list) = withExitHandler $ runList True list
-runCommand (Asynchronous list) = do runAsync $ withExitHandler $
-                                             runList False list
-                                    return ExitSuccess
-runCommand c = fail $ "Command "++show c++" not yet supported."
-
-runAsync :: Shell a -> Shell ()
-runAsync _ = fail "Asyncronous commands not yet supported"
-
--- |Run an 'AndOrList'.  We pass a @Bool@ for whether to check the @-e@
--- option to exit on a nonzero exit code.
-runList :: Bool -> AndOrList -> Shell ExitCode
-runList b (Singleton p) = runPipeline b p
-runList b (l :&&: p)    = do ec <- runList False l
-                             if ec == ExitSuccess
-                                then runPipeline b p
-                                else return ec
-runList b (l :||: p)    = do ec <- runList False l
-                             if ec /= ExitSuccess
-                                then runPipeline b p
-                                else return ec
+process :: [Token] -> Shell ExitCode
+process ts = do case parse ts of
+                  Left err -> do ePutStrLn $ "shsh: "++show err
+                                 return $ ExitFailure 1
+                  Right e  -> process' =<< parseExpr =<< mapExprM expansions e
 
 process' :: Expression -> Shell ExitCode -- do we quit or not?
 process' (Builtin b args r) = runBuiltin b args r
@@ -87,21 +70,11 @@ process' (c1 :|: c2) =  -- pipeShells rethrows from c2...
 process' cmd = do oPutStrLn $ "I can't handle:  "++show cmd
                   return $ ExitFailure 1
 
-run :: Statement -> Shell ExitCode
-run (Builtin b args rs as) = do args' <- expandWords args
-                                runBuiltin b args' rs as
-run (Statement ws [] []) = do ws' <- expandWords ws
-                              if null ws' then return ExitSuccess
-                                          else runWithArgs (head ws') $ tail ws'
-run (Statement ws rs as) = withEnvironment expandWord rs as $
-                             run $ Statement ws [] []
-run (Subshell _ _) = fail "Subshells not supported yet."
-
-runWithArgs :: String -> [String] -> Shell ExitCode
-runWithArgs cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
-                          case exe of
-                            Just fp -> run fp
-                            Nothing -> notFound
+tryToRun :: String -> [String] -> Shell ExitCode
+tryToRun cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
+                       case exe of
+                         Just fp -> run fp
+                         Nothing -> notFound
     where notFound = do let path = '/' `elem` cmd
                         exists <- liftIO $ doesFileExist cmd
                         if path && exists
@@ -109,5 +82,19 @@ runWithArgs cmd args = do exe <- liftIO $ findExecutable cmd -- use own path?
                            else fail $ cmd++": No such file or directory"
           run x = do (_,_,_,pid) <- runInShell x args
                      liftIO $ waitForProcess pid
+
+{-
+runWithInput :: String -> [String] -> Handle -> Shell (Handle,ProcessHandle,[Pipe])
+runWithInput cmd args h = do exe <- liftIO $ findExecutable cmd -- use own path?
+                             case exe of
+                               Just fp -> run fp
+                               Nothing -> notFound
+    where notFound = do let path = '/' `elem` cmd
+                        exists <- liftIO $ doesFileExist cmd
+                        if path && exists
+                           then fail $ cmd++": Permission denied"
+                           else fail $ cmd++": No such file or directory"
+          run x = do pipeOutputInput x args h
+-}
 
 \end{code}

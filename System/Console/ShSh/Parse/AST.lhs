@@ -8,6 +8,7 @@ simple and compound statements.
 module System.Console.ShSh.Parse.AST where
 
 import Data.Monoid ( Monoid, mempty, mappend )
+import Data.Maybe ( isJust )
 
 import Debug.Trace ( trace )
 
@@ -24,6 +25,7 @@ data AndOrList = Singleton Pipeline
 data Pipeline = Pipeline [Statement] -- explicit type-level non-null?
                 deriving ( Show )
 data Statement = Statement [Word] [Redir] [Assignment]
+               | Builtin BuiltinCommand [Word] [Redir] [Assignment]
                | Subshell [Command] [Redir]
                deriving ( Show )
 data Word = LitWord String | GenWord [Lexeme]
@@ -32,7 +34,7 @@ data Lexeme = Literal Char | Quote Char
             | Expand Expansion | Quoted Lexeme
             deriving ( Show )
 data Expansion = SimpleExpansion String
-               | FancyExpansion String Char Bool [Word]
+               | FancyExpansion String Char Bool Word
                | LengthExpansion String
                | CommandSub [Command]
                | Arithmetic [Word]
@@ -48,10 +50,23 @@ data Redir = Int :> Word  -- tests show that expansions don't lose spaces
            | Int :<<- Word
            | Heredoc Int String -- ^filled in version...?
            deriving ( Show )
-             
 data Assignment = String := Word
                   deriving ( Show )
 
+-- |This doesn't seem like it quite belongs here...
+data BuiltinCommand = Cat | Cd | Echo | Exec | Exit | Fals
+                    | Grep | Ls | MkDir | Pwd | Set | Tru
+                    | SetVarInternal
+                    deriving ( Eq, Show )
+
+toBuiltin :: String -> Maybe BuiltinCommand
+toBuiltin = flip lookup [("cat",Cat),("cd",Cd)
+                        ,("echo",Echo),("exec",Exec),("exit",Exit)
+                        ,("false",Fals),("grep",Grep),("ls",Ls)
+                        ,("mkdir",MkDir),("pwd",Pwd)
+                        ,("set",Set),("true",Tru)
+                        ]
+                         
 addAssignment :: Assignment -> Statement -> Statement
 addAssignment a (Statement ws rs as) = Statement ws rs (a:as)
 addAssignment _ (Subshell _ _) = impossible "cannot add assignment to subshell"
@@ -83,8 +98,8 @@ instance Monoid Word where
                               in GenWord $ a'++b'
                 where la = fromLiteral a
                       lb = fromLiteral b
-                           toGenWord (LitWord s) = GenWord $ map Literal s
-                           toGenWord (GenWord w) = GenWord w
+                      toGenWord (LitWord s) = GenWord $ map Literal s
+                      toGenWord (GenWord w) = GenWord w
 
 {-
 -- Here's an example of use (explaining associativity):

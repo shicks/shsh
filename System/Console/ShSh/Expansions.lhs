@@ -4,19 +4,21 @@ Here is where we do the various expansions.
 
 \begin{code}
 
-module System.Console.ShSh.Expansions ( expand ) where
+module System.Console.ShSh.Expansions ( expandWords, expandWord ) where
 
-import System.Console.ShSh.Parse (  )
+import System.Console.ShSh.Parse.AST ( Word(..), Lexeme(..),
+                                       Expansion(..) )
 import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
 import System.Console.ShSh.Shell ( Shell, setEnv, getEnv )
 import System.Console.ShSh.ShellError ( throw )
 
+import Control.Monad ( (<=<) )
 import Control.Monad.Trans ( lift, liftIO )
 
 import Data.Char ( isAlphaNum )
-import Data.List ( takeWhile, dropWhile )
+import Data.List ( takeWhile, dropWhile, groupBy )
 import Data.Maybe ( fromMaybe )
-import Data.Monoid ( Monoid, mappend )
+import Data.Monoid ( Monoid, mappend, mempty )
 
 -- |This is the primary function now.  We simply take a 'Word' and
 -- turn it into a 'LitWord'.  Later we'll need to be a bit more careful
@@ -25,97 +27,127 @@ import Data.Monoid ( Monoid, mappend )
 -- (at least, so long as it's not a subshell - these runtime checks are
 -- pretty hokey).  Note that 'Word's inside 'Redir's are never split
 -- regardless of the value of @$IFS@.
-expand :: Word -> Shell Word
-expand w = do w' <- expandParams =<< expandTilde w
-              return $ removeQuotes w'
+expand' :: Word -> Shell [Lexeme]
+expand' = expandParams <=< expandTilde . toLexemes
 
+expandWord :: Word -> Shell String
+expandWord = fmap removeQuotes . expand'
+
+-- |This will share a lot of functionality with @expandWord@...
+expandWords :: [Word] -> Shell [String]
+expandWords = fmap (map removeQuotes) . (splitFields <=< mapM expand')
+              -- should we (dropWhile null) as well?
 
 -- |First step: tilde expansion.
-expandTilde :: Word -> Shell Word
-expandTilde w = let (pre,rest) = getLiteralPrefix w
-                in case pre of
+expandTilde :: [Lexeme] -> Shell [Lexeme]
+expandTilde w = let (lit,rest) = span isLiteral w
+                in case (fromLit lit) of
                      '~':s -> exp s rest
                      _     -> return w
-    where exp s r | '/' `elem` s = do let (user,path) = splitAtChar '/' s
+    where exp s r | '/' `elem` s = do let (user,path) = break (=='/') s
                                       dir <- homedir user
-                                      return $ LitWord (dir++"/"++path)
-                                                 `mappend` r
-          exp s (GenWord []) = do dir <- homedir s
-                                  return $ LitWord dir
-          exp s r = LitWord s `mappend` r
+                                      return $ map Literal (dir++"/"++path) ++ r
+          exp s [] = do dir <- homedir s
+                        return $ map Literal dir
+          exp s r = return $ map Literal s ++ r
+          isLiteral (Literal _) = True
+          isLiteral _ = False
+          fromLit [] = []
+          fromLit (Literal c:xs) = c:fromLit xs -- don't need other case
 
-getLiteralPrefix :: Word -> (String,Word)
-getLiteralPrefix (LitWord s) = (s,mempty)
-getLiteralPrefix (GenWord []) = ("",mempty)
-getLiteralPrefix (GenWord (Literal c:xs))
-    = let (s',w') = getLiteralPrefix $ GenWord xs in (c:s',w')
+homedir :: String -> Shell String
+homedir "" = getEnv "HOME"
+--homedir user = return $ "/fakehome/"++user -- for now
+homedir user = liftIO $ fromMaybe ("~"++user) `fmap` getHomeDir user
 
+quote :: Bool -> [Lexeme] -> [Lexeme]
+quote True = map Quoted
+quote False = id
+
+quoteLiteral :: Bool -> String -> [Lexeme]
+quoteLiteral q = quote q . map Literal
 
 -- |Parameter expansion
-expandParams :: Word -> Shell Word
+expandParams :: [Lexeme] -> Shell [Lexeme]
 expandParams = expandWith e
-    where e b (SimpleExpansion n) = getEnvQ b n
-          e b (FancyExpansion n o c w)
-              = do v <- getEnvQC b c n
+    where e q (SimpleExpansion n) = getEnvQ q n
+          e q (LengthExpansion n) = do v <- getEnvQ q n
+                                       return $ quoteLiteral q $
+                                              show $ length v
+          e q (FancyExpansion n o c w)
+              = do v <- getEnvQC q c n
                    case o of
-                     '-' -> return $ fromMaybe w v
+                     '-' -> return $ fromMaybe (toLexemes w) v
                      '=' -> case v of
-                              Nothing -> setEnvW n w >> return w
+                              Nothing -> do setEnvW n $ toLexemes w
+                                            return $ toLexemes w
                               Just v' -> return v'
-                     '?' -> case v of
+                     '?' -> case v of -- if w then use that as message...
                               Nothing -> fail $ n++": undefined or null"
                               Just v' -> return v'
-                     '+' -> return $ maybe mempty (const w) v
+                     '+' -> return $ maybe mempty (const $ toLexemes w) v
+          e _ x = fail $ "Expansion "++show x++" not yet implemented"
 
 -- |Helper functions...
-setEnvW :: String -> Word -> Shell () -- set an environment variable
-setEnvW = undefined
+setEnvW :: String -> [Lexeme] -> Shell () -- set an environment variable
+setEnvW s w = do v <- expandWord $ GenWord w
+                 setEnv s v
 
-genEnvQC :: Bool -> Bool -> String -> Shell Word
-genEnvQC = undefined
+getEnvQC :: Bool -> Bool -> String -> Shell (Maybe [Lexeme])
+getEnvQC q c n = do v <- getEnv n
+                    case v of
+                      Nothing -> return Nothing
+                      Just "" -> if c then return Nothing
+                                      else return $ Just []
+                      Just v' -> return $ Just $ quoteLiteral q v'
 
-getEnvQ :: Bool -> String -> Shell Word
+getEnvQ :: Bool -> String -> Shell [Lexeme]
 getEnvQ True "*" = undefined -- special treatment
-getEnvQ b n = do v <- getEnv n
+getEnvQ q n = do v <- getEnv n
                  case v of
-                   Nothing -> return $ LitWord ""
-                   Just v' -> if b then return $ GenWord $ map ql v'
-                                   else return $ LitWord v'
+                   Nothing -> return $ []
+                   Just v' -> return $ quoteLiteral q v'
 
 -- |Helper function for expansions...  The @Bool@ argument is for
 -- whether or not we're quoted.
-expandWith :: (Bool -> Expansion -> Shell Word) -> Word -> Shell Word
-expandWith _ (LitWord s) = return $ LitWord s
-expandWith f (GenWord (Expand x:xs)) = do x' <- f False x
-                                          xs' <- expandWith f $ GenWord xs
-                                          return $ x' `mappend` xs'
-expandWith f (GenWord (Quoted (Expand x):xs)) = do x' <- f True x
-                                                   xs' <- expandWith f $
-                                                            GenWord xs
-                                                   return $ x' `mappend` xs'
-expandWith f (GenWord (x:xs)) = do x' <- GenWord [x]
-                                   xs' <- expandWith f $ GenWord xs
-                                   return $ x'  `mappend` xs'
+expandWith :: (Bool -> Expansion -> Shell [Lexeme])
+           -> [Lexeme] -> Shell [Lexeme]
+expandWith f (Expand x:xs) = do x' <- f False x
+                                xs' <- expandWith f xs
+                                return $ x' ++ xs'
+expandWith f (Quoted (Expand x):xs) = do x' <- f True x
+                                         xs' <- expandWith f xs
+                                         return $ x' ++ xs'
+expandWith f (x:xs) = do fmap (x:) $ expandWith f xs
+expandWith _ [] = return []
 
-splitFields :: [Word] -> Shell [Word]
-splitFields w = do ifs <- getEnv "IFS"
-                   return $ concatmap $ sf (fromMaybe " \t" ifs) w
-    where sf ifs (LitWord (c:cs)) = undefined -- recursive.  NOT all literal...
-          chop ifs (LitWord (c:cs)) | c `elem` ifs = undefined
-          -- use chop after split to prevent "  " from splitting twice
+-- |Use @$IFS@ to split fields.
+splitFields :: [[Lexeme]] -> Shell [[Lexeme]]
+splitFields w = do ifs <- fmap (fromMaybe " \t") $ getEnv "IFS"
+                   let f (Literal c) = c `elem` ifs
+                       f _ = False
+                       equating p x y = p x == p y
+                       split = filter (any (not . f)) . (groupBy (equating f))
+                   return $ concatMap split w
+
+{-
+equating :: Eq b => (a -> b) -> a -> a -> Bool
+equating p x y = p x == p y
+-}
 
 -- Would we be better off converting the whole thing to [Lexeme]s first???
 
+toLexemes :: Word -> [Lexeme]
+toLexemes (GenWord xs) = xs
+toLexemes (LitWord s) = map Literal s
 
 -- |This always returns a LitWord.
-removeQuotes :: Word -> Word
-removeQuotes (LitWord s) = LitWord s
-removeQuotes (GenWord []) = LitWord ""
-removeQuotes (GenWord (Quote _:xs)) = removeQuotes $ GenWord xs
-removeQuotes (GenWord (Quoted x:xs)) = removeQuotes $ GenWord $ x:xs
-removeQuotes (GenWord (Expand _:xs)) = undefined -- shouldn't happen
-removeQuotes (GenWord (Literal c:xs)) = LitWord [c] `mappend`
-                                        removeQuotes (GenWord xs)
+removeQuotes :: [Lexeme] -> String
+removeQuotes [] = ""
+removeQuotes (Quote _:xs) = removeQuotes xs
+removeQuotes (Quoted x:xs) = removeQuotes $ x:xs
+removeQuotes (Expand _:xs) = undefined -- shouldn't happen
+removeQuotes (Literal c:xs) = c:removeQuotes xs
 
 {-
 

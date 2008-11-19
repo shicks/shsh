@@ -21,11 +21,12 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    withHandler, withHandler_,
                                    withExitHandler, failOnError,
                                    pipeState, closeOut, maybeCloseOut,
-                                   withSubState, withSubStateCalled, (.~) )
+                                   withSubState, withSubStateCalled,
+                                   withEnvironment )
     where
 
 import Control.Concurrent ( forkIO )
-import Control.Monad ( MonadPlus, mzero, mplus, when )
+import Control.Monad ( MonadPlus, mzero, mplus, when, foldM )
 import Control.Monad.Error ( ErrorT, runErrorT,
                              MonadError, throwError, catchError )
 import Control.Monad.State ( MonadState, get, put, runStateT,
@@ -37,7 +38,7 @@ import Data.Monoid ( Monoid, mempty, mappend )
 import System.Directory ( getCurrentDirectory, getHomeDirectory )
 import System.Exit ( ExitCode(..) )
 import System.Environment ( getEnvironment )
-import System.IO ( stdin, stdout, stderr, openFile, IOMode(..) )
+import System.IO ( stdin, stdout, stderr, openFile, IOMode(..), Handle )
 
 import System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle )
 import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
@@ -45,14 +46,15 @@ import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
                                          fromReadHandle, fromWriteHandle,
                                          toReadHandle, toWriteHandle,
                                          wIsOpen, rIsOpen )
-import System.Console.ShSh.Internal.Process ( ProcessHandle,
-                                              launch, toWriteStream,
+import System.Console.ShSh.Internal.Process ( ProcessHandle, launch,
+                                              toWriteStream, toReadStream,
                                               Pipe, PipeState(..), waitForPipe,
                                               ReadStream(..), WriteStream(..),
                                               fromReadStream, fromWriteStream
                                             )
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError, exit )
+import System.Console.ShSh.Parse.AST ( Word, Redir(..), Assignment(..) )
 
 -- I might want to look into using ST to thread the state...?
 
@@ -73,6 +75,9 @@ instance MonadIO (ShellT e) where
                           case me of
                             Right x -> return x
                             Left e -> fail $ show e
+
+unshell :: ShellT e a -> InnerShell e a
+unshell (Shell s) = s
 
 instance MonadSIO (InnerShell e) where
     iHandle = (fromReadStream stdin . p_in) `fmap` gets pipeState
@@ -344,6 +349,7 @@ withSubStateCalled' name (Shell sub) e = Shell $ do
 -}
 
 -- No longer trying to preserve return type... maybe another function?
+-- I don't think we ever want to use this?????
 withHandler :: Shell a -> Shell ExitCode
 withHandler s = do ame <- getFlag 'e'
                    catchError (catchS (s >> return ExitSuccess)
@@ -364,8 +370,46 @@ withExitHandler s = do ame <- getFlag 'e'
                                    else do announceError e
                                            return $ exitCode e
 
--- This is a bit gratuitous.
-infixl 9 .~
-(.~) = flip
+assign :: (Word -> Shell String) -> [(String,String)]
+       -> Assignment -> InnerShell () [(String,String)]
+assign expand e (n:=w) = do v <- unshell $ expand w
+                            return $ update n v e
+
+redir :: (Word -> Shell String) -> PipeState -> Redir
+      -> InnerShell () PipeState
+redir expand p (n:>w) = do f <- unshell $ expand w
+                           h <- liftIO $ openFile f WriteMode
+                           return $ toFile n h p
+redir expand p (n:>>w) = do f <- unshell $ expand w
+                            h <- liftIO $ openFile f AppendMode
+                            return $ toFile n h p
+redir expand p (n:<w) = do f <- unshell $ expand w
+                           h <- liftIO $ openFile f ReadMode
+                           return $ fromFile n h p
+redir expand p (n:<>w) = do f <- unshell $ expand w -- probably doesn't work...?
+                            h <- liftIO $ openFile f ReadWriteMode
+                            return $ fromFile n h p
+redir _ _ r = fail $ show r ++ " not yet supported"
+
+toFile :: Int -> Handle -> PipeState -> PipeState
+toFile 1 h p = p { p_out = toWriteStream h }
+toFile 2 h p = p { p_err = toWriteStream h }
+toFile _ _ _ = undefined
+
+fromFile :: Int -> Handle -> PipeState -> PipeState
+fromFile 0 h p = p { p_in = toReadStream h }
+fromFile _ _ _ = undefined
+
+withEnvironment :: (Word -> Shell String) -> [Redir] -> [Assignment]
+                -> Shell a -> Shell a
+withEnvironment exp rs as (Shell sub) = Shell $ do
+  s <- get
+  p <- flip (foldM (redir exp)) rs =<< gets pipeState
+  e <- flip (foldM (assign exp)) as =<< gets environment
+  (result,_) <- liftIO $ runStateT (runErrorT sub) $ s { pipeState = p,
+                                                         environment = e }
+  case result of
+    Right a  -> return a
+    Left err -> throwError err
 
 \end{code}

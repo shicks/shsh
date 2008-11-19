@@ -13,7 +13,7 @@ module System.Console.ShSh.Internal.Process (
   ProcessHandle, -- re-export this...
   Pipe, waitForPipe, PipeState(..), launch,
   ReadStream(..), fromReadStream, WriteStream(..), fromWriteStream,
-  toWriteStream,
+  toWriteStream, toReadStream
 ) where
 
 import Control.Concurrent ( MVar, newEmptyMVar, takeMVar, putMVar, forkIO )
@@ -82,6 +82,9 @@ fromReadStream :: Handle -> ReadStream -> ReadHandle
 fromReadStream h RInherit = toReadHandle h
 fromReadStream _ (RUseHandle h) = h
 fromReadStream _ (RCreatePipe) = undefined -- fail "Pipe not yet created!"
+
+toReadStream :: Handle -> ReadStream
+toReadStream = RUseHandle . toReadHandle
 
 -- This is a tricky function...  This PipeState needs to have CreatePipe.
 -- But the Shell's stored one does not.

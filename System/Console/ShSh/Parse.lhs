@@ -33,7 +33,7 @@ data WordContext = NormalContext | ParameterContext
 
 delimiters :: WordContext -> String
 delimiters NormalContext = "&|;<>()# \t\r\n"
-delimiters ParameterContext = "} \t\r\n"
+delimiters ParameterContext = "}" -- don't separate on spaces - do that later...
 
 cnewline :: P ()
 cnewline = do spaces
@@ -54,7 +54,13 @@ statement = spaces >> aliasOn >>
                    ,do s <- statementNoSS
                        case s of -- needed to prevent errors w/ 'many'
                          Statement [] [] [] -> fail "empty statement"
-                         _ -> return s
+                         Statement [] [] as ->
+                             return $ Builtin SetVarInternal [] [] as
+                         s@(Statement (LitWord w:ws) rs as) ->
+                             case toBuiltin w of
+                               Just b  -> return $ Builtin b ws rs as
+                               Nothing -> return s
+                         s -> return s
                    ]
 
 -- Once we know we don't have a subshell...
@@ -221,7 +227,8 @@ expansion =
                                            -- check isName again...
                                            c <- zeroOne $ char ':'
                                            op <- oneOf "-=?+"
-                                           rest <- many $ word ParameterContext
+                                           rest <- word ParameterContext
+                                           char '}'
                                            return $ Expand $
                                              FancyExpansion n op (not $ null c)
                                                             rest
