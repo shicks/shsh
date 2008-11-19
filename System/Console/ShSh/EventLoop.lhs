@@ -33,21 +33,23 @@ import System.Console.Haskeline ( runInputT, getInputLine,
 source :: FilePath -> Shell ()
 source f = do h <- liftIO $ openFile f ReadMode
               eventLoop "" $ Just h
+              return ()
 
-sourceProfile :: Shell ExitCode
-sourceProfile = withHandler $ do dir <- getEnv "HOME"
-                                 let file = dir </> ".shshrc"
-                                 exists <- liftIO $ doesFileExist file
-                                 when exists $ ePutStrLn ("Sourcing "++file) >>
-                                               source file
+sourceProfile :: Shell ()
+sourceProfile = do withHandler $ do dir <- getEnv "HOME"
+                                    let file = dir </> ".shshrc"
+                                    exists <- liftIO $ doesFileExist file
+                                    when exists $ ePutStrLn ("Sourcing "++file) >>
+                                         source file
+                   return ()
 
-eventLoop :: String -> Maybe Handle -> Shell ()
+eventLoop :: String -> Maybe Handle -> Shell ExitCode
 eventLoop i h = do
   s' <- case h of
           Nothing -> getInput =<< prompt i
           Just h' -> getNoninteractiveInput h'
   case s' of
-    Nothing -> return ()
+    Nothing -> return ExitSuccess
     Just s  -> do am_e <- getFlag 'e'
                   am_v <- getFlag 'v'
                   if am_v then ePutStrLn s

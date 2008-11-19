@@ -27,7 +27,7 @@ Here's where we define main.  It's very simple.
 
 {-# OPTIONS_GHC -cpp #-}
 
-import System.Exit ( exitWith )
+import System.Exit ( exitWith, ExitCode(..) )
 import System.Environment ( getArgs )
 import System.Console.ShSh.Shell ( startShell )
 import System.Console.ShSh.EventLoop ( eventLoop, sourceProfile, source )
@@ -45,7 +45,9 @@ main = do args <- getArgs
 #endif
           case args of
             [] -> startShell (sourceProfile >> eventLoop "" h) >>= exitWith
-            [f] -> startShell (sourceProfile >> source f) >>= exitWith
+            [f] -> startShell (do sourceProfile
+                                  source f
+                                  return ExitSuccess) >>= exitWith
             fs -> fail $ unwords $ "Weird arguments: ":fs
 \end{code}
 

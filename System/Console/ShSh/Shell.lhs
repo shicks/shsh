@@ -205,14 +205,14 @@ startState = do e <- getEnvironment
                          updateWith "-" (fromMaybe f) e
                 return $ ShellState e' [] [] mempty mempty
 
-startShell :: Monoid e => ShellT e a -> IO ExitCode
+startShell :: Monoid e => ShellT e ExitCode -> IO ExitCode
 startShell a = do s <- startState
                   runShell a s
 
-runShell :: ShellT e a -> ShellState e -> IO ExitCode
+runShell :: ShellT e ExitCode -> ShellState e -> IO ExitCode
 runShell (Shell s) e = do result <- evalStateT (runErrorT s) e
                           case result of
-                            Right _  -> return ExitSuccess
+                            Right ec  -> return ec
                             Left err -> do announceError err
                                            return $ exitCode err
 
@@ -220,7 +220,7 @@ runShell (Shell s) e = do result <- evalStateT (runErrorT s) e
 -- no way to easily ignore it by doing anything on the /inside/ of the
 -- computation.
 runShell_ :: ShellT e a -> ShellState e -> IO ()
-runShell_ s e = runShell s e >> return ()
+runShell_ s e = runShell (s >> return ExitSuccess) e >> return ()
 
 failOnError :: ExitCode -> ShellT e ExitCode
 failOnError ExitSuccess = return ExitSuccess
@@ -271,20 +271,20 @@ withErrRedirected f j =
        withPipes (mempty { p_err = toWriteStream h }) j
 
 -- |This is a convenience function to act like runShell . withPipes
-runWithPipes :: PipeState -> ShellState e -> ShellT e a -> IO ExitCode
+runWithPipes :: PipeState -> ShellState e -> ShellT e ExitCode -> IO ExitCode
 runWithPipes p e s = runShell (withPipes p s) e
 
 runWithPipes_ :: PipeState -> ShellState e -> ShellT e a -> IO ()
-runWithPipes_ p e s = runWithPipes p e s >> return ()
+runWithPipes_ p e s = runWithPipes p e (s >> return ExitSuccess) >> return ()
 
-computationWithPipes :: PipeState -> ShellT e a -> ShellT e (IO ExitCode)
+computationWithPipes :: PipeState -> ShellT e ExitCode -> ShellT e (IO ExitCode)
 computationWithPipes p s = Shell $ do
                              p' <- gets pipeState
                              e <- get
                              return $ runWithPipes (p' `mappend` p) e s
 
 computationWithPipes_ :: PipeState -> ShellT e a -> ShellT e (IO ())
-computationWithPipes_ p s = do c <- computationWithPipes p s
+computationWithPipes_ p s = do c <- computationWithPipes p (s >> return ExitSuccess)
                                return $ c >> return ()
 
 runInShell :: String -> [String] -> ShellT e (Maybe WriteHandle, Maybe ReadHandle,
