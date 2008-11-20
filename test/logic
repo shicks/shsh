@@ -1,0 +1,43 @@
+Logic and exit codes
+====================
+
+Here are some test cases for logic, pipes and grep.
+
+~~~~ check-output/logic.sh
+true && echo true works
+true || echo true fails
+
+false && echo false fails
+false || echo false works
+
+echo hello | grep goodbye && echo pipe bad grep fails
+echo hello | grep goodbye || echo pipe bad grep works
+
+echo hello | grep hell && echo pipe good grep works
+echo hello | grep hell || echo pipe good grep fails
+
+echo hello | grep foo | true && echo complicated pipe works
+echo hello | grep foo | true || echo complicated pipe fails
+~~~~
+
+~~~~ known-output/logic.sh
+true works
+false works
+pipe bad grep works
+hello
+pipe good grep works
+hello
+complicated pipe works
+~~~~
+
+Here are some tests of the `$?` environment variable, which currently
+fail.
+
+~~~~ check-output/failing-exit-code.sh
+false
+echo false exit code is $?
+~~~~
+
+~~~~ known-output/failing-exit-code.sh
+false exit code is 1
+~~~~
