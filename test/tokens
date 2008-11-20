@@ -30,25 +30,41 @@ meaning, with the exception of <newline>.  A <newline> following a backslash
 represents line continuation and both the backslash and the newline are
 gobbled.  Tokens may be matched accross line continuations.  Thus,
 
-~~~~ ../tmp/backslash.sh
+~~~~ check-output/backslash.sh
 ec\
-ho -\n 1\n\&\|\\c
+ho - \n 1\n\&\|\\c
 ~~~~
 
-should produce the output "``1n&|\c``".
+should produce the output:
 
+~~~~ known-output/backslash.sh
+- n 1n&|\c
+~~~~
 
 ### Single Quotes
 
 Single quotes preserve the value of all characters within them, including
 <newline>.  Single quotes may not occur within single quotes.
 
-~~~~ ../tmp/singlequote.sh
+~~~~ check-output/failing-singlequote.sh
 e'ch'o '-''n' 'ab'cd'!&|<>'
 ~~~~
 
-produces the output "`abcd!&|<>`".
+produces the output:
 
+~~~~ known-output/failing-singlequote.sh
+abcd!&|<>
+~~~~
+
+~~~~ check-output/singlequote2.sh
+echo 'ab'cd'!&|<>'
+~~~~
+
+produces the output:
+
+~~~~ known-output/singlequote2.sh
+abcd!&|<>
+~~~~
 
 ### Double Quotes
 
@@ -56,12 +72,16 @@ Double quotes preserve literal values of all characters except $, `,
 which have their normal expansion meanings, and \, which is only non-literal
 when preceding $, `, ", \, or <newline>.
 
-~~~~ ../tmp/doublequote.sh
+~~~~ check-output/failing-doublequote.sh
 A=23
-"e"cho "-n" "%<>|"'$'"$A.\5\"\$'"
+"e"cho -- "-n" "%<>|"'$'"$A.\5\"\$'"
 ~~~~
 
-produces "`%<>|$23.\5"$'`".
+produces:
+
+~~~~ known-output/failing-doublequote.sh
+-n %<>|$23.\5"$'
+~~~~
 
 Finally, $@ has a special meaning inside double quotes.
 

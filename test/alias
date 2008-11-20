@@ -4,7 +4,7 @@ Alias Expansion
 
 Alias expansion is pretty tricky.  Here are some test cases.
 
-~~~~ ../tmp/alias1.sh
+~~~~ check-output/failing-alias1.sh
 alias foo=echo\ hello
 alias bar=world
 foo bar          # "hello bar"
@@ -56,6 +56,9 @@ foo foo          # "foo echo foo"
 
 ~~~~
 
+~~~~ known-output/failing-alias1.sh
+???
+~~~~
 
 Plan
 ----

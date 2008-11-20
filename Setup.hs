@@ -35,15 +35,21 @@ tryHeader h job warn = (checkHeader h >> putS ("found header "++h) >> job)
 
 buildDoc =
     do addExtraData "haddock-directory" "doc/haddock"
-       rm_rf "tmp"
-       alltests <- mapDirectory buildOneTest "test"
+       rm_rf "test/check-output"
+       rm_rf "test/known-output"
+       txtfiles <- concatMap fst `fmap` mapDirectory buildOneTest "test"
        beginTestWith (pwd >>= addToPath)
        withDirectory "doc" $
            do htmls <- concat `fmap` mapM (\i -> markdownToHtml "../doc.css" i "")
-                       (concatMap fst alltests)
+                       txtfiles
               addTarget $ ["*manual*","*html*"] :<
                             ("manual/index.html":htmls) |<- defaultRule
-       test $ concatMap snd alltests
+       outputTests <- flip mapDirectory "test/check-output" $ \t ->
+                      do expected <- cat $ "../known-output/"++t
+                         testOutput t expected $
+                                    fmap (filter (/='\r')) $ systemOut "shsh" [t]
+                         return t
+       test outputTests
     where buildOneTest f | ".splits" `isSuffixOf` f = return ([],[])
           buildOneTest f =
               do xxx <- splitMarkdown f ("../doc/"++f++".txt")
