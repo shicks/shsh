@@ -12,7 +12,6 @@ import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
 import System.Console.ShSh.Shell ( Shell, setEnv, getEnv )
 import System.Console.ShSh.ShellError ( throw )
 
-import Control.Monad ( (<=<) )
 import Control.Monad.Trans ( lift, liftIO )
 
 import Data.Char ( isAlphaNum )
@@ -37,6 +36,9 @@ expandWord = fmap removeQuotes . expand'
 expandWords :: [Word] -> Shell [String]
 expandWords = fmap (map removeQuotes) . (splitFields <=< mapM expand')
               -- should we (dropWhile null) as well?
+
+f <=< g = \a -> g a >>= f
+infixr 1 <=<
 
 -- |First step: tilde expansion.
 expandTilde :: [Lexeme] -> Shell [Lexeme]
