@@ -41,20 +41,22 @@ import System.Console.ShSh.Internal.IO ( WriteHandle, ReadHandle,
 -- on them.  We might want to make it an 'MVar' 'ShellHandle' instead, so
 -- that we can close the write end of it manually, if we want.
 newtype Pipe = Pipe (MVar ())
+instance Show Pipe where
+    showsPrec p _ = showsPrec p "Pipe"
 
 -- |This is basically copied directly out of the new 'System.Process' API,
 -- except we need that 'UseHandle' can be a generalized 'ReadHandle' or
 -- 'WriteHandle' instead, so we need to redefine the whole type.  This
 -- effectively ends up being a @Maybe (Maybe (WriteHandle))@ or something,
 -- I guess.
-data WriteStream = WInherit | WUseHandle WriteHandle | WCreatePipe
-data ReadStream  = RInherit | RUseHandle ReadHandle  | RCreatePipe
+data WriteStream = WInherit | WUseHandle WriteHandle | WCreatePipe deriving ( Show )
+data ReadStream  = RInherit | RUseHandle ReadHandle  | RCreatePipe deriving ( Show )
 
 data PipeState = PipeState { p_in  :: ReadStream,
                              p_out :: WriteStream,
                              p_err :: WriteStream,
                              openPipes :: [Pipe]
-                           }
+                           } deriving ( Show )
 
 -- Inherit is empty; otherwise just use the more recent one.
 instance Monoid WriteStream where

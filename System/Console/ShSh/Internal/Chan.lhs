@@ -28,6 +28,9 @@ import Data.List ( takeWhile )
 -- way to "unWrite" a 'Chan'.
 data Chan = A (C.Chan B.ByteString) (MVar ())
 
+instance Show Chan where
+    showsPrec p _ = showsPrec p "Chan"
+
 -- Internals
 ch :: Chan -> C.Chan B.ByteString
 ch (A c _) = c

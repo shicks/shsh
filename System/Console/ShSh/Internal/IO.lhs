@@ -45,8 +45,8 @@ import System.Console.ShSh.Internal.Chan ( Chan, newChan, isEOFChan,
 -- |These two types are the main read/write handle wrappers.  We use
 -- a lazy 'ByteString' in the channel, and it seems to be pretty
 -- efficient.
-data ReadHandle = RChan Chan | RHandle Handle
-data WriteHandle = WChan Chan | WHandle Handle
+data ReadHandle = RChan Chan | RHandle Handle deriving ( Show )
+data WriteHandle = WChan Chan | WHandle Handle deriving ( Show )
 
 -- |We don't need these to be entirely opaque, but it would be nice to
 -- not pattern match on them so much...
