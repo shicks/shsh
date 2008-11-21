@@ -19,6 +19,5 @@ main = do args <- getArgs
           case args of
             [] -> startShell (sourceProfile >> eventLoop "" h) >>= exitWith
             [f] -> startShell (do sourceProfile
-                                  source f
-                                  return ExitSuccess) >>= exitWith
+                                  source f) >>= exitWith
             fs -> fail $ unwords $ "Weird arguments: ":fs

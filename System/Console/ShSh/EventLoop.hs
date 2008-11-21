@@ -29,37 +29,40 @@ import System.Console.Haskeline ( runInputT, getInputLine,
                                   defaultSettings, historyFile )
 #endif
 
-source :: FilePath -> Shell ()
+source :: FilePath -> Shell ExitCode
 source f = do h <- liftIO $ openFile f ReadMode
               eventLoop "" $ Just h
-              return ()
 
 sourceProfile :: Shell ()
 sourceProfile = do withHandler $ do dir <- getEnv "HOME"
                                     let file = dir </> ".shshrc"
                                     exists <- liftIO $ doesFileExist file
                                     when exists $ ePutStrLn ("Sourcing "++file) >>
-                                         source file
+                                         source file >> return ()
                    return ()
 
 eventLoop :: String -> Maybe Handle -> Shell ExitCode
-eventLoop i h = do
-  s' <- case h of
-          Nothing -> getInput =<< prompt i
-          Just h' -> getNoninteractiveInput h'
-  case s' of
-    Nothing -> return ExitSuccess
-    Just s  -> do am_e <- getFlag 'e'
+eventLoop i0 h = el i0 ExitSuccess
+    where el i ec = do
+             s' <- case h of
+                     Nothing -> getInput =<< prompt i
+                     Just h' -> getNoninteractiveInput h'
+             case s' of
+               Nothing -> return ec
+               Just s  -> do
+                  am_e <- getFlag 'e'
                   am_v <- getFlag 'v'
-                  if am_v then ePutStrLn s
-                          else return ()
+                  when am_v $ ePutStrLn s
                   as <- getAliases
                   case parse as (i++s) of -- Later, add more to s' (PS2)
                     Left err -> do when (isJust h) $ do
                                      eof <- liftIO $ hIsEOF $ fromJust h
                                      when eof $ fail $ show err
-                                   eventLoop (i++s++"\n") h
-                    Right cmd -> mapM_ runCommand cmd >> eventLoop "" h
+                                   el (i++s++"\n") ec
+                    Right cmd -> rcmds cmd
+                        where rcmds [] = el "" ExitSuccess
+                              rcmds [x] = runCommand x >>= el ""
+                              rcmds (x:xs) = runCommand x >> rcmds xs
 
 -- What do we want to do with history?  Bash defines a $HISTFILE variable,
 -- but that only deals with saving the history on exit - apparently readline
