@@ -46,7 +46,8 @@ buildDoc =
        outputTests <- flip mapDirectory "test/check-output" $ \t ->
                       do expected <- cat $ "../known-output/"++t
                          testOutput t expected $
-                                    fmap (filter (/='\r')) $ systemOut "shsh" [t]
+                                    fmap (filter (/='\r'))
+                                    (systemOut "shsh" [t] `catchC` return)
                          return t
        test outputTests
     where buildOneTest f | ".splits" `isSuffixOf` f = return ([],[])
