@@ -41,3 +41,52 @@ echo false exit code is $?
 ~~~~ known-output/exit-code.sh
 false exit code is 1
 ~~~~
+
+Pipes with external commands
+----------------------------
+
+Here I add a few tests for pipes involving external commands rather
+than builtins.  I use shsh as the external command, since it's the
+only external program I know is in the `PATH` during testing.  Thus this
+test also checks that the exit code of shsh itself is correct.
+
+~~~~ check-output/failing-external-shsh.sh
+mkdir tmp
+cd tmp
+echo true > true.sh
+echo false > false.sh
+echo grep foo > grepfoo.sh
+
+shsh true.sh && echo true works
+shsh true.sh || echo true FAILS
+
+shsh false.sh && echo false FAILS
+shsh false.sh || echo false works
+
+echo hello | shsh grepfoo.sh && echo pipe bad grep FAILS
+echo hello | shsh grepfoo.sh || echo pipe bad grep works
+
+echo good food | shsh grepfoo.sh && echo pipe good grep works
+echo good food | shsh grepfoo.sh || echo pipe good grep FAILS
+
+echo hello | shsh grepfoo.sh | true && echo complicated pipe works
+echo hello | shsh grepfoo.sh | true || echo complicated pipe FAILS
+
+echo hello | shsh grepfoo.sh | shsh true.sh && echo other pipe works
+echo hello | shsh grepfoo.sh | shsh true.sh || echo other pipe FAILS
+
+echo hello | shsh grepfoo.sh | shsh false.sh && echo false pipe FAILS
+echo hello | shsh grepfoo.sh | shsh false.sh || echo false pipe works
+~~~~
+
+~~~~ known-output/failing-external-shsh.sh
+true works
+false works
+pipe bad grep works
+good food
+pipe good grep works
+good food
+complicated pipe works
+other pipe works
+false pipe works
+~~~~
