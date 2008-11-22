@@ -184,6 +184,7 @@ word context = do spaces
                                return $ Quote '"':w++[Quote '"']
                            ,do char '\''
                                w <- many $ noneOf "\'"
+                               char '\''
                                return $ Quote '\'':map ql w++[Quote '\'']
                            ,one expansion
                            ,do c <- noneOf s
