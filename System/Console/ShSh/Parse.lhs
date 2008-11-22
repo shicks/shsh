@@ -192,11 +192,11 @@ word context = do spaces
                            ] <?> "word"
 
 dqWord :: P [Lexeme]
-dqWord = many $ choice [Quoted `fmap` expansion
-                       ,do char '\''
-                           choice [do c <- oneOf "$`\"" -- don't remember
-                                      return $ ql c
-                                  ,return $ ql '\\']
+dqWord = many $ choice [do char '\\'
+                           choice [ql `fmap` oneOf "\\$`\""
+                                  ,return $ ql '\\'
+                                  ]
+                       ,Quoted `fmap` expansion
                        ,ql `fmap` noneOf "\""]
 
 isName :: String -> Bool
