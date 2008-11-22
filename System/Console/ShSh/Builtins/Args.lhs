@@ -48,11 +48,12 @@ withArgs :: Eq a
          => String  -- ^name of job - used for error messages, etc.
          -> String  -- ^header for usage
          -> [Arg a]   -- ^argspec
+         -> ArgOrder (ShellA a ()) -- ^passed along
          -> ([String] -> ShellA a x) -- ^job to be done, passed unparsed args
          -> [String] -> Shell x
-withArgs name header spec job args = withSubStateCalled name `flip` [] $
-                                     sequence_ opts >> run
-    where (opts,rest,errs) = getOpt Permute (helpVers name header spec) args
+withArgs name header spec ord job args = withSubStateCalled name `flip` [] $
+                                         sequence_ opts >> run
+    where (opts,rest,errs) = getOpt ord (helpVers name header spec) args
           run = do unless (null errs) $ fail $ unlines errs
                    job rest
 

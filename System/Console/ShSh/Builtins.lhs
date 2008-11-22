@@ -19,6 +19,8 @@ import Control.Monad.State ( put )
 import Data.Char ( chr, ord )
 import Data.List ( sort, sortBy )
 import Data.Ord ( comparing )
+import System.Console.GetOpt ( ArgOrder(..) )
+
 import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( ShellT, Shell,
@@ -80,7 +82,9 @@ cat [] = withPrefix "cat" $ do x <- iGetContents
 cat fs = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
             return ExitSuccess
 
-echo = withArgs "echo" header args $ successfully $ \ws -> do
+-- |This is nice and all, but apparently -- is NOT supposed to be
+-- recognized...
+echo = withArgs "echo" header args RequireOrder $ successfully $ \ws -> do
           e <- flag 'e'
           oPutStr . unwords =<< if e then mapM escape ws else return ws
           n <- flag 'n'
