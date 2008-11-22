@@ -86,16 +86,21 @@ run' (command:args) ip = do b <- builtin command
                               Just b' -> b' args ip
                               Nothing -> runWithArgs command args ip
 
+-- at some point we need to use our own path here...
 runWithArgs :: String -> [String] -> ShellProcess ()
-runWithArgs cmd args ip = do exe <- liftIO $ findExecutable cmd -- use own path?
+runWithArgs cmd args ip = do exists <- liftIO $ doesFileExist cmd
+                             exe <- liftIO $ if path
+                                             then return $ if exists
+                                                           then Just cmd
+                                                           else Nothing
+                                             else findExecutable cmd
                              case exe of
                                Just fp -> runInShell fp args ip
-                               Nothing -> notFound -- just fail...
-    where notFound = do let path = '/' `elem` cmd
-                        exists <- liftIO $ doesFileExist cmd
-                        if path && exists
-                           then fail $ cmd++": Permission denied"
-                           else fail $ cmd++": No such file or directory"
+                               Nothing -> notFound exists -- just fail...
+    where path = '/' `elem` cmd
+          notFound exists = if path && exists
+                            then fail $ cmd++": Permission denied"
+                            else fail $ cmd++": No such file or directory"
 
 setVars [] = return ExitSuccess
 setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
