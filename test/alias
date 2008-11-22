@@ -11,9 +11,9 @@ foo bar          # "hello bar"
 alias foo="echo hello "
 foo bar          # "hello world"
 alias foo='echo "hello '
-foo bar"         # "hello bar"
+foo bar"         # "hello  bar"
 alias foo="echo 'hello "
-foo bar'         # "hello bar"
+foo bar'         # "hello  bar"
 
 alias foo=bar
 alias bar=echo
@@ -22,7 +22,7 @@ alias foo="bar "
 foo bar          # "echo"
 alias foo=bar
 alias bar="echo "
-foo bar          # "echo"
+foo bar          # "echo"  -- currently fails
 
 alias foo="echo \\"
 foo bar          # dash: " bar", bash: "  bar" (?)
@@ -57,7 +57,21 @@ foo foo          # "foo echo foo"
 ~~~~
 
 ~~~~ known-output/failing-alias1.sh
-???
+hello bar
+hello world
+hello  bar
+hello  bar
+bar
+echo
+echo
+ bar
+hello
+3
+test
+bar
+baz
+foo echo
+foo echo foo
 ~~~~
 
 Plan

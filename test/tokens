@@ -72,15 +72,15 @@ Double quotes preserve literal values of all characters except $, `,
 which have their normal expansion meanings, and \, which is only non-literal
 when preceding $, `, ", \, or <newline>.
 
-~~~~ check-output/failing-doublequote.sh
+~~~~ check-output/doublequote.sh
 A=23
-"e"cho -- "-n" "%<>|"'$'"$A.\5\"\$'"
+"e"cho '' "-n" "%<>|"'$'"$A.\5\"\$'"
 ~~~~
 
 produces:
 
-~~~~ known-output/failing-doublequote.sh
--n %<>|$23.\5"$'
+~~~~ known-output/doublequote.sh
+ -n %<>|$23.\5"$'
 ~~~~
 
 Finally, $@ has a special meaning inside double quotes.
