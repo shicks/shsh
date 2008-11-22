@@ -46,13 +46,13 @@ should produce the output:
 Single quotes preserve the value of all characters within them, including
 <newline>.  Single quotes may not occur within single quotes.
 
-~~~~ check-output/failing-singlequote.sh
-e'ch'o '-''n' 'ab'cd'!&|<>'
+~~~~ check-output/singlequote.sh
+e'ch'o '-''n'e 'ab'cd'!&|<>\n'
 ~~~~
 
 produces the output:
 
-~~~~ known-output/failing-singlequote.sh
+~~~~ known-output/singlequote.sh
 abcd!&|<>
 ~~~~
 
