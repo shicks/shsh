@@ -6,18 +6,23 @@ This module exports a list of builtin commands and how we handle them.
 
 module System.Console.ShSh.Builtins ( builtin ) where
 
+import System.Console.ShSh.Builtins.Args ( withArgs, -- opt, optSet,
+                                           flag, flagOn, flagOff )
 import System.Console.ShSh.Builtins.Cd ( chDir )
 import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Exit ( exit )
 
 import Text.Regex.Posix ( (=~) )
 import System.Exit ( ExitCode(..), exitWith )
-import Control.Monad ( forM_ )
+import Control.Monad ( forM_, unless, ap )
+import Control.Monad.State ( put )
+import Data.Char ( chr, ord )
 import Data.List ( sort, sortBy )
 import Data.Ord ( comparing )
 import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
-import System.Console.ShSh.Shell ( Shell, getAlias, getAliases, setAlias,
+import System.Console.ShSh.Shell ( ShellT, Shell,
+                                   getAlias, getAliases, setAlias,
                                    withHandler, getAllEnv, getEnv,
                                    withEnvironment, pipes,
                                    ShellProcess, mkShellProcess )
@@ -25,6 +30,7 @@ import System.Console.ShSh.ShellError ( withPrefix )
 import System.Console.ShSh.Expansions ( expandWord )
 import System.Console.ShSh.Parse.AST ( Redir(..), Assignment(..),
                                        Word(..) )
+import System.Console.ShSh.Util ( split )
 import System.Directory ( getCurrentDirectory, getDirectoryContents )
 import System.Exit ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
@@ -34,13 +40,13 @@ import Control.Monad.Trans ( liftIO )
   env
 -}
 
-successfully :: ([String] -> Shell ()) -> [String] -> Shell ExitCode
+successfully :: ([String] -> ShellT e ()) -> [String] -> ShellT e ExitCode
 successfully job args = job args >> return ExitSuccess
 
 builtins :: [(String,[String] -> Shell ExitCode)]
 builtins = [(".",source),("alias",alias),("cat",cat),
             ("cd",withPrefix "cd" . chDir),
-            ("echo",successfully $ oPutStrLn . unwords),
+            ("echo",echo),
             ("exec",const $ return ExitSuccess),
             ("exit",const $ liftIO $ exitWith ExitSuccess),
             ("false",const $ return $ ExitFailure 1),
@@ -58,14 +64,7 @@ builtin b = do noBuiltin <- getEnv "NOBUILTIN"
                return $ if r then Nothing
                              else (mkShellProcess .) `fmap` lookup b builtins
 
-split :: Eq a => a -> [a] -> [[a]]
-split c [] = [[]]
-split c (c':cs) | c==c'     = []:split c cs
-                | otherwise = case split c cs of
-                                [] -> [[c]]
-                                (s:ss) -> (c:s):ss
-
-source, alias, cat, grep, pwd, set :: [String] -> Shell ExitCode
+source, alias, cat, echo, grep, pwd, set :: [String] -> Shell ExitCode
 
 alias [] = showAliases
 alias as = mapM_ mkAlias as >> return ExitSuccess
@@ -80,6 +79,32 @@ cat [] = withPrefix "cat" $ do x <- iGetContents
                                return ExitSuccess
 cat fs = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
             return ExitSuccess
+
+echo = withArgs "echo" header args $ successfully $ \ws -> do
+          e <- flag 'e'
+          oPutStr . unwords =<< if e then mapM escape ws else return ws
+          n <- flag 'n'
+          unless n $ oPutStrLn ""
+    where escape [] = return []
+          escape ('\\':rest) = esc rest
+          escape (c:cs) = (c:) `fmap` escape cs
+          esc [] = return "\\"
+          esc ('0':a:b:c:rest) = (chr (64*ord a + 8*ord b + ord c):)
+                                 `fmap` escape rest
+          esc ('c':_) = put [('n',Nothing)] >> return [] --suppress '\n' too
+          esc (a:rest) = case lookup a codes of
+                           Just b -> (b:) `fmap` escape rest
+                           Nothing -> ('\\':) `fmap` escape rest
+          codes = [('a','\a'),('b','\b'),('f','\f'),('n','\n'),
+                   ('r','\r'),('t','\t'),('v','\v'),('\\','\\')]
+          header = "Usage: echo [-neE] args...\n"++
+                   "Print the arguments on the standard output, "++
+                   "separated by spaces."
+          args = [flagOn "n" [] 'n' "do not output trailing newline",
+                  flagOn "e" [] 'e'
+                    "enable interpretation of backslash escapes",
+                  flagOff "E" [] 'e'
+                    "disable interpretation of backslash escapes (default)"]
 
 grep []  = fail "grep requires an argument!"
 grep [p] = do x <- iGetContents
