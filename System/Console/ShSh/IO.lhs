@@ -44,8 +44,9 @@ instance MonadSIO IO where
     eHandle = return $ toWriteHandle stderr
 
 infixr 7 >>>=
-(>>>=) :: MonadSIO m => m a -> (a -> IO b) -> m b
+(>>>=) :: (Show a,MonadSIO m) => m a -> (a -> IO b) -> m b
 f >>>= g = f >>= \a -> liftIO $ g a
+-- f >>>= g = f >>= \a -> liftIO $ putStrLn ("IO: "++show a) >> g a
 
 iGetContentsBS :: MonadSIO m => m B.ByteString
 iGetContentsBS = iHandle >>>= rGetContentsBS

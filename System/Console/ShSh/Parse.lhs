@@ -54,12 +54,6 @@ statement = spaces >> aliasOn >>
                    ,do s <- statementNoSS
                        case s of -- needed to prevent errors w/ 'many'
                          Statement [] [] [] -> fail "empty statement"
-                         Statement [] [] as ->
-                             return $ Builtin SetVarInternal [] [] as
-                         s@(Statement (LitWord w:ws) rs as) ->
-                             case toBuiltin w of
-                               Just b  -> return $ Builtin b ws rs as
-                               Nothing -> return s
                          s -> return s
                    ]
 

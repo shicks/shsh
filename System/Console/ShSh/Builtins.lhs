@@ -4,7 +4,7 @@ This module exports a list of builtin commands and how we handle them.
 
 \begin{code}
 
-module System.Console.ShSh.Builtins ( BuiltinCommand(..), runBuiltin ) where
+module System.Console.ShSh.Builtins ( builtin ) where
 
 import System.Console.ShSh.Builtins.Cd ( chDir )
 import System.Console.ShSh.Builtins.Mkdir ( mkDir )
@@ -18,12 +18,13 @@ import Data.Ord ( comparing )
 import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( Shell, getAlias, getAliases, setAlias,
-                                   withHandler, getAllEnv, setEnv,
-                                   withEnvironment )
+                                   withHandler, getAllEnv, getEnv,
+                                   withEnvironment, pipes,
+                                   ShellProcess, mkShellProcess )
 import System.Console.ShSh.ShellError ( withPrefix )
 import System.Console.ShSh.Expansions ( expandWord )
 import System.Console.ShSh.Parse.AST ( Redir(..), Assignment(..),
-                                       Word(..), BuiltinCommand(..) )
+                                       Word(..) )
 import System.Directory ( getCurrentDirectory, getDirectoryContents )
 import System.Exit ( ExitCode(..), exitWith )
 import Control.Monad.Trans ( liftIO )
@@ -33,66 +34,82 @@ import Control.Monad.Trans ( liftIO )
   env
 -}
 
--- This will have to change when we want to generalize the I/O...
--- The handle parameter is an input handle for 
-runBuiltin :: BuiltinCommand
-           -> [String] -> [Redir] -> [Assignment]
-           -> Shell ExitCode
+successfully :: ([String] -> Shell ()) -> [String] -> Shell ExitCode
+successfully job args = job args >> return ExitSuccess
 
-runBuiltin Alias [] rs as = withEnvironment expandWord rs as showAliases
-runBuiltin Alias as _ _ = mapM_ alias as >> return ExitSuccess -- doesn't support > yet!!!
-runBuiltin Cd ss _ _ = withPrefix "cd" $ chDir ss
-runBuiltin Set [] _ _  = showEnv >> return ExitSuccess -- !!! need a withRedirections...
-runBuiltin Set foo _ _ = setOpts foo
-runBuiltin Source _ _ _ = fail "don't know how to source yet!"
-runBuiltin SetVarInternal _ _ [] = return ExitSuccess
-runBuiltin SetVarInternal args rs ((name:=word):as)
-              = do setEnv name =<< expandWord word
-                   runBuiltin SetVarInternal args rs as
--- anyrthing else (doesn't need to change state)
-runBuiltin b a rs as = withEnvironment expandWord rs as $ run b a
+builtins :: [(String,[String] -> Shell ExitCode)]
+builtins = [(".",source),("alias",alias),("cat",cat),
+            ("cd",withPrefix "cd" . chDir),
+            ("echo",successfully $ oPutStrLn . unwords),
+            ("exec",const $ return ExitSuccess),
+            ("exit",const $ liftIO $ exitWith ExitSuccess),
+            ("false",const $ return $ ExitFailure 1),
+            ("grep",grep),("ls",ls),
+            ("mkdir",mkDir),("pwd",pwd),
+            ("set",set),("source",source),
+            ("true",const $ return ExitSuccess)]
+            
+builtin :: String -> Shell (Maybe ([String] -> ShellProcess ()))
+builtin b = do noBuiltin <- getEnv "NOBUILTIN"
+               let r = case noBuiltin of
+                         Just s  -> let nb = split ':' s
+                                    in b `elem` nb
+                         Nothing -> False
+               return $ if r then Nothing
+                             else (mkShellProcess .) `fmap` lookup b builtins
 
-run :: BuiltinCommand -> [String] -> Shell ExitCode
-run Exec _   = return ExitSuccess
-run Exit _   = liftIO $ exitWith ExitSuccess -- message?
-run Echo ss  = do oPutStrLn $ unwords ss
-                  return ExitSuccess
-run Cat []   = withPrefix "cat" $
-               do x <- iGetContents
-                  oPutStr x
-                  return ExitSuccess
-run Cat fs   = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
-                  return ExitSuccess
-run Grep []  = fail "grep requires an argument!"
-run Grep [p] = do x <- iGetContents
-                  case filter (=~ p) $ lines x of
-                    [] -> return $ ExitFailure 1
-                    ls -> do oPutStr $ unlines ls
-                             return ExitSuccess
-run Grep (p:fs) = do x <- mapM (liftIO . readFile) fs
-                     let fm = zip fs $ map (filter (=~ p) . lines) x
-                         pretty (f,ls) = if length fs > 1
-                                         then map ((f++":")++) ls
-                                         else ls
-                     if null $ concatMap snd fm
-                        then return $ ExitFailure 1
-                        else do oPutStr $ unlines $
-                                        concatMap pretty fm
-                                return ExitSuccess
-run Pwd _  = do cwd <- liftIO getCurrentDirectory
-                oPutStrLn cwd
-                return ExitSuccess
-run Ls []  = do let unboring ('.':_) = False
-                    unboring _ = True
-                fs <- liftIO (getDirectoryContents ".")
-                oPutStr $ unlines $ sort $
-                         filter unboring fs
-                return ExitSuccess
-run Ls fs = do oPutStrLn "TODO"
-               return ExitSuccess
-run MkDir ss = withHandler $ mkDir ss
-run Tru _  = return ExitSuccess
-run Fals _ = return $ ExitFailure 1
+split :: Eq a => a -> [a] -> [[a]]
+split c [] = [[]]
+split c (c':cs) | c==c'     = []:split c cs
+                | otherwise = case split c cs of
+                                [] -> [[c]]
+                                (s:ss) -> (c:s):ss
+
+source, alias, cat, grep, pwd, set :: [String] -> Shell ExitCode
+
+alias [] = showAliases
+alias as = mapM_ mkAlias as >> return ExitSuccess
+
+set [] = showEnv >> return ExitSuccess
+set foo = setOpts foo
+
+source _ = fail "don't know how to source yet!"
+
+cat [] = withPrefix "cat" $ do x <- iGetContents
+                               oPutStr x
+                               return ExitSuccess
+cat fs = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
+            return ExitSuccess
+
+grep []  = fail "grep requires an argument!"
+grep [p] = do x <- iGetContents
+              case filter (=~ p) $ lines x of
+                [] -> return $ ExitFailure 1
+                ls -> do oPutStr $ unlines ls
+                         return ExitSuccess
+grep (p:fs) = do x <- mapM (liftIO . readFile) fs
+                 let fm = zip fs $ map (filter (=~ p) . lines) x
+                     pretty (f,ls) = if length fs > 1
+                                     then map ((f++":")++) ls
+                                     else ls
+                 if null $ concatMap snd fm
+                    then return $ ExitFailure 1
+                    else do oPutStr $ unlines $
+                                    concatMap pretty fm
+                            return ExitSuccess
+
+pwd _ = do cwd <- liftIO getCurrentDirectory
+           oPutStrLn cwd
+           return ExitSuccess
+
+ls []  = do let unboring ('.':_) = False
+                unboring _ = True
+            fs <- liftIO (getDirectoryContents ".")
+            oPutStr $ unlines $ sort $
+                    filter unboring fs
+            return ExitSuccess
+ls fs = do oPutStrLn "TODO"
+           return ExitSuccess
 
 
 -- The BASH version escapes dangerous values with single-quotes, i.e.
@@ -112,12 +129,13 @@ showAliases = do as <- getAliases
                  forM_ as showAlias
                  return ExitSuccess
 
-alias :: String -> Shell ()
-alias a | null eqval = do a <- getAlias name
-                          case a of
-                            Just v  -> showAlias (name,v)
-                            Nothing -> ePutStrLn $ "alias: "++name++" not found"
-        | otherwise  = do setAlias name val
+mkAlias :: String -> Shell ()
+mkAlias a | null eqval = do a <- getAlias name
+                            case a of
+                              Just v  -> showAlias (name,v)
+                              Nothing -> ePutStrLn $
+                                         "alias: "++name++" not found"
+          | otherwise  = do setAlias name val
     where (name,eqval) = break (=='=') a
           val = drop 1 eqval
 

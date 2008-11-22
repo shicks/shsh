@@ -25,7 +25,6 @@ data AndOrList = Singleton Pipeline
 data Pipeline = Pipeline [Statement] -- explicit type-level non-null?
                 deriving ( Show )
 data Statement = Statement [Word] [Redir] [Assignment]
-               | Builtin BuiltinCommand [Word] [Redir] [Assignment]
                | Subshell [Command] [Redir]
                deriving ( Show )
 data Word = LitWord String | GenWord [Lexeme]
@@ -53,21 +52,6 @@ data Redir = Int :> Word  -- tests show that expansions don't lose spaces
 data Assignment = String := Word
                   deriving ( Show )
 
--- |This doesn't seem like it quite belongs here...
-data BuiltinCommand = Alias | Cat | Cd | Echo | Exec | Exit | Fals
-                    | Grep | Ls | MkDir | Pwd | Set | Source | Tru
-                    | SetVarInternal
-                    deriving ( Eq, Show )
-
-toBuiltin :: String -> Maybe BuiltinCommand
-toBuiltin = flip lookup [(".",Source),("alias",Alias),
-                         ("cat",Cat),("cd",Cd)
-                        ,("echo",Echo),("exec",Exec),("exit",Exit)
-                        ,("false",Fals),("grep",Grep),("ls",Ls)
-                        ,("mkdir",MkDir),("pwd",Pwd)
-                        ,("set",Set),("source",Source),("true",Tru)
-                        ]
-                         
 addAssignment :: Assignment -> Statement -> Statement
 addAssignment a (Statement ws rs as) = Statement ws rs (a:as)
 addAssignment _ (Subshell _ _) = impossible "cannot add assignment to subshell"

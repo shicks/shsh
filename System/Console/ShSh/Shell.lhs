@@ -17,29 +17,32 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getShellState, runShell_, runShell,
                                    pipeShells, runInShell,
                                    startShell,
-                                   withOutRedirected, withErrRedirected,
-                                   withPipes, runWithPipes, runWithPipes_,
                                    withHandler, withHandler_,
                                    withExitHandler, failOnError,
                                    pipeState, closeOut, maybeCloseOut,
                                    withSubState, withSubStateCalled,
-                                   withEnvironment )
+                                   withEnvironment,
+                                   mkShellProcess, runShellProcess,
+                                   ShellProcess, PipeInput(..),
+                                   pipes -- debugging...
+                                 )
     where
 
-import Control.Concurrent ( forkIO )
+import Control.Concurrent ( forkIO, MVar, newEmptyMVar, putMVar, takeMVar )
 import Control.Monad ( MonadPlus, mzero, mplus, when, foldM )
 import Control.Monad.Error ( ErrorT, runErrorT,
                              MonadError, throwError, catchError )
 import Control.Monad.State ( MonadState, get, put, runStateT,
                              StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
-import Data.List ( lookup, union, (\\) )
+import Data.List ( lookup, union, unionBy, (\\) )
 import Data.Maybe ( fromMaybe, isJust, listToMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
 import System.Directory ( getCurrentDirectory, getHomeDirectory )
 import System.Exit ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 import System.IO ( stdin, stdout, stderr, openFile, IOMode(..), Handle )
+import System.Process ( waitForProcess )
 
 import System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle )
 import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
@@ -56,11 +59,13 @@ import System.Console.ShSh.Internal.Process ( ProcessHandle, launch,
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError, exit )
 import System.Console.ShSh.Parse.AST ( Word, Redir(..), Assignment(..) )
+import System.Console.ShSh.Util ( equating )
 
 -- I might want to look into using ST to thread the state...?
 
 data ShellState e = ShellState {
       environment :: [(String,String)],
+      locals      :: [(String,String)],
       aliases     :: [(String,String)],
       functions   :: [(String,String)],
       pipeState   :: PipeState,
@@ -135,15 +140,25 @@ tryEnv :: String -> String -> ShellT e String
 tryEnv d s = Shell $ gets environment >>= return . fromMaybe d . lookup s
 
 -- |Not much here - we don't care if the thing is currently defined or not:
--- we just set it either way.
+-- we just set it either way.  Now that we have locals, we could be a bit
+-- smarter, but we might as well just try to emulate bash's behavior...
+-- (i.e. we could set the global version also no matter what)
 setEnv :: String -> String -> ShellT e ()
-setEnv s x = Shell $ modify $ \st ->
-             st { environment = update s x (environment st) }
+setEnv s x = Shell $ do e <- gets environment
+                        l <- gets locals
+                        case lookup s l of
+                          Just v -> modify $ \st -> st { locals = update s x l }
+                          Nothing -> modify $ \st ->
+                                        st { environment = update s x e }
+
+setLocal :: String -> String -> ShellT e ()
+setLocal s x = Shell $ modify $ \st -> st { locals = update s x $ locals st }
 
 -- |Remove the environment variable from the list.
 unsetEnv :: String -> ShellT e ()
 unsetEnv s = Shell $ modify $ \st ->
-             st { environment = filter ((/=s).fst) (environment st) }
+             st { environment = filter ((/=s).fst) (environment st),
+                  locals = filter ((/=s).fst) (locals st) }
 
 -- |This is a bit more complicated, but basically what it says is that
 -- we can give it any function from something string-like to something else
@@ -159,8 +174,12 @@ withEnv s f = do e <- getEnv s
                    Just v  -> setEnv s v
                    Nothing -> unsetEnv s
 
+joinStringSet :: [(String,String)] -> [(String,String)] -> [(String,String)]
+joinStringSet = unionBy $ equating fst
+
 getAllEnv :: ShellT a [(String,String)]
-getAllEnv = Shell $ gets environment
+getAllEnv = Shell $ gets $ \s -> joinStringSet (locals s) (environment s)
+
 
 -- *Alias commands
 setAlias :: String -> String -> ShellT e ()
@@ -203,7 +222,7 @@ startState = do e <- getEnvironment
                          updateWith "PWD" (fromMaybe cwd) $
                          updateWith "HOME" (fromMaybe home) $
                          updateWith "-" (fromMaybe f) e
-                return $ ShellState e' [] [] mempty mempty
+                return $ ShellState e' [] [] [] mempty mempty
 
 startShell :: Monoid e => ShellT e ExitCode -> IO ExitCode
 startShell a = do s <- startState
@@ -242,7 +261,7 @@ maybeCloseIn = do h <- iHandle
 
 waitForPipes :: ShellT e ()
 waitForPipes = Shell $ do p <- gets pipeState
-                          liftIO $ mapM_ waitForPipe (openPipes p)
+                          catchIO $ mapM_ waitForPipe (openPipes p)
                           modify $ \s -> s { pipeState = p { openPipes = [] } }
 
 -- |This function is the only way to change the PipeState.  In that sense,
@@ -260,49 +279,79 @@ withPipes p (Shell s) = Shell $ do
                           modify $ \st -> st { pipeState = ps }
                           return ret
 
-withOutRedirected :: FilePath -> ShellT e a -> ShellT e a
-withOutRedirected f j =
-    do h <- liftIO $ openFile f WriteMode
-       withPipes (mempty { p_out = toWriteStream h }) j
+runInShell :: String -> [String] -> ShellProcess e
+runInShell c args ip = Shell $ do ps <- gets pipeState
+                                  (ps',mh,_,_,ph) <- catchIO $ launch c args $
+                                                                fixInput ip ps
+                                  unshell $ returnHandle ip mh
+                                  -- do we need to wait for any open pipes...?
+                                  catchIO $ waitForProcess ph
+                                  -- modify $ \s -> s { pipeState = ps' }
+                                  -- We need to do SOMETHING here, but the
+                                  -- CreatePipe is wrong now......?
 
-withErrRedirected :: FilePath -> ShellT e a -> ShellT e a
-withErrRedirected f j =
-    do h <- liftIO $ openFile f WriteMode
-       withPipes (mempty { p_err = toWriteStream h }) j
+pipes :: ShellT e PipeState
+pipes = Shell $ gets pipeState
 
--- |This is a convenience function to act like runShell . withPipes
-runWithPipes :: PipeState -> ShellState e -> ShellT e ExitCode -> IO ExitCode
-runWithPipes p e s = runShell (withPipes p s) e
+--------
+-------
+-- Problem!!!!!  ShellProcess has a Shell Shell.  Setting the pipeState in
+-- the outershell, then running the inner shell, will NOT get the job done.
+-- We lose the pipes before running the actual job :-/.
+-- So we need to rethink this.  Another option would be to use MVar's to
+-- get the necessary info where it needs to go, but we may not want to
+-- fork, in which case it seems silly...?  Or maybe not...
 
-runWithPipes_ :: PipeState -> ShellState e -> ShellT e a -> IO ()
-runWithPipes_ p e s = runWithPipes p e (s >> return ExitSuccess) >> return ()
+-- |Here's YET ANOTHER way to do things...
+-- The idea is that when we start a process, we may want it to give
+-- us a writehandle back out.
+data PipeInput = PipeInput (MVar WriteHandle) (MVar ExitCode) | InheritInput
 
-computationWithPipes :: PipeState -> ShellT e ExitCode -> ShellT e (IO ExitCode)
-computationWithPipes p s = Shell $ do
-                             p' <- gets pipeState
-                             e <- get
-                             return $ runWithPipes (p' `mappend` p) e s
+type ShellProcess e = PipeInput -> ShellT e ExitCode
 
-computationWithPipes_ :: PipeState -> ShellT e a -> ShellT e (IO ())
-computationWithPipes_ p s = do c <- computationWithPipes p (s >> return ExitSuccess)
-                               return $ c >> return ()
+forkPipe :: ShellProcess e -> ShellT e (WriteHandle,MVar ExitCode)
+forkPipe job = do mvh <- liftIO $ newEmptyMVar
+                  mve <- liftIO $ newEmptyMVar
+                  forkShell $ job (PipeInput mvh mve) >>= liftIO . putMVar mve
+                  h <- liftIO $ takeMVar mvh
+                  return (h,mve)
 
-runInShell :: String -> [String] -> ShellT e (Maybe WriteHandle, Maybe ReadHandle,
-                                              Maybe ReadHandle, ProcessHandle)
-runInShell c args = Shell $ do ps <- gets pipeState
-                               (ps',a,b,c,d) <- liftIO $ launch c args ps
-                               modify $ \s -> s { pipeState = ps' }
-                               return (a,b,c,d)
+fixInput :: PipeInput -> PipeState -> PipeState
+fixInput InheritInput p = p
+fixInput (PipeInput _ _) p = p { p_in = RCreatePipe }
 
-pipeShells :: ShellT e a -> ShellT e ExitCode -> ShellT e ExitCode
-pipeShells source dest = do
-  (r,w) <- liftIO newPipe
-  let sp = mempty { p_out = WUseHandle w }
-      dp = mempty { p_in  = RUseHandle r }
-  s <- computationWithPipes_ sp $ source >> maybeCloseOut
-  d <- computationWithPipes  dp $ dest -- >> maybeCloseIn -- do we want this?
-  liftIO $ forkIO  s
-  liftIO $ d
+returnHandle :: PipeInput -> Maybe WriteHandle -> ShellT e ()
+returnHandle InheritInput _ = return ()
+returnHandle (PipeInput _ _) Nothing = fail "no WriteHandle given"
+returnHandle (PipeInput m _) (Just h) = liftIO $ putMVar m h
+
+runShellProcess :: ShellProcess e -> ShellT e ExitCode
+runShellProcess sp = sp InheritInput
+
+mkShellProcess :: ShellT e ExitCode -> ShellProcess e
+mkShellProcess job (PipeInput h _) = do (r,w) <- liftIO newPipe
+                                        liftIO $ putMVar h w
+                                        let p = mempty { p_in = RUseHandle r }
+                                        ret <- withPipes p job
+                                        return ret
+mkShellProcess job InheritInput = job
+
+forkShell :: ShellT e a -> ShellT e ()
+forkShell job = Shell $ do s <- get
+                           let job' = job >> return ExitSuccess
+                           catchIO $ forkIO $ runShell job' s >> return ()
+                           return ()
+
+-- |This isolates a shell...  but we'll eventually need to do more...?
+subShell :: ShellT e ExitCode -> ShellT e ExitCode
+subShell job = Shell $ do s <- get
+                          catchIO $ runShell job s
+
+pipeShells :: ShellProcess e -> ShellProcess e -> ShellProcess e
+pipeShells source dest pi = do
+  (h,e) <- forkPipe dest
+  withPipes (mempty { p_out = WUseHandle h }) $ source pi >> maybeCloseOut
+  liftIO $ takeMVar e
 
 --runShell :: Shell a -> IO a
 --runShell (Shell s) = do e <- getEnvironment
@@ -312,7 +361,7 @@ pipeShells source dest = do
 -- state properly, AND is atomic, so that state changes don't go through
 -- if we fail...
 convertState :: ShellState e -> e' -> ShellState e'
-convertState (ShellState e a f p _) x = ShellState e a f p x
+convertState (ShellState e l a f p _) x = ShellState e l a f p x
 
 -- |This is the main worker function for working in a substate.
 withSubState' :: (ShellError -> ShellError) -- ^an error processor
@@ -416,14 +465,21 @@ fromFile :: Int -> Handle -> PipeState -> PipeState
 fromFile 0 h p = p { p_in = toReadStream h }
 fromFile _ _ _ = undefined
 
+-- |Now this allows modifying the state, but locals and redirects
+-- are /preserved/ back to the original values.
+-- We could possibly be smart by using a flag in a variable to tell
+-- whether to merge its value back...  i.e. "this var is local to
+-- the current block, so fully defer to the previous block".  This
+-- could hold equally well for functions and aliases, etc.
 withEnvironment :: (Word -> Shell String) -> [Redir] -> [Assignment]
-                -> Shell ExitCode -> Shell ExitCode
+                -> Shell a -> Shell a
 withEnvironment exp rs as (Shell sub) = Shell $ do
   s <- get
   p <- flip (foldM (redir exp)) rs =<< gets pipeState
   e <- flip (foldM (assign exp)) as =<< gets environment
-  (result,_) <- catchIO $ runStateT (runErrorT sub) $
-                s { pipeState = p, environment = e }
+  (result,s') <- catchIO $ runStateT (runErrorT sub) $
+                 s { pipeState = p, environment = e }
+  put $ s' { locals = locals s, pipeState = pipeState s }
   case result of
     Right a  -> return a
     Left err -> throwError err

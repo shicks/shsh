@@ -37,6 +37,10 @@ import System.Console.ShSh.Internal.IO ( WriteHandle, ReadHandle,
                                          joinHandles, wClose )
 
 
+import Debug.Trace ( trace )
+
+tr a b = trace (a ++ show b) b
+
 -- |This type is used to keep track of pipes, for the purpose of waiting
 -- on them.  We might want to make it an 'MVar' 'ShellHandle' instead, so
 -- that we can close the write end of it manually, if we want.
