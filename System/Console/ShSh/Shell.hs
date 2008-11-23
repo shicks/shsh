@@ -34,7 +34,7 @@ import Control.Monad.Trans ( MonadIO, lift, liftIO )
 import Data.List ( lookup, union, unionBy, (\\) )
 import Data.Maybe ( fromMaybe, isJust, listToMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
-import System.Directory ( getCurrentDirectory, getHomeDirectory )
+import System.Directory ( getCurrentDirectory, setCurrentDirectory, getHomeDirectory )
 import System.Exit ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 import System.IO ( stdin, stdout, stderr, openFile, IOMode(..), Handle )
@@ -234,9 +234,16 @@ startState :: Monoid e => IO (ShellState e)
 startState = do e <- getEnvironment
                 f <- parseFlags -- better way to integrate these
                 cwd <- getCurrentDirectory
+                pwdval <- case lookup "PWD" e of
+                          Nothing -> return cwd
+                          Just v -> do setCurrentDirectory v
+                                       v' <- getCurrentDirectory
+                                       if v' == cwd then return v else return cwd
+                                    `catch` \_ -> return cwd
+                setCurrentDirectory cwd
                 home <- getHomeDirectory
                 let e' = updateWith "SHELL" (const "shsh") $
-                         updateWith "PWD" (fromMaybe cwd) $
+                         updateWith "PWD" (const pwdval) $
                          updateWith "HOME" (fromMaybe home) $
                          updateWith "-" (fromMaybe f) e
                 return $ ShellState e' [] [] [] mempty mempty
