@@ -253,6 +253,7 @@ maybeCloseOut :: ShellT e ()
 maybeCloseOut = do h <- oHandle
                    open <- liftIO $ wIsOpen h
                    when open $ liftIO $ wSafeClose h
+-- Minor problem: sleep 1 | false -> closeChan: chan not open => how?!?
 
 maybeCloseIn :: ShellT e ()
 maybeCloseIn = do h <- iHandle
