@@ -11,7 +11,7 @@ This is where we do stuff.
 
 module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
-                                   tryEnv, withEnv,
+                                   tryEnv, withEnv, unsetEnv,
                                    setAlias, getAlias, getAliases,
                                    getFlag, setFlag, unsetFlag, getFlags,
                                    getShellState, runShell_, runShell,

@@ -25,8 +25,8 @@ import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( ShellT, Shell,
                                    getAlias, getAliases, setAlias,
-                                   withHandler, getAllEnv, getEnv,
-                                   withEnvironment, pipes,
+                                   withHandler, withEnvironment,
+                                   getAllEnv, getEnv, unsetEnv,
                                    ShellProcess, mkShellProcess )
 import System.Console.ShSh.ShellError ( withPrefix )
 import System.Console.ShSh.Expansions ( expandWord )
@@ -55,7 +55,8 @@ builtins = [(".",source),("alias",alias),("cat",cat),
             ("grep",grep),("ls",ls),
             ("mkdir",mkDir),("pwd",pwd),
             ("set",set),("source",source),
-            ("true",const $ return ExitSuccess)]
+            ("true",const $ return ExitSuccess),
+            ("unset",unset)]
             
 builtin :: String -> Shell (Maybe ([String] -> ShellProcess ()))
 builtin b = do noBuiltin <- getEnv "NOBUILTIN"
@@ -66,7 +67,7 @@ builtin b = do noBuiltin <- getEnv "NOBUILTIN"
                return $ if r then Nothing
                              else (mkShellProcess .) `fmap` lookup b builtins
 
-source, alias, cat, echo, grep, pwd, set :: [String] -> Shell ExitCode
+source, alias, cat, echo, grep, pwd, set, unset :: [String] -> Shell ExitCode
 
 alias [] = showAliases
 alias as = mapM_ mkAlias as >> return ExitSuccess
@@ -139,6 +140,9 @@ ls []  = do let unboring ('.':_) = False
             return ExitSuccess
 ls fs = do oPutStrLn "TODO"
            return ExitSuccess
+
+unset [] = return ExitSuccess
+unset (a:as) = unsetEnv a >> unset as
 
 
 -- The BASH version escapes dangerous values with single-quotes, i.e.
