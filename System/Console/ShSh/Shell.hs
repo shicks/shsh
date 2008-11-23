@@ -137,9 +137,29 @@ tryEnv :: String -> String -> ShellT e String
 tryEnv d s = Shell $ gets environment >>= return . fromMaybe d . lookup s
 
 -- |Not much here - we don't care if the thing is currently defined or not:
--- we just set it either way.  Now that we have locals, we could be a bit
--- smarter, but we might as well just try to emulate bash's behavior...
--- (i.e. we could set the global version also no matter what)
+-- we just set it either way.
+-- Now that we have local variables, it's a bit tricker.  Which do we set
+-- here?  Should we try to be smart?  What about hidden layers of locals?
+-- We could have a weird surprise from: A=10 (A=5 (global A=7) -> A=5?).
+-- We'll make this one global, I guess...
+-- NOTE: even bash gets confused here!  
+{-
+$ cat >sourcable <<EOF
+A=10
+echo hello, $A
+echo goodbye, $B
+B=50
+echo really this time, $B
+EOF
+$ B=100 . sourcable > foo # note, this works
+$ echo $B  # nothing
+$ . sourcable >/dev/null
+$ echo $B  # now it's 50...
+-}
+-- We could be a bit smarter, but we might as well just try to emulate
+-- bash's behavior... (i.e. we could set the global version also no 
+-- matter what)
+
 setEnv :: String -> String -> ShellT e ()
 setEnv s x = Shell $ do e <- gets environment
                         l <- gets locals
