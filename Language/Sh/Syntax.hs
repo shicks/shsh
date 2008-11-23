@@ -1,7 +1,7 @@
 -- |Here we define the /complete/ abstract syntax tree for
 -- simple and compound statements.
 
-module System.Console.ShSh.Parse.AST where
+module Language.Sh.Syntax where
 
 import Data.Monoid ( Monoid, mempty, mappend )
 import Data.Maybe ( isJust )

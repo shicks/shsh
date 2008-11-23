@@ -54,8 +54,9 @@ import System.Console.ShSh.Internal.Process ( ProcessHandle, launch,
                                             )
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError, exit )
-import System.Console.ShSh.Parse.AST ( Word, Redir(..), Assignment(..) )
 import System.Console.ShSh.Util ( equating )
+
+import Language.Sh.Syntax ( Word, Redir(..), Assignment(..) )
 
 -- I might want to look into using ST to thread the state...?
 

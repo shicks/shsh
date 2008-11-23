@@ -6,15 +6,17 @@ module System.Console.ShSh.Command ( runCommand ) where
 import System.Console.ShSh.Builtins ( builtin )
 import System.Console.ShSh.Expansions ( expandWords, expandWord )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn )
-import System.Console.ShSh.Parse.AST ( Command(..), AndOrList(..),
-                                       Pipeline(..), Statement(..),
-                                       Assignment(..) )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    runShellProcess, setEnv,
                                    pipeShells, runInShell,
                                    withEnvironment, withExitHandler,
                                    getFlag, pipes )
+
+import Language.Sh.Syntax ( Command(..), AndOrList(..),
+                            Pipeline(..), Statement(..),
+                            Assignment(..) )
+
 import System.Directory ( findExecutable, doesFileExist )
 import System.Process ( waitForProcess )
 import System.Exit ( ExitCode(..), exitWith )

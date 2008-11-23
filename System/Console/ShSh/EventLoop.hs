@@ -9,10 +9,12 @@ import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr,
                                 oFlush, iIsEOF, iGetLine
 #endif
                               )
-import System.Console.ShSh.Parse ( parse )
 import System.Console.ShSh.Shell ( Shell, getAliases,
                                    getEnv, getFlag, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
+
+import Language.Sh.Parser ( parse )
+
 import System.IO ( hFlush, hIsEOF, openFile, IOMode(..),
                    stdin, stdout, stderr, hGetLine, Handle )
 import System.Directory ( doesFileExist )

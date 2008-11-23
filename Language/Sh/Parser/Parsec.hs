@@ -1,10 +1,8 @@
-{-# LANGUAGE CPP #-}
-
 -- |Here we define the interface to 'Parsec', resulting in a
 -- 'GenParser' type that behaves much like a stateful 'CharParser',
 -- but with the added abstraction of dealing with aliases.
 
-module System.Console.ShSh.Parse.Parsec where
+module Language.Sh.Parser.Parsec where
 
 import Text.ParserCombinators.Parsec ( GenParser, getState, setState,
                                        tokenPrim, count, (<|>), (<?>),
@@ -201,3 +199,13 @@ string (c:cs) = do c <- char c
 
 schar :: Char -> P Char
 schar c = spaces >> char c
+
+-- *More general functions
+
+assocL :: P a -> P (b -> a -> b) -> (a -> b) -> P b
+assocL p op single = do x <- p
+                        rest $ single x
+    where rest x = do f <- op
+                      y <- p
+                      rest (f x y)
+                   <|> return x

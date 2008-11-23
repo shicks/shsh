@@ -1,7 +1,7 @@
 import Control.Monad ( when )
 import System.Exit ( exitWith, ExitCode(..) )
 import System.IO ( hIsEOF, stdin, hFlush, stdout )
-import System.Console.ShSh.Parse ( parse )
+import Language.Sh.Parser ( parse )
 -- import System.Console.ShSh.Expansions ( expansions )
 
 import System.Console.ShSh.Shell ( Shell, startShell )

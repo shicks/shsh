@@ -2,11 +2,11 @@
 
 module System.Console.ShSh.Expansions ( expandWords, expandWord ) where
 
-import System.Console.ShSh.Parse.AST ( Word(..), Lexeme(..),
-                                       Expansion(..) )
 import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
 import System.Console.ShSh.Shell ( Shell, setEnv, getEnv )
 import System.Console.ShSh.ShellError ( throw )
+
+import Language.Sh.Syntax ( Word(..), Lexeme(..), Expansion(..) )
 
 import Control.Monad.Trans ( lift, liftIO )
 

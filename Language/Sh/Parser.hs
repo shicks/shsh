@@ -1,12 +1,11 @@
-{-# LANGUAGE PatternGuards #-}
-
 -- |Here we use the stuff defined in the AST and Parsec modules
 -- to parse things.
 
-module System.Console.ShSh.Parse where
+module Language.Sh.Parser ( parse ) where
 
-import System.Console.ShSh.Parse.Parsec
-import System.Console.ShSh.Parse.AST
+import Language.Sh.Parser.Internal
+import Language.Sh.Parser.Parsec
+import Language.Sh.Syntax
 
 import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        skipMany,
@@ -22,7 +21,7 @@ import Debug.Trace ( trace )
 -- We don't actually really need Parsec3 - could adapt that Parsec2 source...
 -- Also, this should maybe be a debug switch...?
 -- #ifdef HAVE_PARSEC3
--- #include "System/Console/ShSh/Parse/safemany.h"
+-- #include "Language/Sh/Parser/safemany.h"
 -- #endif
 
 data WordContext = NormalContext | ParameterContext
@@ -120,14 +119,6 @@ pipeline = fmap Pipeline $ statement `sepBy1` pipe
 pipe :: P ()
 pipe = try $ do char '|'
                 notFollowedBy $ fmap Chr $ char '|'
-
-assocL :: P a -> P (b -> a -> b) -> (a -> b) -> P b
-assocL p op single = do x <- p
-                        rest $ single x
-    where rest x = do f <- op
-                      y <- p
-                      rest (f x y)
-                   <|> return x
 
 andorlist :: P AndOrList
 andorlist = assocL pipeline (try $ (string "||" >> return (:||:))
@@ -282,38 +273,6 @@ redirection = try (do spaces
                       t <- word NormalContext
                       mkRedir o (if null d then Nothing else Just $ read d) t)
                 <?> "redirection"
-
-redirOperator :: P String
-redirOperator = choice [do char '>'
-                           choice [char '&' >> return ">&"
-                                  ,char '>' >> return ">>"
-                                  ,char '|' >> return ">|"
-                                  ,return ">"]
-                       ,do char '<'
-                           choice [char '&' >> return "<&"
-                                  ,char '<' >> choice [char '-' >> return "<<-"
-                                                      ,return "<<"]
-                                  ,return "<"]]
-
-mkRedir :: String -> Maybe Int -> Word -> P Redir -- in monad for fail
-mkRedir _ (Just d) _ | d > 255 = fail $ "file descriptor too large: "++show d
-mkRedir op@('<':_) Nothing t   = mkRedir op (Just 0) t
-mkRedir op@('>':_) Nothing t   = mkRedir op (Just 1) t -- defaults
-mkRedir "<"   (Just s) t = return $ s :< t
-mkRedir "<&"  (Just s) t | Just t' <- wordToInt t = return $ s :<& t'
-                         | otherwise = fail "bad file descriptor"
-mkRedir "<>"  (Just s) t = return $ s :<> t
-mkRedir "<<"  (Just s) t = return $ s :<< t
-mkRedir "<<-" (Just s) t = return $ s :<<- t
-mkRedir ">"   (Just s) t = return $ s :> t
-mkRedir ">&"  (Just s) t | Just t' <- wordToInt t = return $ s :>& t'
-                         | otherwise = fail "bad file descriptor"
-mkRedir ">>"  (Just s) t = return $ s :>> t
-mkRedir ">|"  (Just s) t = return $ s :>| t
-
-wordToInt :: Word -> Maybe Int
-wordToInt (LitWord ds) | null $ filter (not . isDigit) ds = Just $ read ds
-wordToInt _ = Nothing
 
 commands :: P [Command]
 commands = newlines >> many (newlines >> command) >>= (\s -> eof >> return s)

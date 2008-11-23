@@ -8,15 +8,6 @@ import System.Console.ShSh.Builtins.Cd ( chDir )
 import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Exit ( exit )
 
-import Text.Regex.Posix ( (=~) )
-import System.Exit ( ExitCode(..), exitWith )
-import Control.Monad ( forM_, unless, ap )
-import Control.Monad.State ( put )
-import Data.Char ( chr, ord )
-import Data.List ( sort, sortBy )
-import Data.Ord ( comparing )
-import System.Console.GetOpt ( ArgOrder(..) )
-
 import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( ShellT, Shell,
@@ -26,12 +17,20 @@ import System.Console.ShSh.Shell ( ShellT, Shell,
                                    ShellProcess, mkShellProcess )
 import System.Console.ShSh.ShellError ( withPrefix )
 import System.Console.ShSh.Expansions ( expandWord )
-import System.Console.ShSh.Parse.AST ( Redir(..), Assignment(..),
-                                       Word(..) )
 import System.Console.ShSh.Util ( split )
+
+import Language.Sh.Syntax ( Redir(..), Assignment(..), Word(..) )
+
+import Control.Monad ( forM_, unless, ap )
+import Control.Monad.State ( put )
+import Control.Monad.Trans ( liftIO )
+import Data.Char ( chr, ord )
+import Data.List ( sort, sortBy )
+import Data.Ord ( comparing )
+import System.Console.GetOpt ( ArgOrder(..) )
 import System.Directory ( getCurrentDirectory, getDirectoryContents )
 import System.Exit ( ExitCode(..), exitWith )
-import Control.Monad.Trans ( liftIO )
+import Text.Regex.Posix ( (=~) )
 
 {- What else do we want...? list here:
   rm
