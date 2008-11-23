@@ -169,8 +169,8 @@ newlines = (try (many cnewline) <|> return [()]) >> return ()
 -- we'll need to take them all as inputs.
 word :: WordContext -> P Word
 word context = do spaces
-                  ip <- insideParens
-                  let del = (if ip then ('(':) else id) $ delimiters context
+                  ip <- insideParens -- ')' below was '('; only mattered in {}
+                  let del = (if ip then (')':) else id) $ delimiters context
                   xs <- word' del <:> many (word' $ del\\"#")
                   case fromLiteral $ GenWord $ concat xs of
                     Just xs' -> return $ LitWord xs'
@@ -202,7 +202,7 @@ dqWord = many $ choice [do char '\\'
                        ,ql `fmap` noneOf "\""]
 
 isName :: String -> Bool
-isName = const True
+isName = const True -- undefined
 fatal :: Monad m => String -> m a
 fatal = fail -- maybe we can distinguish fatal errors by
 -- whether the parser went to EOF or not...?
