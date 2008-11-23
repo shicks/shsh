@@ -1,0 +1,6 @@
+-- |This defines a bunch of compile-time constants.
+
+module System.Console.ShSh.Constants ( version ) where
+
+version :: String
+version = @VERSION@
