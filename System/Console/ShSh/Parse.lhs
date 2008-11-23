@@ -245,6 +245,7 @@ expansion =
                                           return $ Expand $ CommandSub c]
                           closeParen
                           return l
+                      ,return $ Literal '$'
                       ]
            ,do char '`'
                s <- many $ escape "`$\\" <|> noneOf "`"
@@ -265,7 +266,7 @@ escape :: String -> P Char
 escape s = char '\\' >> (oneOf s <|> return '\\')
 
 name :: P String
-name = count 1 (oneOf "-" <|> digit) <|>
+name = count 1 (oneOf "@*#?-$!" <|> digit) <|>
        alphaUnder <:> many alphaUnderNum
          <?> "name"
 
