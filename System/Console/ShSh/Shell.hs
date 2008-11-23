@@ -1,13 +1,9 @@
-\chapter{Shell module}
-
-This is where we do stuff.
-
-\begin{code}
-
 {-# LANGUAGE GeneralizedNewtypeDeriving,
              FlexibleInstances, FlexibleContexts,
              MultiParamTypeClasses,
              TypeSynonymInstances #-}
+
+-- |This is where we do stuff.
 
 module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
@@ -487,5 +483,3 @@ withEnvironment exp rs as (Shell sub) = Shell $ do
   case result of
     Right a  -> return a
     Left err -> throwError err
-
-\end{code}

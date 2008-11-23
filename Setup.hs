@@ -17,7 +17,7 @@ configure = do version true_version
                          "tilde expansion will not work fully."
                replace "@VERSION@" true_version
                ghcFlags ["-I."]
-               createFile "System/Console/ShSh/Constants.lhs"
+               createFile "System/Console/ShSh/Constants.hs"
 
 buildable = do have_pwd <- isDefined "HAVE_PWD"
                let cfiles = if have_pwd then ["hspwd.c"]
@@ -25,7 +25,7 @@ buildable = do have_pwd <- isDefined "HAVE_PWD"
                    cfiles' = map ("System/Console/ShSh/Foreign/"++) cfiles
                buildDoc
                executable "testlex" "testlex.hs" cfiles'
-               executable "shsh" "shsh.lhs" cfiles'
+               executable "shsh" "shsh.hs" cfiles'
 
 main = build [] configure buildable
 

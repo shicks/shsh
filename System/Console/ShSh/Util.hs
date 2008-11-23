@@ -1,8 +1,4 @@
-\chapter{Util module}
-
-This is a simple module where we define generally useful functions.
-
-\begin{code}
+-- |This is a simple module where we define generally useful functions.
 
 module System.Console.ShSh.Util ( equating, split,
                                   update, updateWith ) where
@@ -29,5 +25,3 @@ updateWith :: Eq a => a -> (Maybe b -> b) -> [(a,b)] -> [(a,b)]
 updateWith x f [] = [(x,f Nothing)]
 updateWith x f ((x',y'):xs) | x'==x     = (x',f (Just y')):xs
                             | otherwise = (x',y'):updateWith x f xs
-
-\end{code}

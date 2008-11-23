@@ -1,7 +1,3 @@
-\chapter{Builtins.Cd module}
-
-\begin{code}
-
 module System.Console.ShSh.Builtins.Cd ( chDir ) where
 
 import Control.Monad ( when )
@@ -54,4 +50,3 @@ chDir' a dir = do exists <- liftIO $ doesDirectoryExist dir
                         setEnv "PWD" newdir
                         setEnv "OLDPWD" olddir
                         return ExitSuccess
-\end{code}

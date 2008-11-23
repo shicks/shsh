@@ -1,14 +1,10 @@
-\chapter{IO Module}
+-- |These are the public bindings to the @Internal.IO@ module.
 
-These are the public bindings to the Internal.IO module.
-
-We'll also deal with things like waiting for pipes here, probably.
-The question is how much of the Shell API do we want to expose in
-order to keep this module separate?  I.e. all this messy PipeState
-business...?  Get?  Put?  Maybe define a class in Internal.IO for
-how to get at the handles?
-
-\begin{code}
+-- |We'll also deal with things like waiting for pipes here, probably.
+-- The question is how much of the Shell API do we want to expose in
+-- order to keep this module separate?  I.e. all this messy @PipeState@
+-- business...?  @Get@?  @Put@?  Maybe define a class in @Internal.IO@ for
+-- how to get at the handles?
 
 module System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle,
                                 iGetContents, iGetContentsBS, oPut, ePut,
@@ -110,5 +106,3 @@ oUnsafeClose = oHandle >>>= wClose
 
 eUnsafeClose :: MonadSIO m => m ()
 eUnsafeClose = eHandle >>>= wClose
-
-\end{code}

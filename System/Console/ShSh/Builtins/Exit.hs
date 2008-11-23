@@ -1,6 +1,3 @@
-\chapter{Builtins.Exit module}
-
-\begin{code}
 module System.Console.ShSh.Builtins.Exit ( exit ) where
 
 import Control.Monad.Trans ( liftIO )
@@ -17,4 +14,3 @@ exit [n] = case reads n of
                             exitWith $ ExitFailure 1
 exit _ = liftIO $ do hPutStrLn stderr $ "exit: too many arguments"
                      exitWith $ ExitFailure 1
-\end{code}

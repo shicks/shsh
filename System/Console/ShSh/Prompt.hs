@@ -1,7 +1,3 @@
-\chapter{Prompt module}
-
-\begin{code}
-
 module System.Console.ShSh.Prompt ( prompt )
     where
 
@@ -57,5 +53,3 @@ prompt "" = do -- pwd <- fromMaybe "\\s-\\v\\$ " `fmap` getEnv "PS1"
               --return $ user ++ "@" ++ hostname ++ " " ++ pwd ++ " $ "
 prompt _ = do pwd <- fromMaybe "> " `fmap` getEnv "PS2"
               expandAll pwd
-
-\end{code}

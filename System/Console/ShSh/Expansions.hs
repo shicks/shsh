@@ -1,8 +1,4 @@
-\chapter{Expansions module}
-
-Here is where we do the various expansions.
-
-\begin{code}
+-- |Here is where we do the various expansions.
 
 module System.Console.ShSh.Expansions ( expandWords, expandWord ) where
 
@@ -455,5 +451,3 @@ clean = map cl
           cl x = x
 
 -}
-
-\end{code}

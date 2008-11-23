@@ -1,11 +1,7 @@
-\chapter{Parse module}
+{-# LANGUAGE PatternGuards #-}
 
-Here we use the stuff defined in the AST and Parsec modules
-to parse things.
-
-\begin{code}
-
-{-# LANGUAGE PatternGuards #-} -- , CPP #-}
+-- |Here we use the stuff defined in the AST and Parsec modules
+-- to parse things.
 
 module System.Console.ShSh.Parse where
 
@@ -326,5 +322,3 @@ commands = newlines >> many (newlines >> command) >>= (\s -> eof >> return s)
 parse as s = case runParser commands (startState as) "" (map Chr s) of
                Left err -> Left $ err
                Right cs -> Right cs
-
-\end{code}

@@ -1,9 +1,5 @@
-\chapter{Parse.AST module}
-
-Here we define the \emph{complete} abstract syntax tree for
-simple and compound statements.
-
-\begin{code}
+-- |Here we define the /complete/ abstract syntax tree for
+-- simple and compound statements.
 
 module System.Console.ShSh.Parse.AST where
 
@@ -118,5 +114,3 @@ toBP (AndC p) = (True,p)
 toBP (OrC p)  = (False,p)
 
 -}
-
-\end{code}

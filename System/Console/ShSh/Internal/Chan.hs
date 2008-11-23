@@ -1,9 +1,5 @@
-\chapter{Internal.Chan module}
-
-This is even lower-level than Internal.IO.  We just define a custom
-Chan type and then redefine a few operations on it.
-
-\begin{code}
+-- |This is even lower-level than @Internal.IO@.  We just define a custom
+-- Chan type and then redefine a few operations on it.
 
 module System.Console.ShSh.Internal.Chan ( Chan, newChan, closeChan,
                                            isEmptyChan, getChanContents,
@@ -106,6 +102,3 @@ notEOFChan :: String -> Chan -> (Chan -> IO a) -> IO a
 notEOFChan msg c job = do eof <- isEOFChan c
                           if eof then fail $ msg ++ ": end of file"
                                  else job c
-
-
-\end{code}

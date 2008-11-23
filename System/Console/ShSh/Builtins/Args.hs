@@ -1,9 +1,5 @@
-\chapter{Builtins.Args module}
-
-This sets up a boilerplate withArgs modifier to allow simple
-builtins (like echo) to take simple args.
-
-\begin{code}
+-- |This sets up a boilerplate withArgs modifier to allow simple
+-- builtins (like echo) to take simple args.
 
 module System.Console.ShSh.Builtins.Args ( withArgs, ShellA,
                                            flagOn, flagOff, optSet,
@@ -64,5 +60,3 @@ opt :: Eq a => a -> String -> ShellA a String
 opt key def = (maybe def fromJust . lookup key) `fmap` get
 
 -- Useful construct: return unless `ap` flag 'n' `ap` oPutStrLn ""
-
-\end{code}

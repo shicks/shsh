@@ -1,8 +1,4 @@
-\chapter{Directory module}
-
-Exports a few routines for dealing with directories.
-
-\begin{code}
+-- |Exports a few routines for dealing with directories.
 
 module System.Console.ShSh.Directory ( parentDir, joinDirs ) where
 
@@ -20,5 +16,3 @@ joinDirs a b = join' (splitDirectories a) (splitDirectories b)
           join' a ("..":b) = join' (take (length a - 1) a) b
           join' a (x:b) = join' (a++[x]) b
           join' a [] = joinPath a
-
-\end{code}

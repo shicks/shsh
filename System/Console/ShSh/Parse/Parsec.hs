@@ -1,11 +1,8 @@
-\chapter{Parse.Parsec module}
-
-Here we define the interface to Parsec, resulting in a
-GenParser type that behaves much like a stateful CharParser,
-but with the added abstraction of dealing with aliases.
-
-\begin{code}
 {-# LANGUAGE CPP #-}
+
+-- |Here we define the interface to 'Parsec', resulting in a
+-- 'GenParser' type that behaves much like a stateful 'CharParser',
+-- but with the added abstraction of dealing with aliases.
 
 module System.Console.ShSh.Parse.Parsec where
 
@@ -204,8 +201,3 @@ string (c:cs) = do c <- char c
 
 schar :: Char -> P Char
 schar c = spaces >> char c
-
-
-
-
-\end{code}

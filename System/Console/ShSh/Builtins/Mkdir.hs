@@ -1,6 +1,3 @@
-\chapter{Builtins.Mkdir module}
-
-\begin{code}
 {-# OPTIONS_GHC -cpp #-}
 module System.Console.ShSh.Builtins.Mkdir ( mkDir ) where
 
@@ -75,4 +72,3 @@ mkDir args = do withSubStateCalled "mkdir" (sequence_ opts>>run) noOpts
 #endif
                     when v $ ePutStrLn $
                              "mkdir: created directory `"++d++"'"
-\end{code}

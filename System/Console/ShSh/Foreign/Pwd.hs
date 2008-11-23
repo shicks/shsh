@@ -1,11 +1,8 @@
-\chapter{Foreign.Pwd module}
-
-This is an FFI module for dealing with the pwd.h header...
-We'll provide reasonable alternatives in pure Haskell for those that don't
-have the correct headers.
-
-\begin{code}
 {-# LANGUAGE ForeignFunctionInterface, CPP #-}
+
+-- |This is an FFI module for dealing with the pwd.h header...
+-- We'll provide reasonable alternatives in pure Haskell for those that don't
+-- have the correct headers.
 
 module System.Console.ShSh.Foreign.Pwd ( getHomeDir ) where
 
@@ -28,5 +25,3 @@ getHomeDir :: String -> IO (Maybe String)
 getHomeDir = const $ return Nothing -- how's that for reasonable?
 
 #endif
-
-\end{code}

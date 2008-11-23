@@ -1,6 +1,3 @@
-\chapter{EventLoop module}
-
-\begin{code}
 {-# OPTIONS_GHC -cpp #-}
 module System.Console.ShSh.EventLoop ( eventLoop, sourceProfile, source )
     where
@@ -91,5 +88,3 @@ getNoninteractiveInput :: Handle -> Shell (Maybe String)
 getNoninteractiveInput h = liftIO $ do eof <- hIsEOF h
                                        if eof then return Nothing
                                               else Just `fmap` hGetLine h
-
-\end{code}

@@ -1,8 +1,4 @@
-\chapter{Builtins module}
-
-This module exports a list of builtin commands and how we handle them.
-
-\begin{code}
+-- |This module exports a list of builtin commands and how we handle them.
 
 module System.Console.ShSh.Builtins ( builtin ) where
 
@@ -171,5 +167,3 @@ mkAlias a | null eqval = do a <- getAlias name
           | otherwise  = do setAlias name val
     where (name,eqval) = break (=='=') a
           val = drop 1 eqval
-
-\end{code}

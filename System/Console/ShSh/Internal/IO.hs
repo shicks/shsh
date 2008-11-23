@@ -1,10 +1,6 @@
-\chapter{Internal.IO Module}
-
-This is the new version of what I called PipeIO before.  This
-module does \emph{not} depend on Shell, and therefore Shell can
-depend on it.
-
-\begin{code}
+-- |This is the new version of what I called PipeIO before.  This
+-- module does \emph{not} depend on Shell, and therefore Shell can
+-- depend on it.
 
 -- |This module defines a bunch of useful IO constructs, including
 -- basically wrapping all the original IO 'Handle's into a new
@@ -245,4 +241,3 @@ joinHandles r w job = catch (do rWaitForInput r
                                   else do putStrLn $ "Caught error: "++show e
                                   -- this is for debugging--^  impossible?
                                           joinHandles r w job
-\end{code}

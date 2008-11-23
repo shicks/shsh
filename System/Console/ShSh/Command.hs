@@ -1,8 +1,5 @@
-\chapter{Command module}
+-- |Here we run commands.
 
-Here we run commands.
-
-\begin{code}
 {-# OPTIONS_GHC -cpp #-}
 module System.Console.ShSh.Command ( runCommand ) where
 
@@ -104,5 +101,3 @@ runWithArgs cmd args ip = do exists <- liftIO $ doesFileExist cmd
 
 setVars [] = return ExitSuccess
 setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
-
-\end{code}

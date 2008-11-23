@@ -1,10 +1,7 @@
-\chapter{Internal.Process Module}
+-- |This is the other half of the new version of what I called PipeIO
+-- before.  Again, this module does \emph{not} depend on Shell, and
+-- therefore Shell can depend on it.
 
-This is the other half of the new version of what I called PipeIO
-before.  Again, this module does \emph{not} depend on Shell, and
-therefore Shell can depend on it.
-
-\begin{code}
 {-# LANGUAGE CPP #-}
 
 -- |This module basically wraps 'System.Process' in a way that allows
@@ -208,4 +205,3 @@ openPipe r w = do -- read (output) handle, write (input) handle
 
 waitForPipe :: Pipe -> IO ()
 waitForPipe (Pipe mv) = takeMVar mv
-\end{code}
