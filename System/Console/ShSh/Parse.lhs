@@ -61,7 +61,7 @@ statement = spaces >> aliasOn >>
 -- We could probably wrap these into one function, since there's a fair
 -- amount of repitition here...
 statementNoSS :: P Statement
-statementNoSS = do spaces
+statementNoSS = do spaces >> aliasOn
                    s <- choice [expandAlias >> statementNoSS
                                ,try $ do a <- assignment
                                          fmap (addAssignment a) statementNoSS
@@ -105,12 +105,14 @@ expandAlias = try $ do (aok,as,ip) <- getAliasInfo
 injectAlias :: String -> String -> [(String,String)] -> Bool -> P ()
 injectAlias a s as ip = do i <- getInput
                            let (h,t) = splitAt 1 i
+                               aOn = if isBlank $ last s
+                                     then (Ctl (AliasOn True):)
+                                     else id -- don't turn /off/
                            setInput $ map Chr s ++
                                       Ctl (IncPos ip):h ++
                                       Ctl (Aliases as):
                                       -- These next two may be gratuitous
-                                      Ctl (AliasOn $ isBlank $ last s):
-                                      t
+                                      aOn t
                            setAliasInfo (True,as\\[(a,s)],False)
                            unless True $
                                 do l <- getInput
