@@ -325,15 +325,18 @@ returnHandle InheritInput _ = return ()
 returnHandle (PipeInput _ _) Nothing = fail "no WriteHandle given"
 returnHandle (PipeInput m _) (Just h) = liftIO $ putMVar m h
 
+setExitCode :: ExitCode -> ShellT e ExitCode
+setExitCode ExitSuccess = setEnv "?" "0" >> return ExitSuccess
+setExitCode (ExitFailure n) = setEnv "?" (show n) >> return (ExitFailure n)
+
 runShellProcess :: ShellProcess e -> ShellT e ExitCode
-runShellProcess sp = sp InheritInput
+runShellProcess sp = do sp InheritInput >>= setExitCode
 
 mkShellProcess :: ShellT e ExitCode -> ShellProcess e
 mkShellProcess job (PipeInput h _) = do (r,w) <- liftIO newPipe
                                         liftIO $ putMVar h w
                                         let p = mempty { p_in = RUseHandle r }
-                                        ret <- withPipes p job
-                                        return ret
+                                        withPipes p job >>= setExitCode
 mkShellProcess job InheritInput = job
 
 forkShell :: ShellT e a -> ShellT e ()
@@ -351,7 +354,7 @@ pipeShells :: ShellProcess e -> ShellProcess e -> ShellProcess e
 pipeShells source dest pi = do
   (h,e) <- forkPipe dest
   withPipes (mempty { p_out = WUseHandle h }) $ source pi >> maybeCloseOut
-  liftIO $ takeMVar e
+  liftIO (takeMVar e) >>= setExitCode -- this should work....?
 
 --runShell :: Shell a -> IO a
 --runShell (Shell s) = do e <- getEnvironment

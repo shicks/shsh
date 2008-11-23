@@ -33,11 +33,11 @@ complicated pipe works
 Here are some tests of the `$?` environment variable, which currently
 fail.
 
-~~~~ check-output/failing-exit-code.sh
+~~~~ check-output/exit-code.sh
 false
 echo false exit code is $?
 ~~~~
 
-~~~~ known-output/failing-exit-code.sh
+~~~~ known-output/exit-code.sh
 false exit code is 1
 ~~~~

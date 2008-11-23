@@ -22,7 +22,7 @@ alias foo="bar "
 foo bar          # "echo"
 alias foo=bar
 alias bar="echo "
-foo bar          # "echo"  -- currently fails
+foo bar          # "echo"
 
 alias foo="echo \\"
 foo bar          # dash: " bar", bash: "  bar" (?)
