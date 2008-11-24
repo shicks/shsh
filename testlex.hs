@@ -21,8 +21,10 @@ loop pre = do let prompt = if null pre then "$ " else "> "
                                Right ts -> do process ts
                                               hFlush stdout
                                               loop ""
-                               Left err -> do putStrLn $ show err
-                                              loop $ pre++x++"\n"
+                               Left (err,False) -> do putStrLn err
+                                                      loop $ pre++x++"\n"
+                               Left (err,True) -> do putStrLn err
+                                                     loop $ ""
 
 process ts = do putStrLn $ "After Parsing: "++show ts
 

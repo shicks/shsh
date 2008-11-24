@@ -9,9 +9,13 @@ import Text.ParserCombinators.Parsec ( GenParser, getState, setState,
                                        skipMany, many,
                                        getInput, setInput )
 import Text.ParserCombinators.Parsec.Pos ( updatePosChar )
+import Text.ParserCombinators.Parsec.Error ( ParseError, Message(..),
+                                             errorMessages, errorPos,
+                                             newErrorMessage )
 import Data.Char ( isUpper, isLower, isAlpha, isAlphaNum,
                    isDigit, isHexDigit, isOctDigit )
 import Data.Monoid ( Monoid, mappend )
+import Data.Maybe ( listToMaybe )
 import Control.Monad ( unless )
 import Debug.Trace ( trace )
 
@@ -56,10 +60,30 @@ insideParens :: P Bool
 insideParens = fmap (\s -> parenDepth s > 0) getState
 
 openParen :: P ()
-openParen = modify $ \(PS a b c d) -> PS a b c (d+1)
+openParen = modify $ \s -> s { parenDepth = parenDepth s+1 }
 
 closeParen :: P ()
-closeParen = modify $ \(PS a b c d) -> PS a b c (d-1)
+closeParen = modify $ \s -> s { parenDepth = parenDepth s-1 }
+
+fatal :: String -> P a
+fatal = fail . ('!':)
+
+getFatal :: ParseError -> Maybe String
+getFatal e = listToMaybe $ filter (not . null) $ map isFatal $ errorMessages e
+    where isFatal (Message ('!':s)) = s
+          isFatal _ = ""
+
+unFatal :: ParseError -> ParseError
+unFatal e = case getFatal e of
+              Just s -> newErrorMessage (Message s) (errorPos e)
+              Nothing -> e
+
+-- fatal :: String -> P a
+-- fatal err = do modify $ \s -> s { fatalError = True }
+--                fail err
+
+-- isFatal :: P Bool
+-- isFatal = fmap fatalError getState
 
 -- |This is a useful combinator.
 infixl 3 <++>, <:>

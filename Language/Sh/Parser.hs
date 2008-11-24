@@ -7,6 +7,7 @@ import Language.Sh.Parser.Internal
 import Language.Sh.Parser.Parsec
 import Language.Sh.Syntax
 
+import Text.ParserCombinators.Parsec.Error ( ParseError )
 import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        skipMany,
                                        (<|>), (<?>), many, try, count,
@@ -185,10 +186,9 @@ dqWord = many $ choice [do char '\\'
                        ,ql `fmap` noneOf "\""]
 
 isName :: String -> Bool
-isName = const True -- undefined
-fatal :: Monad m => String -> m a
-fatal = fail -- maybe we can distinguish fatal errors by
--- whether the parser went to EOF or not...?
+isName s = case parse' [] (only name) s of
+             Right _ -> True
+             Left _  -> False
 
 expansion :: P Lexeme
 expansion =
@@ -271,9 +271,26 @@ redirection = try (do spaces
                 <?> "redirection"
 
 commands :: P [Command]
-commands = newlines >> many (newlines >> command) >>= (\s -> eof >> return s)
+commands = do newlines
+              many $ newlines >> command -- maybe get rid of newlines?
 
---parse :: [(String,String)] -> String -> Either String [Command]
-parse as s = case runParser commands (startState as) "" (map Chr s) of
-               Left err -> Left $ err
+only :: P a -> P a
+only p = p >>= (\a -> eof >> return a)
+
+-- |We need to run the parser occasionally from within, so we provide
+-- a simpler interface that does all the mapping, etc, for us.
+parse' :: [(String,String)] -> P a -> String -> Either ParseError a
+parse' as p s = runParser p (startState as) "" (map Chr s)
+
+-- |This is the main export here.  We take a list of aliases for the
+-- environment and a @String@ to parse.  The return type is @Right
+-- [Command]@ if parsing succeeded and @Left (String,Bool)@ upon
+-- failure.  The @Bool@ is @True@ when the error was fatal/unrecoverable.
+parse :: [(String,String)]  -- ^list of alises to expand
+      -> String             -- ^input string
+      -> Either (String,Bool) [Command]
+parse as s = case parse' as (only commands) s of
+               Left err -> case getFatal err of
+                             Just f  -> Left (f,True)
+                             Nothing -> Left (show err,False)
                Right cs -> Right cs

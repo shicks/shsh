@@ -43,7 +43,7 @@ sourceProfile = do withHandler $ do dir <- getEnv "HOME"
 
 eventLoop :: String -> Maybe Handle -> Shell ExitCode
 eventLoop i0 h = el i0 ExitSuccess
-    where el i ec = do
+    where el i ec = do        -- we save exit code in case EOT sent later.
              s' <- case h of
                      Nothing -> getInput =<< prompt i
                      Just h' -> getNoninteractiveInput h'
@@ -54,10 +54,14 @@ eventLoop i0 h = el i0 ExitSuccess
                   when am_v $ ePutStrLn s
                   as <- getAliases
                   case parse as (i++s) of -- Later, add more to s' (PS2)
-                    Left err -> do when (isJust h) $ do
-                                     eof <- liftIO $ hIsEOF $ fromJust h
-                                     when eof $ fail $ show err
-                                   el (i++s++"\n") ec
+                    Left (err,False) -> do when (isJust h) $ do
+                                             eof <- liftIO $ hIsEOF $ fromJust h
+                                             when eof $ fail err
+                                           el (i++s++"\n") ec
+                    Left (err,True) -> do when (isJust h) $ do
+                                            eof <- liftIO $ hIsEOF $ fromJust h
+                                            when eof $ fail err
+                                          el "" ec
                     Right cmd -> rcmds cmd
                         where rcmds [] = el "" ExitSuccess
                               rcmds [x] = runCommand x >>= el ""
