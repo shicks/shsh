@@ -4,7 +4,7 @@
 module System.Console.ShSh.Command ( runCommand ) where
 
 import System.Console.ShSh.Builtins ( builtin )
-import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn )
+import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    runShellProcess, setEnv,
@@ -80,6 +80,8 @@ run (Statement ws rs as) ip = do ws' <- expandWords ws
 
 run' :: [String] -> ShellProcess () -- list NOT EMPTY
 run' (command:args) ip = do b <- builtin command
+                            oFlush -- to behave like external commands we need to
+                            eFlush -- flush stdout/err after builtins are run.
                             p <- pipes
                             case b of
                               Just b' -> b' args ip
