@@ -106,17 +106,18 @@ good food
 ~~~~ check-output/pipe-to-grep.sh
 mkdir -p tmp/pipe-to-grep
 cd tmp/pipe-to-grep
-echo cat foo > catfoo.sh
+echo echo foo > echofoo.sh
 
-shsh catfoo.sh | grep foo && echo catfoo to grep works
-shsh catfoo.sh | grep foo || echo catfoo to grep FAILS
+shsh echofoo.sh | grep foo && echo echofoo to grep works
+shsh echofoo.sh | grep foo || echo echofoo to grep FAILS
 
-shsh catfoo.sh | grep bar && echo catfoo to grep bar FAILS
-shsh catfoo.sh | grep bar || echo catfoo to grep bar works
+shsh echofoo.sh | grep bar && echo echofoo to grep bar FAILS
+shsh echofoo.sh | grep bar || echo echofoo to grep bar works
 ~~~~
 
 ~~~~ known-output/pipe-to-grep.sh
 foo
-catfoo to grep works
-catfoo to grep bar works
+echofoo to grep works
+foo
+echofoo to grep bar works
 ~~~~
