@@ -8,6 +8,8 @@ import Language.Sh.Syntax
 import Data.Char ( isDigit )
 import Text.ParserCombinators.Parsec ( choice )
 
+impossible = const undefined
+
 redirOperator :: P String
 redirOperator = choice [do char '>'
                            choice [char '&' >> return ">&"
@@ -37,5 +39,26 @@ mkRedir ">>"  (Just s) t = return $ s :>> t
 mkRedir ">|"  (Just s) t = return $ s :>| t
 
 wordToInt :: Word -> Maybe Int
-wordToInt (LitWord ds) | null $ filter (not . isDigit) ds = Just $ read ds
-wordToInt _ = Nothing
+wordToInt w = case fromLiteral w of
+                Just ds | null $ filter (not . isDigit) ds -> Just $ read ds
+                _ ->  Nothing
+
+addAssignment :: Assignment -> Statement -> Statement
+addAssignment a (Statement ws rs as) = Statement ws rs (a:as)
+addAssignment _ (Subshell _ _) = impossible "cannot add assignment to subshell"
+
+addWord :: Word -> Statement -> Statement
+addWord w (Statement ws rs as) = Statement (w:ws) rs as
+addWord _ (Subshell _ _) = impossible "cannot add word to subshell"
+
+addRedirection :: Redir -> Statement -> Statement
+addRedirection r (Statement ws rs as) = Statement ws (r:rs) as
+addRedirection r (Subshell cs rs) = Subshell cs (r:rs)
+
+fromLiteral :: Word -> Maybe String
+fromLiteral [] = Just []
+fromLiteral (Literal c:cs) = fmap (c:) $ fromLiteral cs
+fromLiteral _ = Nothing
+
+ql :: Char -> Lexeme
+ql = Quoted . Literal

@@ -16,7 +16,7 @@ import System.Console.ShSh.Shell ( ShellT, Shell,
                                    getAllEnv, getEnv, unsetEnv,
                                    ShellProcess, mkShellProcess )
 import System.Console.ShSh.ShellError ( withPrefix )
-import System.Console.ShSh.Expansions ( expandWord )
+import System.Console.ShSh.Expansion ( expandWord )
 import System.Console.ShSh.Util ( split )
 
 import Language.Sh.Syntax ( Redir(..), Assignment(..), Word(..) )

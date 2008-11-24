@@ -4,7 +4,6 @@
 module System.Console.ShSh.Command ( runCommand ) where
 
 import System.Console.ShSh.Builtins ( builtin )
-import System.Console.ShSh.Expansions ( expandWords, expandWord )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
@@ -12,6 +11,7 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    pipeShells, runInShell,
                                    withEnvironment, withExitHandler,
                                    getFlag, pipes )
+import System.Console.ShSh.Expansion ( expandWord, expandWords )
 
 import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Pipeline(..), Statement(..),

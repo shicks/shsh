@@ -16,7 +16,6 @@ import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
 import Control.Monad ( unless )
 import Data.List ( (\\) )
 import Data.Char ( isDigit )
-import Debug.Trace ( trace )
 
 -- We don't actually really need Parsec3 - could adapt that Parsec2 source...
 -- Also, this should maybe be a debug switch...?
@@ -81,7 +80,7 @@ simpleStatement = do spaces
 expandAlias :: P () -- lookahead
 expandAlias = try $ do (aok,as,ip) <- getAliasInfo
                        unless aok $ fail ""
-                       a <- many $ noneOf "()|&;<> \t\r\n" -- correct set?
+                       a <- many $ noneOf "\\\"'()|&;<> \t\r\n" -- correct set?
                        case lookup a as of
                          Nothing -> fail ""
                          Just s  -> injectAlias a s as ip
@@ -111,7 +110,7 @@ injectAlias a s as ip = do i <- getInput
                            setAliasInfo (True,as\\[(a,s)],False)
                            unless True $
                                 do l <- getInput
-                                   setInput $ trace ("input: "++show l) l
+                                   setInput l -- $ trace ("input: "++show l) l
 
 pipeline :: P Pipeline
 pipeline = fmap Pipeline $ statement `sepBy1` pipe
@@ -158,10 +157,7 @@ word :: WordContext -> P Word
 word context = do spaces
                   ip <- insideParens -- ')' below was '('; only mattered in {}
                   let del = (if ip then (')':) else id) $ delimiters context
-                  xs <- word' del <:> many (word' $ del\\"#")
-                  case fromLiteral $ GenWord $ concat xs of
-                    Just xs' -> return $ LitWord xs'
-                    Nothing  -> return $ GenWord $ concat xs
+                  fmap concat $ word' del <:> many (word' $ del\\"#")
     where word' :: String -> P [Lexeme]
           word' s = choice [do char '\\'
                                try (newline >> return [])  <|>
