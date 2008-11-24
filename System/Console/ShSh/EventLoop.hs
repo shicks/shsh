@@ -34,8 +34,7 @@ sourceProfile :: Shell ()
 sourceProfile = do withHandler $ do dir <- getEnv "HOME"
                                     let file = dir </> ".shshrc"
                                     exists <- liftIO $ doesFileExist file
-                                    when exists $ ePutStrLn ("Sourcing "++file) >>
-                                         source file >> return ()
+                                    when exists $ source file >> return ()
                    return ()
 
 eventLoop :: String -> Maybe Handle -> Shell ExitCode
