@@ -208,12 +208,14 @@ expansion =
                                            c <- zeroOne $ char ':'
                                            op <- oneOf "-=?+"
                                            rest <- word ParameterContext
-                                           char '}'
+                                           char '}' <|> (char ')' >> unexEOF)
                                            return $ Expand $
                                              FancyExpansion n op (not $ null c)
                                                             rest
-                                 ,do n <- many $ noneOf "}"
-                                     char '}'
+                                 ,do ip <- insideParens
+                                     let p = if ip then (')':) else id
+                                     n <- many $ noneOf $ p "}"
+                                     char '}' <|> (char ')' >> unexEOF)
                                      if isName n
                                        then return $ Expand $ SimpleExpansion n
                                        else fatal $ "${"++n++
@@ -223,7 +225,7 @@ expansion =
                           l <- choice [do char '('
                                           a <- arithmetic -- use parenDepth?
                                           return $ Expand a
-                                      ,do c <- many $ command
+                                      ,do c <- commands
                                           char ')'
                                           return $ Expand $ CommandSub c]
                           closeParen
@@ -233,8 +235,13 @@ expansion =
            ,do char '`'
                s <- many $ escape "`$\\" <|> noneOf "`"
                char '`'
-               undefined -- run the parser all over again here! (aliases!)
+               (_,as,_) <- getAliasInfo -- cf. bash: alias foo='`foo`'
+               case parse' as (only commands) s of
+                 Left err -> fatal $ "command substitution: "
+                                     ++ show (unFatal err)
+                 Right cs -> return $ Expand $ CommandSub cs
            ]
+    where unexEOF = fatal "unexpected EOF while looking for matching `}'"
 
 arithmetic = undefined
 
@@ -255,7 +262,7 @@ name = count 1 (oneOf "@*#?-$!" <|> digit) <|>
 
 assignment :: P Assignment
 assignment = do spaces
-                var <- name
+                var <- alphaUnder <:> many alphaUnderNum <?> "name"
                 char '='
                 val <- word NormalContext
                 return $ var := val
