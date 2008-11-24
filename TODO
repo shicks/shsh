@@ -7,5 +7,10 @@ Here's a list of all the stuff we need to do.
  - Get set -o and set +o working properly
  - Implement positional parameters
  - Haddock target
+ - Variable attributes (exported, read-only (e.g.  $-))
+ - Impossible macro
+ - Arithmetic substitution
+ - Work out EOT
+ - Move bad substitution error from parser into expander
 
 More later...
