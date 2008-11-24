@@ -34,7 +34,8 @@ import Control.Monad.Trans ( MonadIO, lift, liftIO )
 import Data.List ( lookup, union, unionBy, (\\) )
 import Data.Maybe ( fromMaybe, isJust, listToMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
-import System.Directory ( getCurrentDirectory, setCurrentDirectory, getHomeDirectory )
+import System.Directory ( getCurrentDirectory, setCurrentDirectory,
+                          getHomeDirectory, doesFileExist )
 import System.Exit ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 import System.IO ( stdin, stdout, stderr, openFile, IOMode(..), Handle )
@@ -471,8 +472,15 @@ assign expand e (n:=w) = do v <- unshell $ expand w
 redir :: (Word -> Shell String) -> PipeState -> Redir
       -> InnerShell () PipeState
 redir expand p (n:>w) = do f <- unshell $ expand w
+                           exists <- catchIO $ doesFileExist f
+                           noclobber <- unshell $ getFlag 'C'
+                           when (exists && noclobber) $
+                                fail $ f++": cannot overwrite existing file"
                            h <- catchIO $ openFile f WriteMode
                            return $ toFile n h p
+redir expand p (n:>|w) = do f <- unshell $ expand w
+                            h <- catchIO $ openFile f WriteMode
+                            return $ toFile n h p
 redir expand p (n:>>w) = do f <- unshell $ expand w
                             h <- catchIO $ openFile f AppendMode
                             return $ toFile n h p
