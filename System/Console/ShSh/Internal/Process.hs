@@ -8,8 +8,7 @@
 -- us to use the 6.10 API even if we don't have the package.  We
 -- hide all the dirty laundry in here.
 module System.Console.ShSh.Internal.Process (
-  ProcessHandle, -- re-export this...
-  Pipe, waitForPipe, PipeState(..), launch,
+  Pipe, PipeState(..), launch,
   ReadStream(..), fromReadStream, WriteStream(..), fromWriteStream,
   toWriteStream, toReadStream
 ) where
@@ -18,12 +17,12 @@ import Control.Concurrent ( MVar, newEmptyMVar, takeMVar, putMVar, forkIO )
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
 import System.IO ( Handle )
+import System.Exit ( ExitCode )
 #ifdef HAVE_CREATEPROCESS
-import System.Process ( std_in, std_out, std_err, proc,
-                        ProcessHandle, StdStream(..),
-                        createProcess )
+import System.Process ( std_in, std_out, std_err, proc, StdStream(..),
+                        createProcess, waitForProcess )
 #else
-import System.Process ( runInteractiveProcess, runProcess, ProcessHandle )
+import System.Process ( runInteractiveProcess, runProcess, waitForProcess )
 import System.IO ( stdout, stderr, hGetContents, hPutStr, hClose )
 import System.Console.ShSh.Internal.IO ( wPutStr, rGetContents )
 #endif
@@ -98,11 +97,10 @@ toReadStream = RUseHandle . toReadHandle
 
 -- This is a tricky function...  This PipeState needs to have CreatePipe.
 -- But the Shell's stored one does not.
-launch :: String -> [String] -> PipeState -> IO (PipeState,
-                                                 Maybe WriteHandle,
+launch :: String -> [String] -> PipeState -> IO (Maybe WriteHandle,
                                                  Maybe ReadHandle,
                                                  Maybe ReadHandle,
-                                                 ProcessHandle)
+                                                 IO ExitCode)
 #ifdef HAVE_CREATEPROCESS
 launch c args ps = do let is = rMkStream $ p_in  ps
                           os = wMkStream $ p_out ps
@@ -111,10 +109,12 @@ launch c args ps = do let is = rMkStream $ p_in  ps
                                      (proc c args) { std_in  = is,
                                                      std_out = os,
                                                      std_err = es }
-                      (ih,ps') <- rProcess i (p_in ps) ps
-                      (oh,ps'') <- wProcess o (p_out ps) ps'
-                      (eh,ps''') <- wProcess e (p_err ps) ps''
-                      return (ps''',ih,oh,eh,pid)
+                      (ih,ps1) <- rProcess i (p_in ps) ps
+                      (oh,ps2) <- wProcess o (p_out ps) ps
+                      (eh,ps3) <- wProcess e (p_err ps) ps
+                      return (ih,oh,eh,
+                              do mapM_ waitForPipe $ concat [ps1,ps2,ps3]
+                                 waitForProcess pid)
     where rMkStream RInherit    = Inherit
           rMkStream RCreatePipe = CreatePipe
           rMkStream (RUseHandle h) = fromMaybe CreatePipe $
@@ -125,35 +125,30 @@ launch c args ps = do let is = rMkStream $ p_in  ps
                                      UseHandle `fmap` fromWriteHandle h
           --wProcess :: Maybe Handle -> WriteStream -> PipeState
           --        -> IO (Maybe WriteHandle, PipeState)
-          rProcess Nothing _ p = return (Nothing,p)
-          rProcess (Just h) RCreatePipe p = return (Just (toWriteHandle h),p)
-          rProcess (Just h) (RUseHandle c) p = do
-            pipe <- inChanPipe c h
-            return (Nothing,p { openPipes = openPipes p ++ [pipe] })
-          wProcess Nothing _ p = return (Nothing,p)
-          wProcess (Just h) WCreatePipe p = return (Just (toReadHandle h),p)
-          wProcess (Just h) (WUseHandle c) p = do
-            pipe <- outChanPipe h c
-            return (Nothing,p { openPipes = openPipes p ++ [pipe] })
+          rProcess Nothing _ p = return (Nothing,[])
+          rProcess (Just h) RCreatePipe p = return (Just (toWriteHandle h),[])
+          rProcess (Just h) (RUseHandle c) p = do pipe <- inChanPipe c h
+                                                  return (Nothing,[pipe])
+          wProcess Nothing _ p = return (Nothing,[])
+          wProcess (Just h) WCreatePipe p = return (Just (toReadHandle h),[])
+          wProcess (Just h) (WUseHandle c) p = do pipe <- outChanPipe h c
+                                                  return (Nothing,[pipe])
 #else
--- IO (PipeState,
---     Maybe WriteHandle,
---     Maybe ReadHandle,
---     Maybe ReadHandle,
---     ProcessHandle)
 launch c args ps =
     case p_in ps of
     RCreatePipe ->
         do (i,o,e,pid) <- runInteractiveProcess c args Nothing Nothing
            case (p_out ps, p_err ps) of
              (WCreatePipe, WCreatePipe) ->
-                 return (ps, Just $ toWriteHandle i, Just $ toReadHandle o,
-                         Just $ toReadHandle e, pid)
+                 return (Just $ toWriteHandle i, Just $ toReadHandle o,
+                         Just $ toReadHandle e, waitForProcess pid)
              (WCreatePipe, _) -> fail "launch bug 1"
              (_, WCreatePipe) -> fail "launch bug 2"
-             _ -> do forkIO $ hGetContents o >>= wPutStr outs
-                     forkIO $ hGetContents e >>= wPutStr errs
-                     return (ps, Just $ toWriteHandle i, Nothing, Nothing, pid)
+             _ -> do p1 <- openPipe (toReadHandle o) outs
+                     p2 <- openPipe (toReadHandle e) errs
+                     return (Just $ toWriteHandle i, Nothing, Nothing,
+                             do mapM_ waitForPipe [p1,p2]
+                                waitForProcess pid)
     RInherit -> case (p_out ps, p_err ps) of
                   (WCreatePipe, _) -> fail "launch bug 3"
                   (_, WCreatePipe) -> fail "launch bug 4"
@@ -162,12 +157,15 @@ launch c args ps =
                            do let mho = if ho == stdout then Nothing else Just ho
                                   mhe = if he == stderr then Nothing else Just he
                               pid <- runProcess c args Nothing Nothing Nothing mho mhe
-                              return (ps, Nothing, Nothing, Nothing, pid)
+                              return (Nothing, Nothing, Nothing,
+                                      waitForProcess pid)
                        _ -> do (ii,oo,ee,pid) <- runInteractiveProcess c args Nothing Nothing
                                hClose ii -- this isn't right...
-                               forkIO $ hGetContents oo >>= wPutStr outs
-                               forkIO $ hGetContents ee >>= wPutStr errs
-                               return (ps, Nothing, Nothing, Nothing, pid)
+                               p1 <- openPipe (toReadHandle oo) outs
+                               p2 <- openPipe (toReadHandle ee) errs
+                               return (Nothing, Nothing, Nothing,
+                                       do mapM_ waitForPipe [p1,p2]
+                                          waitForProcess pid)
     RUseHandle hin ->
         case (p_out ps, p_err ps) of
           (WCreatePipe, _) -> fail "launch bug 5"
@@ -175,13 +173,16 @@ launch c args ps =
           _ -> case (fromReadHandle hin, fromWriteHandle outs, fromWriteHandle errs) of
                (Just i, Just o, Just e) ->
                    do pid <- runProcess c args Nothing Nothing (Just i) (Just o) (Just e)
-                      return (ps, Nothing, Nothing, Nothing, pid)
+                      return (Nothing, Nothing, Nothing,
+                              waitForProcess pid)
                (Nothing, _, _) ->
                    do (ii, oo, ee, pid) <- runInteractiveProcess c args Nothing Nothing
-                      forkIO $ rGetContents hin >>= hPutStr ii
-                      forkIO $ hGetContents oo >>= wPutStr outs
-                      forkIO $ hGetContents ee >>= wPutStr errs
-                      return (ps, Nothing, Nothing, Nothing, pid)
+                      p1 <- openPipe hin $ toWriteHandle ii
+                      p2 <- openPipe (toReadHandle oo) outs
+                      p3 <- openPipe (toReadHandle ee) errs
+                      return (Nothing, Nothing, Nothing,
+                              do mapM_ waitForPipe [p1,p2,p3]
+                                 waitForProcess pid)
     where errs = case p_err ps of WInherit -> toWriteHandle stderr
                                   WUseHandle herr -> herr
                                   WCreatePipe -> error "bad errh"
@@ -199,7 +200,7 @@ inChanPipe c h = openPipe c (toWriteHandle h)
 openPipe :: ReadHandle -> WriteHandle -> IO Pipe
 openPipe r w = do -- read (output) handle, write (input) handle
   mv <- newEmptyMVar
-  forkIO $ joinHandles r w $ wClose w >> putMVar mv () >> return ()
+  forkIO $ joinHandles r w $ putMVar mv () >> return ()
   return $ Pipe mv
 
 waitForPipe :: Pipe -> IO ()

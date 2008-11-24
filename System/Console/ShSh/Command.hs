@@ -18,7 +18,6 @@ import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Assignment(..) )
 
 import System.Directory ( findExecutable, doesFileExist )
-import System.Process ( waitForProcess )
 import System.Exit ( ExitCode(..), exitWith )
 
 import Control.Monad.Trans ( liftIO )

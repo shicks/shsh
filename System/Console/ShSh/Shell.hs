@@ -47,9 +47,9 @@ import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
                                          fromReadHandle, fromWriteHandle,
                                          toReadHandle, toWriteHandle,
                                          wIsOpen, rIsOpen )
-import System.Console.ShSh.Internal.Process ( ProcessHandle, launch,
+import System.Console.ShSh.Internal.Process ( launch,
                                               toWriteStream, toReadStream,
-                                              Pipe, PipeState(..), waitForPipe,
+                                              Pipe, PipeState(..),
                                               ReadStream(..), WriteStream(..),
                                               fromReadStream, fromWriteStream
                                             )
@@ -285,11 +285,6 @@ maybeCloseIn = do h <- iHandle
                   open <- liftIO $ rIsOpen h
                   when open $ liftIO $ rSafeClose h
 
-waitForPipes :: ShellT e ()
-waitForPipes = Shell $ do p <- gets pipeState
-                          catchIO $ mapM_ waitForPipe (openPipes p)
-                          modify $ \s -> s { pipeState = p { openPipes = [] } }
-
 -- |This function is the only way to change the PipeState.  In that sense,
 -- it's more of a Reader type, but since we're already in a StateT, there's
 -- not really any point in changing it.  It works by returning a computation
@@ -307,14 +302,11 @@ withPipes p (Shell s) = Shell $ do
 
 runInShell :: String -> [String] -> ShellProcess e
 runInShell c args ip = Shell $ do ps <- gets pipeState
-                                  (ps',mh,_,_,ph) <- catchIO $ launch c args $
+                                  (mh,_,_,wait) <- catchIO $ launch c args $
                                                                 fixInput ip ps
                                   unshell $ returnHandle ip mh
                                   -- do we need to wait for any open pipes...?
-                                  catchIO $ waitForProcess ph
-                                  -- modify $ \s -> s { pipeState = ps' }
-                                  -- We need to do SOMETHING here, but the
-                                  -- CreatePipe is wrong now......?
+                                  catchIO wait
 
 pipes :: ShellT e PipeState
 pipes = Shell $ gets pipeState
