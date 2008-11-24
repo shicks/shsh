@@ -102,3 +102,23 @@ good food
 pipe good grep works
 good food
 ~~~~
+
+
+~~~~ check-output/pipe-to-grep.sh
+mkdir tmp
+mkdir tmp/pipe-to-grep
+cd tmp/pipe-to-grep
+echo cat foo > catfoo.sh
+
+shsh catfoo.sh | grep foo && echo catfoo to grep works
+shsh catfoo.sh | grep foo || echo catfoo to grep FAILS
+
+shsh catfoo.sh | grep bar && echo catfoo to grep bar FAILS
+shsh catfoo.sh | grep bar || echo catfoo to grep bar works
+~~~~
+
+~~~~ known-output/pipe-to-grep.sh
+foo
+catfoo to grep works
+catfoo to grep bar works
+~~~~
