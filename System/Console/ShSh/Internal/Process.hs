@@ -159,7 +159,9 @@ launch c args ps =
                   (_, WCreatePipe) -> fail "launch bug 4"
                   _ -> case (fromWriteHandle outs, fromWriteHandle errs) of
                        (Just ho, Just he) ->
-                           do pid <- runProcess c args Nothing Nothing Nothing (Just ho) (Just he)
+                           do let mho = if ho == stdout then Nothing else Just ho
+                                  mhe = if he == stderr then Nothing else Just he
+                              pid <- runProcess c args Nothing Nothing Nothing mho mhe
                               return (ps, Nothing, Nothing, Nothing, pid)
                        _ -> do (ii,oo,ee,pid) <- runInteractiveProcess c args Nothing Nothing
                                hClose ii -- this isn't right...
