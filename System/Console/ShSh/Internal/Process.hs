@@ -144,17 +144,14 @@ launch c args ps = do let is = rMkStream $ p_in  ps
 launch c args ps =
     case p_in ps of
     RCreatePipe ->
-        do putStrLn "Hello world 1"
-           (i,o,e,pid) <- runInteractiveProcess c args Nothing Nothing
+        do (i,o,e,pid) <- runInteractiveProcess c args Nothing Nothing
            case (p_out ps, p_err ps) of
              (WCreatePipe, WCreatePipe) ->
-                 do putStrLn "Hello world 2"
-                    return (ps, Just $ toWriteHandle i, Just $ toReadHandle o,
+                 return (ps, Just $ toWriteHandle i, Just $ toReadHandle o,
                          Just $ toReadHandle e, pid)
              (WCreatePipe, _) -> fail "launch bug 1"
              (_, WCreatePipe) -> fail "launch bug 2"
-             _ -> do putStrLn "hello world 4"
-                     forkIO $ hGetContents o >>= wPutStr outs
+             _ -> do forkIO $ hGetContents o >>= wPutStr outs
                      forkIO $ hGetContents e >>= wPutStr errs
                      return (ps, Just $ toWriteHandle i, Nothing, Nothing, pid)
     RInherit -> case (p_out ps, p_err ps) of
