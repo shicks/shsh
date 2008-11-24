@@ -50,7 +50,6 @@ eventLoop i0 h = el i0 ExitSuccess
              case s' of
                Nothing -> return ec
                Just s  -> do
-                  am_e <- getFlag 'e'
                   am_v <- getFlag 'v'
                   when am_v $ ePutStrLn s
                   as <- getAliases
