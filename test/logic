@@ -88,8 +88,7 @@ false pipe works
 ~~~~
 
 ~~~~ check-output/order-of-output.sh
-mkdir tmp
-mkdir tmp/order
+mkdir -p tmp/order
 cd tmp/order
 echo grep foo > grepfoo.sh
 
@@ -105,8 +104,7 @@ good food
 
 
 ~~~~ check-output/pipe-to-grep.sh
-mkdir tmp
-mkdir tmp/pipe-to-grep
+mkdir -p tmp/pipe-to-grep
 cd tmp/pipe-to-grep
 echo cat foo > catfoo.sh
 
