@@ -1,0 +1,11 @@
+Here's a list of all the stuff we need to do.
+
+ - Get the Cabal file working
+ - Get Franchise to play nicely with Cabal and two targets (lib and exe)
+ - Globs
+ - More redirects
+ - Get set -o and set +o working properly
+ - Implement positional parameters
+ - Haddock target
+
+More later...

@@ -26,12 +26,6 @@ data ExpansionFunctions m = ExpansionFunctions {
 -- |This is a private monad we use to pass around the functions...
 type Exp m = ReaderT (ExpansionFunctions m) m
 
--- |Helper functions
-use :: Monad m => (ExpansionFunctions m -> a -> m b) -> a -> Exp m b
-use f a = f `fmap` ask >>= lift . ($a)
-use2 :: Monad m => (ExpansionFunctions m -> a -> b -> m c) -> a -> b -> Exp m c
-use2 f a b = f `fmap` ask >>= lift . ($b) . ($a)
-
 -- |And here's the easiest way to use them...
 get :: Monad m => String -> Exp m (Maybe String)
 get s = use getEnv s
@@ -43,6 +37,13 @@ glob :: Monad m => Glob -> Exp m [String]
 glob g = use expandGlob g
 run :: Monad m => [Command] -> Exp m String
 run cs = use runCommands cs
+
+-- |Helper functions to define these accessors
+use :: Monad m => (ExpansionFunctions m -> a -> m b) -> a -> Exp m b
+use f a = f `fmap` ask >>= lift . ($a)
+use2 :: Monad m => (ExpansionFunctions m -> a -> b -> m c) -> a -> b -> Exp m c
+use2 f a b = f `fmap` ask >>= lift . ($b) . ($a)
+
 
 -- |This is a default function that basically treats globs as literals.
 noGlobExpansion :: (Monad m,Functor m) => Glob -> m [String]
