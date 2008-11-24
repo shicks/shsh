@@ -15,14 +15,24 @@
 
 module System.Console.ShSh.Options ( setOpts ) where
 
+import Control.Monad ( forM_ )
 import Control.Monad.Trans ( liftIO )
 import Data.List ( union, (\\) )
 import System.Exit ( ExitCode(..) )
 import System.IO ( Handle, hPutStrLn )
 
-import System.Console.ShSh.IO ( oPutStrLn )
+import System.Console.ShSh.IO ( oPutStrLn, oPutStr )
 import System.Console.ShSh.Shell ( Shell,
                                    setFlag, unsetFlag, getFlag, getFlags )
+
+options :: [(Char,String)]
+options = [('e',"errexit"),
+           ('f',"noglob"),
+           ('v',"verbose"),
+           ('C',"noclobber")]
+
+swop :: [(String,Char)]
+swop = map (\(a,b)->(b,a)) options
 
 isOpt :: String -> Bool
 isOpt ('-':_) = True
@@ -39,20 +49,39 @@ setOpts ("+o":opt:ss) | isOpt opt = unsetOptLong opt >> setOpts ss
 setOpts ["-o"] = showOptsHuman >> return ExitSuccess
 setOpts ["+o"] = showOpts >> return ExitSuccess
 setOpts (s:ss) = case s of
-                   '-':c:cs -> setFlag c   >> setOpts (('-':cs):ss)
-                   '+':c:cs -> unsetFlag c >> setOpts (('-':cs):ss)
+                   '-':c:cs -> setOpt c   >> setOpts (('-':cs):ss)
+                   '+':c:cs -> unsetOpt c >> setOpts (('-':cs):ss)
                    _ -> setOpts ss -- no error checking...?
 
+setOpt :: Char -> Shell ()
+setOpt c = case lookup c options of
+             Just _ -> setFlag c
+             Nothing -> fail $ '-':c:": invalid option"
+
+unsetOpt :: Char -> Shell ()
+unsetOpt c = case lookup c options of
+               Just _ -> unsetFlag c
+               Nothing -> fail $ '+':c:": invalid option"
+
 setOptLong :: String -> Shell ()
-setOptLong s = return ()
+setOptLong s = case lookup s swop of
+                 Just c -> setFlag c
+                 Nothing -> fail $ s++": invalid option name"
 
 unsetOptLong :: String -> Shell ()
-unsetOptLong s = return ()
+unsetOptLong s = case lookup s swop of
+                   Just c -> unsetFlag c
+                   Nothing -> fail $ s++": invalid option name"
 
--- These need to be rewritten
 showOptsHuman :: Shell ()
-showOptsHuman = do f <- getFlags
-                   oPutStrLn $ "Opts: "++f
+showOptsHuman = do forM_ options $ \(c,l) -> do
+                     v <- getFlag c
+                     oPutStrLn $ pad 16 l ++ (if v then "on" else "off")
+    where pad n s | len < n = s++replicate (n-len) ' '
+                  | otherwise = s++"  "
+                  where len = length s
 
 showOpts :: Shell ()
-showOpts = showOptsHuman
+showOpts = do forM_ options $ \(c,l) -> do
+              v <- getFlag c
+              oPutStrLn $ "set " ++ (if v then "-" else "+") ++ "o " ++ l
