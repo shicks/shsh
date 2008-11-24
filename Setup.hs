@@ -37,7 +37,8 @@ buildDoc =
        rm_rf "test/check-output"
        rm_rf "test/known-output"
        txtfiles <- concatMap fst `fmap` mapDirectory buildOneTest "test"
-       beginTestWith (pwd >>= addToPath)
+       beginTestWith $ do pwd >>= addToPath
+                          pwd >>= setEnv "HOME"
        withDirectory "doc" $
            do htmls <- concat `fmap` mapM (\i -> markdownToHtml "../doc.css" i "")
                        txtfiles
