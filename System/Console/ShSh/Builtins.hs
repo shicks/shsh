@@ -12,7 +12,7 @@ import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( ShellT, Shell,
                                    getAlias, getAliases, setAlias,
-                                   withHandler, withEnvironment,
+                                   withExitHandler,
                                    getAllEnv, getEnv, unsetEnv,
                                    ShellProcess, mkShellProcess )
 import System.Console.ShSh.ShellError ( withPrefix )
@@ -48,7 +48,7 @@ builtins = [(".",source),("alias",alias),("cat",cat),
             ("exit",const $ liftIO $ exitWith ExitSuccess),
             ("false",const $ return $ ExitFailure 1),
             ("grep",grep),("ls",ls),
-            ("mkdir",mkDir),("pwd",pwd),
+            ("mkdir",\a -> withExitHandler $ mkDir a),("pwd",pwd),
             ("set",set),("source",source),
             ("true",const $ return ExitSuccess),
             ("unset",unset)]

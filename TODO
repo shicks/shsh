@@ -12,5 +12,6 @@ Here's a list of all the stuff we need to do.
  - Arithmetic substitution
  - Work out EOT
  - Move bad substitution error from parser into expander
+ - Wrap all builtins into withExitHandler correctly...?
 
 More later...
