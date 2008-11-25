@@ -36,7 +36,7 @@ buildDoc =
     do addExtraData "haddock-directory" "doc/haddock"
        rm_rf "test/check-output"
        rm_rf "test/known-output"
-       txtfiles <- concatMap fst `fmap` mapDirectory buildOneTest "test"
+       txtfiles <- concat `fmap` mapDirectory buildOneTest "test"
        beginTestWith $ do pwd >>= addToPath
                           pwd >>= setEnv "HOME"
        withDirectory "doc" $
@@ -45,19 +45,20 @@ buildDoc =
               addTarget $ ["*manual*","*html*"] :<
                             ("manual/index.html":htmls) |<- defaultRule
        outputTests <- flip mapDirectory "test/check-output" $ \t ->
-                      do expected <- cat $ "../known-output/"++t
-                         testOutput t expected $
-                                    fmap (filter (/='\r'))
-                                    (systemOut "shsh" [t] `catchC` return)
-                         return t
-       test outputTests
-    where buildOneTest f | ".splits" `isSuffixOf` f = return ([],[])
-          buildOneTest f =
-              do xxx <- splitMarkdown f ("../doc/"++f++".txt")
-                 case xxx of
-                   txtf:tests ->
-                       do ts <- mapM (\ (d, t) -> withDirectory d $
-                                                  testOne t "shsh" t >> return t)
-                                $ map splitPath tests
-                          return ([txtf],ts)
-                   [] -> return ([],[])
+                      if ".sh" `isSuffixOf` t
+                      then do expected <- cat $ "../known-output/"++t
+                              testOutput t expected $
+                                   fmap (filter (/='\r')) $ systemOut "shsh" [t]
+                              basht <- withProgram "bash" [] $ \_ ->
+                                       do testOutput ("bash-"++t) expected $
+                                                     fmap (filter (/='\r')) $ systemOut "bash" [t]
+                                          return ["bash-"++t]
+                              dasht <- withProgram "dash" ["sash"] $ \dash ->
+                                       do testOutput (dash++"-"++t) expected $
+                                                     fmap (filter (/='\r')) $ systemOut dash [t]
+                                          return [dash++"-"++t]
+                              return (t:basht++dasht)
+                      else return []
+       test $ concat outputTests
+    where buildOneTest f | ".splits" `isSuffixOf` f = return []
+          buildOneTest f = take 1 `fmap` splitMarkdown f ("../doc/"++f++".txt")
