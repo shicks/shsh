@@ -59,16 +59,21 @@ mkDir args = do withSubStateCalled "mkdir" (sequence_ opts>>run) noOpts
           mk d = do let die e = fail $ "cannot create directory `"++d++"': "++e
                     Opts m p v <- get
                     dex <- liftIO $ doesDirectoryExist d
-                    when dex $ die "File exists"
-                    -- what about root...?
-                    pex <- liftIO $ doesDirectoryExist $ parentDir d
-                    when (not pex) $ if p 
-                                     then mk $ parentDir d
-                                     else die "No such file or directory"
-                    liftIO $ createDirectory d -- should catch here ...
+                    if dex
+                        then if p
+                             then return () -- file exists is not an error on mkdir -p
+                             else die "File exists"
+                        else
+                          do case parentDir d of
+                               "" -> return () -- avoid infinite loop on relative directories
+                               "/" -> return () -- no point trying to create root
+                               parent -> do pex <- liftIO $ doesDirectoryExist parent
+                                            when (not pex) $ if p
+                                                             then mk parent
+                                                             else die "No such file or directory"
+                             liftIO $ createDirectory d -- should catch here ...
 #ifdef UNIX 
-                    -- check for windows here and warn/ignore?
-                    liftIO $ setFileMode d (fileMode m)
+                             -- check for windows here and warn/ignore?
+                             liftIO $ setFileMode d (fileMode m)
 #endif
-                    when v $ ePutStrLn $
-                             "mkdir: created directory `"++d++"'"
+                             when v $ ePutStrLn $ "mkdir: created directory `"++d++"'"
