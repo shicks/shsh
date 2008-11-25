@@ -20,7 +20,7 @@ data ExpansionFunctions m = ExpansionFunctions {
       setEnv :: String -> String -> m (),
       homeDir :: String -> m (Maybe String), -- default: return . Just
       expandGlob :: Glob -> m [String],
-      runCommands :: [Command] -> m String
+      commandSub :: [Command] -> m String
     }
 
 -- |This is a private monad we use to pass around the functions...
@@ -36,7 +36,7 @@ home u = use homeDir u
 glob :: Monad m => Glob -> Exp m [String]
 glob g = use expandGlob g
 run :: Monad m => [Command] -> Exp m String
-run cs = use runCommands cs
+run cs = use commandSub cs
 
 -- |Helper functions to define these accessors
 use :: Monad m => (ExpansionFunctions m -> a -> m b) -> a -> Exp m b
@@ -121,7 +121,9 @@ expandParams = expandWith e
                               Nothing -> fail $ n++": undefined or null"
                               Just v' -> return v'
                      '+' -> return $ maybe mempty (const w) v
+          e q (CommandSub cs) = (quoteLiteral q . removeNewlines) `fmap` run cs
           e _ x = fail $ "Expansion "++show x++" not yet implemented"
+          removeNewlines = reverse . dropWhile (`elem`"\r\n") . reverse
 
 -- |Helper functions...
 setEnvW :: (Monad m,Functor m) => String -> Word -> Exp m () -- set a variable

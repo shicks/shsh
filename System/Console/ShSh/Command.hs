@@ -6,10 +6,14 @@ module System.Console.ShSh.Command ( runCommands, source ) where
 import System.Console.ShSh.Builtins ( builtin )
 import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush )
+import System.Console.ShSh.Internal.IO ( newPipe, rGetContents )
+import System.Console.ShSh.Internal.Process ( WriteStream(..),
+                                              PipeState(..) )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
-                                   runShellProcess, setEnv,
-                                   pipeShells, runInShell,
+                                   maybeCloseOut, subShell,
+                                   runShellProcess, setEnv, getEnv,
+                                   pipeShells, runInShell, getExitCode,
                                    withEnvironment, withExitHandler,
                                    getFlag, pipes, getAliases,
                                    withPipes )
