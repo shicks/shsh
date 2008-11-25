@@ -3,7 +3,7 @@ Here's a list of all the stuff we need to do.
  - Get the Cabal file working
  - Get Franchise to play nicely with Cabal and two targets (lib and exe)
  - Globs
- - More redirects
+ - More redirects (deal with fd's correctly...)
  - Get set -o and set +o working properly
  - Implement positional parameters
  - Haddock target
@@ -13,5 +13,7 @@ Here's a list of all the stuff we need to do.
  - Work out EOT
  - Move bad substitution error from parser into expander
  - Wrap all builtins into withExitHandler correctly...?
+ - Heredocs
+ - While sourcing, parse or other error should quite; failing exit code doesn't
 
 More later...

@@ -4,7 +4,7 @@ Alias Expansion
 
 Alias expansion is pretty tricky.  Here are some test cases.
 
-~~~~ check-output/failing-alias1.sh
+~~~~ check-output/alias1.sh
 alias foo=echo\ hello
 alias bar=world
 foo bar          # "hello bar"
@@ -30,22 +30,12 @@ foo bar          # dash: " bar", bash: "  bar" (?)
 alias foo="echo hello #"
 foo bar          # "hello"
 
-alias foo='$(('
-alias bar='echo '
-bar foo 1+2 ))   # "3" (!)
-
 unset A
 alias foo=\${A:-
 bar foo test}    # "test" (no prespace, either!)
 
-
-
 alias foo=echo
 A=1 foo bar      # "bar"  (variable settings don't unset aliases)
-
-alias foo='echo ` '
-alias bar=echo
-foo bar baz`     # "baz"  (some modes still expand second alias...)
 
 # Nested expansions
 alias foo='bar baz '
@@ -56,7 +46,7 @@ foo foo          # "foo echo foo"
 
 ~~~~
 
-~~~~ known-output/failing-alias1.sh
+~~~~ known-output/alias1.sh
 hello bar
 hello world
 hello  bar
@@ -66,13 +56,27 @@ echo
 echo
  bar
 hello
-3
 test
 bar
-baz
 foo echo
 foo echo foo
 ~~~~
+
+~~~~ check-output/failing-alias2.sh
+alias foo='echo ` '
+alias bar=echo
+foo bar baz`     # "baz"  (some modes still expand second alias...)
+
+alias foo='$(('
+alias bar='echo '
+bar foo 1+2 ))   # "3" (!)
+~~~~
+
+~~~~ known-output/failing-alias2.sh
+baz
+3
+~~~~
+
 
 Plan
 ----
