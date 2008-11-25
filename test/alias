@@ -5,6 +5,7 @@ Alias Expansion
 Alias expansion is pretty tricky.  Here are some test cases.
 
 ~~~~ check-output/alias1.sh
+# fails-in-bash
 alias foo=echo\ hello
 alias bar=world
 foo bar          # "hello bar"
@@ -63,6 +64,7 @@ foo echo foo
 ~~~~
 
 ~~~~ check-output/failing-alias2.sh
+# fails-in-bash
 alias foo='echo ` '
 alias bar=echo
 foo bar baz`     # "baz"  (some modes still expand second alias...)

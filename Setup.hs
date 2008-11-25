@@ -50,13 +50,19 @@ buildDoc =
                               testOutput t expected $
                                    fmap (filter (/='\r')) $ systemOut "shsh" [t]
                               basht <- withProgram "bash" [] $ \_ ->
-                                       do testOutput ("bash-"++t) expected $
+                                       do prefix <- whenC ((elem "fails-in-bash" . words)
+                                                           `fmap` cat t) $
+                                                    return "failing-"
+                                          testOutput (prefix++"bash-"++t) expected $
                                                      fmap (filter (/='\r')) $ systemOut "bash" [t]
-                                          return ["bash-"++t]
+                                          return [prefix++"bash-"++t]
                               dasht <- withProgram "dash" ["sash"] $ \dash ->
-                                       do testOutput (dash++"-"++t) expected $
+                                       do prefix <- whenC ((elem "fails-in-dash" . words)
+                                                           `fmap` cat t) $
+                                                    return "failing-"
+                                          testOutput (prefix++dash++"-"++t) expected $
                                                      fmap (filter (/='\r')) $ systemOut dash [t]
-                                          return [dash++"-"++t]
+                                          return [prefix++dash++"-"++t]
                               return (t:basht++dasht)
                       else return []
        test $ concat outputTests
