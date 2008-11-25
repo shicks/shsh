@@ -60,6 +60,7 @@ eventLoop i0 h = el i0 ExitSuccess
                                            el (i++s++"\n") ec
                     Left (err,True) -> do when (isJust h) $ do
                                             eof <- liftIO $ hIsEOF $ fromJust h
+                                            ePutStrLn err
                                             when eof $ fail err
                                           el "" ec
                     Right cmd -> rcmds cmd
@@ -81,10 +82,10 @@ getInput prompt =
                                  { historyFile = Just $ home++"/.shsh_history" }
           settings Nothing     = defaultSettings
 #else
-getInput prompt = do oPutStr prompt
-                     oFlush
+getInput prompt = do ePutStr prompt
+                     eFlush
                      eof <- iIsEOF
-                     if eof then oPutStrLn "" >> return Nothing
+                     if eof then ePutStrLn "" >> return Nothing
                             else Just `fmap` iGetLine
 #endif
 
