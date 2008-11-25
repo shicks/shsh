@@ -6,7 +6,8 @@ import System.Console.ShSh.Command ( runCommands, source )
 -- import System.Console.ShSh.Expansions ( shellExpansions )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr,
 #ifndef HAVE_HASKELINE
-                                oFlush, iIsEOF, iGetLine
+                                ePutStr, eFlush, oFlush,
+                                iIsEOF, iGetLine
 #endif
                               )
 import System.Console.ShSh.Shell ( Shell, getAliases, getExitCode,
