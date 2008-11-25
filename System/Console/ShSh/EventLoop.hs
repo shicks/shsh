@@ -1,8 +1,8 @@
 {-# OPTIONS_GHC -cpp #-}
-module System.Console.ShSh.EventLoop ( eventLoop, sourceProfile, source )
+module System.Console.ShSh.EventLoop ( eventLoop, sourceProfile )
     where
 
-import System.Console.ShSh.Command ( runCommand )
+import System.Console.ShSh.Command ( runCommands, source )
 -- import System.Console.ShSh.Expansions ( shellExpansions )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr,
 #ifndef HAVE_HASKELINE
@@ -28,10 +28,6 @@ import Data.Maybe ( fromJust, isJust )
 import System.Console.Haskeline ( runInputT, getInputLine,
                                   defaultSettings, historyFile )
 #endif
-
-source :: FilePath -> Shell ExitCode
-source f = do h <- liftIO $ openFile f ReadMode
-              eventLoop "" $ Just h
 
 sourceProfile :: Shell ()
 sourceProfile = do withHandler $ do dir <- getEnv "HOME"

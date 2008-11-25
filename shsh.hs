@@ -3,7 +3,8 @@
 import System.Exit ( exitWith, ExitCode(..) )
 import System.Environment ( getArgs )
 import System.Console.ShSh.Shell ( startShell )
-import System.Console.ShSh.EventLoop ( eventLoop, sourceProfile, source )
+import System.Console.ShSh.EventLoop ( eventLoop, sourceProfile )
+import System.Console.ShSh.Command ( source )
 import System.IO ( stdin, hIsTerminalDevice )
 
 #ifdef HAVE_SIGNALS

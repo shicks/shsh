@@ -1,27 +1,31 @@
 -- |Here we run commands.
 
 {-# OPTIONS_GHC -cpp #-}
-module System.Console.ShSh.Command ( runCommand ) where
+module System.Console.ShSh.Command ( runCommands, source ) where
 
 import System.Console.ShSh.Builtins ( builtin )
+import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    runShellProcess, setEnv,
                                    pipeShells, runInShell,
                                    withEnvironment, withExitHandler,
-                                   getFlag, pipes )
-import System.Console.ShSh.Expansion ( expandWord, expandWords )
+                                   getFlag, pipes, getAliases,
+                                   withPipes )
 
+import Language.Sh.Parser ( parse )
 import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Pipeline(..), Statement(..),
-                            Assignment(..) )
+                            Word(..), Assignment(..) )
+import qualified Language.Sh.Expansion as E
 
 import System.Directory ( findExecutable, doesFileExist )
 import System.Exit ( ExitCode(..), exitWith )
 
 import Control.Monad.Trans ( liftIO )
 import Control.Monad ( when )
+import Data.Monoid ( mempty )
 
 -- |What to do on failure?
 data OnErr = IgnoreE | CheckE
@@ -78,6 +82,9 @@ run (Statement ws rs as) ip = do ws' <- expandWords ws
                                          run' xs ip
 
 run' :: [String] -> ShellProcess () -- list NOT EMPTY
+run' (".":args) ip = run' ("source":args) ip
+run' ("source":f:_) ip = do mkShellProcess (source f) ip
+run' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
 run' (command:args) ip = do b <- builtin command
                             oFlush -- to behave like external commands we need to
                             eFlush -- flush stdout/err after builtins are run.
@@ -104,3 +111,40 @@ runWithArgs cmd args ip = do exists <- liftIO $ doesFileExist cmd
 
 setVars [] = return ExitSuccess
 setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
+
+-- |We need to be able to do this in a sort of "half -v" mode in which
+-- shell errors (bad substitution, parse, etc) cause it to quite, but
+-- bad exitcodes are OK.
+runCommands :: [Command] -> Shell ExitCode
+runCommands xs = mapM_ runCommand xs >> getExitCode
+
+-- |We want to set up a @Chan@ to read from a process.
+captureOutput :: Shell a -> Shell String
+captureOutput job = do (r,w) <- liftIO $ newPipe
+                       withPipes (mempty { p_out = WUseHandle w }) $
+                           job >> maybeCloseOut
+                       liftIO $ rGetContents r
+
+source :: FilePath -> Shell ExitCode
+source f = do s <- liftIO $ readFile f
+              as <- getAliases
+              case parse as s of
+                Right cs -> runCommands cs
+                Left (err,_) -> fail err
+
+-- |Functions to pass to the actual @Expansion@ module.
+ef :: E.ExpansionFunctions Shell
+ef = E.ExpansionFunctions { E.getEnv = getEnv,
+                            E.setEnv = setEnv,
+                            E.homeDir = liftIO . getHomeDir,
+                            E.expandGlob = E.noGlobExpansion,
+                            E.commandSub = captureOutput .
+                                           subShell . runCommands }
+
+-- |Expand a single word into a single string; no field splitting
+expandWord :: Word -> Shell String
+expandWord = E.expandWord ef
+
+-- |Expand a list of words into a list of strings; fields will be split.
+expandWords :: [Word] -> Shell [String]
+expandWords = E.expand ef

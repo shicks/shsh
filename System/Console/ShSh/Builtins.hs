@@ -16,7 +16,6 @@ import System.Console.ShSh.Shell ( ShellT, Shell,
                                    getAllEnv, getEnv, unsetEnv,
                                    ShellProcess, mkShellProcess )
 import System.Console.ShSh.ShellError ( withPrefix )
-import System.Console.ShSh.Expansion ( expandWord )
 import System.Console.ShSh.Util ( split )
 
 import Language.Sh.Syntax ( Redir(..), Assignment(..), Word(..) )
@@ -41,7 +40,7 @@ successfully :: ([String] -> ShellT e ()) -> [String] -> ShellT e ExitCode
 successfully job args = job args >> return ExitSuccess
 
 builtins :: [(String,[String] -> Shell ExitCode)]
-builtins = [(".",source),("alias",alias),("cat",cat),
+builtins = [("alias",alias),("cat",cat),
             ("cd",withPrefix "cd" . chDir),
             ("echo",echo),
             ("exec",const $ return ExitSuccess),
@@ -49,7 +48,7 @@ builtins = [(".",source),("alias",alias),("cat",cat),
             ("false",const $ return $ ExitFailure 1),
             ("grep",grep),("ls",ls),
             ("mkdir",\a -> withExitHandler $ mkDir a),("pwd",pwd),
-            ("set",set),("source",source),
+            ("set",set),
             ("true",const $ return ExitSuccess),
             ("unset",unset)]
             
