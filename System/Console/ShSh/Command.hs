@@ -26,6 +26,7 @@ import qualified Language.Sh.Expansion as E
 
 import System.Directory ( findExecutable, doesFileExist )
 import System.Exit ( ExitCode(..), exitWith )
+import System.IO ( Handle, IOMode(..), openFile, hGetLine, hIsEOF )
 
 import Control.Monad.Trans ( liftIO )
 import Control.Monad ( when )
@@ -130,11 +131,26 @@ captureOutput job = do (r,w) <- liftIO $ newPipe
                        liftIO $ rGetContents r
 
 source :: FilePath -> Shell ExitCode
-source f = do s <- liftIO $ readFile f
-              as <- getAliases
-              case parse as s of
-                Right cs -> runCommands cs
-                Left (err,_) -> fail err
+source f = do h <- liftIO $ openFile f ReadMode
+              source' "" h
+
+source' :: String -> Handle -> Shell ExitCode
+source' i h = do eof <- liftIO $ hIsEOF h
+                 if eof
+                    then getExitCode
+                    else liftIO (hGetLine h) >>= \s -> do
+                      am_v <- getFlag 'v'
+                      when am_v $ ePutStrLn s
+                      as <- getAliases
+                      case parse as (i++s) of
+                        Left (err,False) -> do
+                           eof <- liftIO $ hIsEOF h
+                           when eof $ fail err
+                           source' (i++s++"\n") h
+                        Left (err,True) -> do
+                           ePutStrLn err -- refail at eof?
+                           source' "" h
+                        Right cs -> runCommands cs >> source' "" h
 
 -- |Functions to pass to the actual @Expansion@ module.
 ef :: E.ExpansionFunctions Shell
