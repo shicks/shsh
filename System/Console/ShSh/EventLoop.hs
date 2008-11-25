@@ -9,7 +9,7 @@ import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr,
                                 oFlush, iIsEOF, iGetLine
 #endif
                               )
-import System.Console.ShSh.Shell ( Shell, getAliases,
+import System.Console.ShSh.Shell ( Shell, getAliases, getExitCode,
                                    getEnv, getFlag, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
 
@@ -38,13 +38,13 @@ sourceProfile = do withHandler $ do dir <- getEnv "HOME"
                    return ()
 
 eventLoop :: String -> Maybe Handle -> Shell ExitCode
-eventLoop i0 h = el i0 ExitSuccess
-    where el i ec = do        -- we save exit code in case EOT sent later.
+eventLoop i0 h = el i0
+    where el i = do        -- we save exit code in case EOT sent later.
              s' <- case h of
                      Nothing -> getInput =<< prompt i
                      Just h' -> getNoninteractiveInput h'
              case s' of
-               Nothing -> return ec
+               Nothing -> getExitCode
                Just s  -> do
                   am_v <- getFlag 'v'
                   when am_v $ ePutStrLn s
@@ -53,16 +53,13 @@ eventLoop i0 h = el i0 ExitSuccess
                     Left (err,False) -> do when (isJust h) $ do
                                              eof <- liftIO $ hIsEOF $ fromJust h
                                              when eof $ fail err
-                                           el (i++s++"\n") ec
+                                           el $ i++s++"\n"
                     Left (err,True) -> do when (isJust h) $ do
                                             eof <- liftIO $ hIsEOF $ fromJust h
                                             ePutStrLn err
                                             when eof $ fail err
-                                          el "" ec
-                    Right cmd -> rcmds cmd
-                        where rcmds [] = el "" ExitSuccess
-                              rcmds [x] = runCommand x >>= el ""
-                              rcmds (x:xs) = runCommand x >> rcmds xs
+                                          el ""
+                    Right cs -> runCommands cs >> el ""
 
 -- What do we want to do with history?  Bash defines a $HISTFILE variable,
 -- but that only deals with saving the history on exit - apparently readline

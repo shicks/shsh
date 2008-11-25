@@ -9,6 +9,7 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
                                    tryEnv, withEnv, unsetEnv,
                                    setAlias, getAlias, getAliases,
+                                   getExitCode,
                                    getFlag, setFlag, unsetFlag, getFlags,
                                    getShellState, runShell_, runShell,
                                    pipeShells, runInShell,
@@ -31,6 +32,7 @@ import Control.Monad.Error ( ErrorT, runErrorT,
 import Control.Monad.State ( MonadState, get, put, runStateT,
                              StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
+import Data.Char ( isDigit )
 import Data.List ( lookup, union, unionBy, (\\) )
 import Data.Maybe ( fromMaybe, isJust, listToMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
@@ -168,6 +170,16 @@ setEnv s x = Shell $ do e <- gets environment
                           Just v -> modify $ \st -> st { locals = update s x l }
                           Nothing -> modify $ \st ->
                                         st { environment = update s x e }
+
+getExitCode :: Shell ExitCode
+getExitCode = do e <- getEnv "?"
+                 case e of
+                   Just s -> if (not $ null $ filter (not . isDigit) s)
+                             then fail $ "$? not set properly: "++s
+                             else case read s of
+                                    0 -> return ExitSuccess
+                                    n -> return $ ExitFailure n
+                   Nothing -> return ExitSuccess
 
 setLocal :: String -> String -> ShellT e ()
 setLocal s x = Shell $ modify $ \st -> st { locals = update s x $ locals st }
