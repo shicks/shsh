@@ -54,8 +54,7 @@ data ReadStream  = RInherit | RUseHandle ReadHandle  | RCreatePipe deriving ( Sh
 
 data PipeState = PipeState { p_in  :: ReadStream,
                              p_out :: WriteStream,
-                             p_err :: WriteStream,
-                             openPipes :: [Pipe]
+                             p_err :: WriteStream
                            } deriving ( Show )
 
 -- Inherit is empty; otherwise just use the more recent one.
@@ -70,10 +69,9 @@ instance Monoid ReadStream where
     mappend _ x        = x
 
 instance Monoid PipeState where -- trivial instantiation...
-    mempty = PipeState mempty mempty mempty mempty
-    mappend (PipeState i o e p) (PipeState i' o' e' p')
-        = PipeState (mappend i i') (mappend o o')
-                    (mappend e e') (mappend p p')
+    mempty = PipeState mempty mempty mempty
+    mappend (PipeState i o e) (PipeState i' o' e')
+        = PipeState (mappend i i') (mappend o o') (mappend e e')
 
 -- In this case, it seems like whatever I'm using the stream for might
 -- be better served with a Maybe Handle, since CreatePipe might not be
