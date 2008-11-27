@@ -65,6 +65,9 @@ openParen = modify $ \s -> s { parenDepth = parenDepth s+1 }
 closeParen :: P ()
 closeParen = modify $ \s -> s { parenDepth = parenDepth s-1 }
 
+getParenDepth :: P Int
+getParenDepth = fmap parenDepth getState
+
 fatal :: String -> P a
 fatal = fail . ('!':)
 

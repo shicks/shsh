@@ -24,7 +24,7 @@ data Expansion = SimpleExpansion String
                | FancyExpansion String Char Bool Word
                | LengthExpansion String
                | CommandSub [Command]
-               | Arithmetic [Word]
+               | Arithmetic Word
                deriving ( Show )
 data Redir = Int :> Word  -- tests show that expansions don't lose spaces
            | Int :>| Word -- i.e. $ A='abc def'

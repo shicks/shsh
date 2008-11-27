@@ -4,7 +4,6 @@ Here's a list of all the stuff we need to do.
  - Get Franchise to play nicely with Cabal and two targets (lib and exe)
  - Globs
  - More redirects (deal with fd's correctly...)
- - Get set -o and set +o working properly
  - Implement positional parameters
  - Haddock target
  - Variable attributes (exported, read-only (e.g.  $-))

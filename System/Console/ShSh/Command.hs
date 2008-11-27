@@ -12,7 +12,7 @@ import System.Console.ShSh.Internal.Process ( WriteStream(..),
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    maybeCloseOut, subShell,
-                                   runShellProcess, setEnv, getEnv,
+                                   runShellProcess, setEnv, getAllEnv,
                                    pipeShells, runInShell, getExitCode,
                                    withEnvironment, withExitHandler,
                                    getFlag, pipes, getAliases,
@@ -154,7 +154,7 @@ source' i h = do eof <- liftIO $ hIsEOF h
 
 -- |Functions to pass to the actual @Expansion@ module.
 ef :: E.ExpansionFunctions Shell
-ef = E.ExpansionFunctions { E.getEnv = getEnv,
+ef = E.ExpansionFunctions { E.getAllEnv = getAllEnv,
                             E.setEnv = setEnv,
                             E.homeDir = liftIO . getHomeDir,
                             E.expandGlob = E.noGlobExpansion,

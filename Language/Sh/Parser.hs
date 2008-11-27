@@ -14,7 +14,7 @@ import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        sepBy1, notFollowedBy, lookAhead,
                                        getInput, setInput, runParser
                                      )
-import Control.Monad ( unless )
+import Control.Monad ( unless, liftM2 )
 import Data.List ( (\\) )
 import Data.Char ( isDigit )
 
@@ -28,7 +28,8 @@ data WordContext = NormalContext | ParameterContext
 
 delimiters :: WordContext -> String
 delimiters NormalContext = "&|;<>()# \t\r\n"
-delimiters ParameterContext = "}" -- don't separate on spaces - do that later...
+delimiters ParameterContext = "}" -- don't delimit spaces yet
+
 
 cnewline :: P ()
 cnewline = do spaces
@@ -159,7 +160,7 @@ word context = do spaces
                   ip <- insideParens -- ')' below was '('; only mattered in {}
                   let del = (if ip then (')':) else id) $ delimiters context
                   fmap concat $ word' del <:> many (word' $ del\\"#")
-    where word' :: String -> P [Lexeme]
+    where word' :: String -> P Word
           word' s = choice [do char '\\'
                                try (newline >> return [])  <|>
                                    do c <- anyChar
@@ -177,13 +178,16 @@ word context = do spaces
                                return [Literal c]
                            ] <?> "word"
 
-dqWord :: P [Lexeme]
-dqWord = many $ choice [do char '\\'
-                           choice [ql `fmap` oneOf "\\$`\""
-                                  ,return $ ql '\\'
-                                  ]
-                       ,Quoted `fmap` expansion
-                       ,ql `fmap` noneOf "\""]
+dqWord :: P Word
+dqWord = fmap concat $ many $
+         choice [do char '\\'
+                    choice [newline >> return []
+                           ,map ql `fmap` one (oneOf "\\$`\"")
+                           ,return $ [ql '\\']
+                           ]
+                ,map Quoted `fmap` one expansion
+                ,map ql `fmap` one (noneOf "\"")
+                ]
 
 isName :: String -> Bool
 isName s = case parse' [] (only name) s of
@@ -243,7 +247,27 @@ expansion =
            ]
     where unexEOF = fatal "unexpected EOF while looking for matching `}'"
 
-arithmetic = undefined
+arithmetic :: P Expansion
+arithmetic = do w <- arithWord =<< getParenDepth
+                return $ Arithmetic $ ql '(':w 
+
+arithWord :: Int -> P Word
+arithWord d0 = aw -- now we can forget about d0
+    where aw = do d <- getParenDepth
+                  if d==d0-1
+                     then (char ')' >> openParen >> return [])
+                              <|> (openParen >> aw')
+                     else aw'
+          aw' :: P Word
+          aw' = choice [do char '\\'
+                           choice [newline >> aw'
+                                  ,liftM2 (:) (ql `fmap` oneOf "\\$`\"") aw'
+                                  ,liftM2 (\c r -> ql '\\':ql c:r) anyChar aw']
+                       ,do { ex <- expansion; fmap (Quoted ex:) aw' }
+                       ,char '(' >> openParen >> (ql '(':) `fmap` aw'
+                       ,char ')' >> closeParen >> (ql ')':) `fmap` aw -- no '
+                       ,liftM2 (:) (ql `fmap` anyChar) aw'
+                       ] <?> "arithmetic word"
 
 {- TEST:
 $ alias bar=foo
@@ -260,9 +284,12 @@ name = count 1 (oneOf "@*#?-$!" <|> digit) <|>
        alphaUnder <:> many alphaUnderNum
          <?> "name"
 
+basicName :: P String
+basicName = alphaUnder <:> many alphaUnderNum <?> "name"
+
 assignment :: P Assignment
 assignment = do spaces
-                var <- alphaUnder <:> many alphaUnderNum <?> "name"
+                var <- basicName <?> "name"
                 char '='
                 val <- word NormalContext
                 return $ var := val

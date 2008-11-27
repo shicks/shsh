@@ -5,7 +5,8 @@ module Language.Sh.Expansion ( ExpansionFunctions(..),
                                noGlobExpansion,
                                expand, expandWord ) where
 
-import Control.Monad.Reader ( ReaderT, runReaderT, ask )
+import Control.Monad ( forM_ )
+import Control.Monad.Reader ( ReaderT, runReaderT, asks )
 import Control.Monad.Trans ( lift )
 import Data.Char ( isAlphaNum )
 import Data.List ( takeWhile, dropWhile, groupBy )
@@ -15,8 +16,10 @@ import Data.Monoid ( Monoid, mappend, mempty )
 import Language.Sh.Syntax ( Command, Word, Lexeme(..),
                             Expansion(..), Glob, GlobChar(..) )
 
+import Language.Sh.Arithmetic ( runMathParser )
+
 data ExpansionFunctions m = ExpansionFunctions {
-      getEnv :: String -> m (Maybe String),
+      getAllEnv :: m [(String,String)],
       setEnv :: String -> String -> m (),
       homeDir :: String -> m (Maybe String), -- default: return . Just
       expandGlob :: Glob -> m [String],
@@ -27,8 +30,10 @@ data ExpansionFunctions m = ExpansionFunctions {
 type Exp m = ReaderT (ExpansionFunctions m) m
 
 -- |And here's the easiest way to use them...
+get' :: Monad m => Exp m [(String,String)]
+get' = asks getAllEnv >>= lift
 get :: Monad m => String -> Exp m (Maybe String)
-get s = use getEnv s
+get s = lookup s `fmap` get'
 set :: Monad m => String -> String -> Exp m ()
 set s v = use2 setEnv s v
 home :: Monad m => String -> Exp m (Maybe String)
@@ -40,9 +45,9 @@ run cs = use commandSub cs
 
 -- |Helper functions to define these accessors
 use :: Monad m => (ExpansionFunctions m -> a -> m b) -> a -> Exp m b
-use f a = f `fmap` ask >>= lift . ($a)
+use f a = asks f >>= lift . ($a)
 use2 :: Monad m => (ExpansionFunctions m -> a -> b -> m c) -> a -> b -> Exp m c
-use2 f a b = f `fmap` ask >>= lift . ($b) . ($a)
+use2 f a b = asks f >>= lift . ($b) . ($a)
 
 
 -- |This is a default function that basically treats globs as literals.
@@ -122,8 +127,54 @@ expandParams = expandWith e
                               Just v' -> return v'
                      '+' -> return $ maybe mempty (const w) v
           e q (CommandSub cs) = (quoteLiteral q . removeNewlines) `fmap` run cs
-          e _ x = fail $ "Expansion "++show x++" not yet implemented"
+          e q (Arithmetic w) = fmap (quoteLiteral q) $
+                                 arithExpand =<< expandWordE w
+          --e _ x = fail $ "Expansion "++show x++" not yet implemented"
           removeNewlines = reverse . dropWhile (`elem`"\r\n") . reverse
+
+-- crap - need to fully expand all letters...?
+
+arithExpand :: Monad m => String -> Exp m String
+arithExpand s = fmap show $ doMath s
+
+-- This doesn't work with ++ and -- operators.....?
+-- there's no postfix in parsec2... (but we could do it by hand in term parser)
+-- this is a bit broken maybe...
+-- plan: first clean up any unexpected tokens (\, #, etc) after
+-- an initial expansion run.
+-- maybe do real passes of group-words, expand, repeat...?
+-- what to do with variables...?
+-- dash has a much simpler arithexp than bash..  in particular,
+-- a=5+10
+-- echo $((++a))
+-- echo $((a))   -- even this fails in dash...
+-- echo $((2*$a*4)) -- 50 in both...  $-expansion comes first
+-- echo $((2*a*4)) -- 120 in bash... so this expansion is LATER
+-- b=c
+-- c=10
+-- echo $((++b))
+-- ------> dash doesn't even support ++ at all...!
+
+{-
+expandLetters :: String -> Exp m String
+expandLetters [] = return []
+expandLetters cs | not $ null name = do e <- fromMaybe "" `fmap` getEnv name
+                                        return $ expandLetters $
+                                               name:expandLetters rest
+                 | otherwise = do let (a,b) = break endTok cs
+                                      (a',b') = span endTok cs
+                                  rest <- expandLetters b'
+                                  return $ a'++a''++rest
+    where (name,rest) = spanName cs
+          spanName (x:xs) | isAlpha x || x=='_' = let (c,rest)=span isANU xs
+                                                  in (x:c,rest)
+          spanName xs = ([],xs) -- not a name
+          isANU x = isAlphaNum x || x=='_'
+          endTok = (`elem` " \t\r\n()+-*/%^|&<>=!~?:") -- lots of operators...
+-}
+
+-- one possibility: perform all expansions by encasing first in parens?
+-- BUT... a=\(; b=\); echo $(($a 5+10$b*2)) works in both shells...
 
 -- |Helper functions...
 setEnvW :: (Monad m,Functor m) => String -> Word -> Exp m () -- set a variable
@@ -177,3 +228,17 @@ removeQuotes (Quote _:xs) = removeQuotes xs
 removeQuotes (Quoted x:xs) = removeQuotes $ x:xs
 removeQuotes (Expand _:xs) = undefined -- shouldn't happen
 removeQuotes (Literal c:xs) = c:removeQuotes xs
+
+-- *Math-parsing
+-- |We use a stateful parser, keeping track of all the current expansions,
+-- as well as all the new assignments we need to make...
+-- How can we do the ternary operator with parsec...? its slowness makes
+-- it at least somewhat tractable...
+doMath :: Monad m => String -> Exp m Int
+doMath s = do subs <- get'
+              case runMathParser subs s of
+                Left err -> fail err
+                Right (r,ss) -> do forM_ ss $ \(n,v) -> set n $ show v
+                                   return r
+
+---
