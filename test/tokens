@@ -31,6 +31,7 @@ represents line continuation and both the backslash and the newline are
 gobbled.  Tokens may be matched accross line continuations.  Thus,
 
 ~~~~ check-output/backslash.sh
+# fails-in-dash
 ec\
 ho - \n 1\n\&\|\\c
 ~~~~
@@ -47,6 +48,7 @@ Single quotes preserve the value of all characters within them, including
 <newline>.  Single quotes may not occur within single quotes.
 
 ~~~~ check-output/singlequote.sh
+# fails-in-dash
 e'ch'o '-''n'e 'ab'cd'!&|<>\n'
 ~~~~
 
@@ -73,6 +75,7 @@ which have their normal expansion meanings, and \, which is only non-literal
 when preceding $, `, ", \, or <newline>.
 
 ~~~~ check-output/doublequote.sh
+# fails-in-dash
 A=23
 "e"cho '' "-n" "%<>|"'$'"$A.\5\"\$'"
 ~~~~
