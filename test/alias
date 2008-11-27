@@ -45,6 +45,13 @@ alias baz='foo'
 foo bar          # "foo echo"
 foo foo          # "foo echo foo"
 
+alias foo='echo ` '
+alias bar=echo
+foo bar baz`     # "baz"  (some modes still expand second alias...)
+
+alias foo='$(('
+alias bar='echo '
+bar foo 1+2 ))   # "3" (!)
 ~~~~
 
 ~~~~ known-output/alias1.sh
@@ -61,24 +68,9 @@ test
 bar
 foo echo
 foo echo foo
-~~~~
-
-~~~~ check-output/failing-alias2.sh
-# fails-in-bash
-alias foo='echo ` '
-alias bar=echo
-foo bar baz`     # "baz"  (some modes still expand second alias...)
-
-alias foo='$(('
-alias bar='echo '
-bar foo 1+2 ))   # "3" (!)
-~~~~
-
-~~~~ known-output/failing-alias2.sh
 baz
 3
 ~~~~
-
 
 Plan
 ----

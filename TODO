@@ -8,7 +8,6 @@ Here's a list of all the stuff we need to do.
  - Haddock target
  - Variable attributes (exported, read-only (e.g.  $-))
  - Impossible macro
- - Arithmetic substitution
  - Work out EOT
  - Move bad substitution error from parser into expander
  - Wrap all builtins into withExitHandler correctly...?
