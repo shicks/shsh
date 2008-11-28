@@ -10,6 +10,7 @@ import Control.Monad.Reader ( ReaderT, runReaderT, asks )
 import Control.Monad.Trans ( lift )
 import Data.Char ( isAlphaNum )
 import Data.List ( takeWhile, dropWhile, groupBy )
+import Data.Function ( on )
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( Monoid, mappend, mempty )
 
@@ -214,12 +215,8 @@ splitFields :: Monad m => [Word] -> Exp m [Word]
 splitFields w = do ifs <- fmap (fromMaybe " \t") $ get "IFS"
                    let f (Literal c) = c `elem` ifs
                        f _ = False
-                       equating p x y = p x == p y
-                       split = filter (any (not . f)) . (groupBy (equating f))
+                       split = filter (any (not . f)) . (groupBy ((==) `on` f))
                    return $ concatMap split w
-
-equating :: Eq b => (a -> b) -> a -> a -> Bool
-equating p x y = p x == p y
 
 -- |This always returns a LitWord.
 removeQuotes :: Word -> String

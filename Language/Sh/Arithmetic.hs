@@ -10,12 +10,9 @@ import qualified Text.ParserCombinators.Parsec.Token as P
 import Data.Bits ( shiftL, shiftR, complement, xor, (.&.), (.|.) )
 import Data.List ( unionBy )
 import Data.Maybe ( fromMaybe )
+import Data.Function ( on )
 
 import Debug.Trace ( trace )
-
--- this should be in a library....!!
-equating :: Eq b => (a -> b) -> a -> a -> Bool
-equating p x y = p x == p y
 
 type SS = [(String,String)]
 type SI = [(String,Int)]
@@ -31,7 +28,7 @@ runMathParser subs s = case runParser exprSubs (subs) "" s of
                          Right x  -> Right x
 
 joinS :: Eq a => [(a,b)] -> [(a,b)] -> [(a,b)]
-joinS = unionBy (equating fst)
+joinS = unionBy ((==) `on` fst)
 
 mapS :: (b -> c) -> [(a,b)] -> [(a,c)]
 mapS f = map $ \(a,b)->(a,f b)

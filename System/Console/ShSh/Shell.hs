@@ -33,6 +33,7 @@ import Control.Monad.State ( MonadState, get, put, runStateT,
                              StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
 import Data.Char ( isDigit )
+import Data.Function ( on )
 import Data.List ( lookup, union, unionBy, (\\) )
 import Data.Maybe ( fromMaybe, isJust, listToMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
@@ -57,7 +58,6 @@ import System.Console.ShSh.Internal.Process ( launch,
                                             )
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError, exit )
-import System.Console.ShSh.Util ( equating )
 
 import Language.Sh.Syntax ( Word, Redir(..), Assignment(..) )
 
@@ -205,7 +205,7 @@ withEnv s f = do e <- getEnv s
                    Nothing -> unsetEnv s
 
 joinStringSet :: [(String,String)] -> [(String,String)] -> [(String,String)]
-joinStringSet = unionBy $ equating fst
+joinStringSet = unionBy ((==) `on` fst)
 
 getAllEnv :: ShellT a [(String,String)]
 getAllEnv = Shell $ gets $ \s -> joinStringSet (locals s) (environment s)
