@@ -16,7 +16,7 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    pipeShells, runInShell, getExitCode,
                                    withEnvironment, withExitHandler,
                                    getFlag, pipes, getAliases,
-                                   withPipes )
+                                   withErrorsPrefixed, withPipes )
 
 import Language.Sh.Parser ( parse )
 import Language.Sh.Syntax ( Command(..), AndOrList(..),
@@ -94,8 +94,8 @@ run' (command:args) ip = do b <- builtin command
                             oFlush -- to behave like external commands we need to
                             eFlush -- flush stdout/err after builtins are run.
                             p <- pipes
-                            case b of
-                              Just b' -> b' args ip
+                            withExitHandler $ case b of
+                              Just b' -> withErrorsPrefixed command $ b' args ip
                               Nothing -> runWithArgs command args ip
 
 -- at some point we need to use our own path here...

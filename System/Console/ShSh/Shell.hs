@@ -17,7 +17,7 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    withHandler, withHandler_,
                                    withExitHandler, failOnError,
                                    pipeState, closeOut, maybeCloseOut,
-                                   withSubState, withSubStateCalled,
+                                   withSubState, withErrorsPrefixed,
                                    withEnvironment,
                                    mkShellProcess, runShellProcess,
                                    ShellProcess, PipeInput(..),
@@ -397,26 +397,25 @@ convertState :: ShellState e -> e' -> ShellState e'
 convertState (ShellState e l a f p _) x = ShellState e l a f p x
 
 -- |This is the main worker function for working in a substate.
-withSubState' :: (ShellError -> ShellError) -- ^an error processor
-              -> ShellT e a                 -- ^a computation
-              -> e                          -- ^an initial state
-              -> ShellT e' a
-withSubState' f (Shell sub) e = Shell $ do
+withSubState :: ShellT e a                 -- ^a computation
+             -> e                          -- ^an initial state
+             -> ShellT e' a
+withSubState (Shell sub) e = Shell $ do
   s <- get
   let saveExtra = extra s
   (result,s') <- catchIO $ runStateT (runErrorT sub) $ convertState s e
   case result of
     Right a  -> do put $ convertState s' saveExtra
                    return a
-    Left err -> throwError $ f err -- apply the processor and rethrow
+    Left err -> throwError err -- apply the processor and rethrow
 
--- |This uses the identity as the error processor.
-withSubState :: ShellT e a -> e -> ShellT e' a
-withSubState = withSubState' id
+-- |Do something with the errors
+withErrors :: (ShellError -> ShellError) -- ^an error processor
+           -> ShellT e a -> ShellT e a
+withErrors f job = catchError job $ \e -> throwError $ f e
 
--- |This prefixes errors with a @String@ and is provided for convenience.
-withSubStateCalled :: String -> ShellT e a -> e -> ShellT e' a
-withSubStateCalled name = withSubState' $ prefixError name
+withErrorsPrefixed :: String -> ShellT e a -> ShellT e a
+withErrorsPrefixed s = withErrors $ prefixError s
 
 {-
 withSubState' :: ShellT e a -> e -> Shell a

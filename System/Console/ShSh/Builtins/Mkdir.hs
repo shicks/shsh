@@ -3,7 +3,7 @@ module System.Console.ShSh.Builtins.Mkdir ( mkDir ) where
 
 import System.Console.ShSh.Directory ( parentDir )
 import System.Console.ShSh.IO ( oPutStrLn, ePutStrLn )
-import System.Console.ShSh.Shell ( Shell, ShellT, withSubStateCalled )
+import System.Console.ShSh.Shell ( Shell, ShellT, withSubState )
 import System.Console.ShSh.ShellError ( exit )
 
 import Control.Monad ( when )
@@ -12,7 +12,6 @@ import Control.Monad.Trans ( liftIO )
 import System.Console.GetOpt
 import System.Directory ( getCurrentDirectory, doesDirectoryExist,
                           setCurrentDirectory, createDirectory )
-import System.FilePath ( splitDirectories, joinPath )
 import System.Exit ( ExitCode(..) )
 
 #ifdef UNIX
@@ -50,7 +49,7 @@ usage = oPutStrLn $ usageInfo header optSpec
 
 -- We don't strictly need a substate here, but it doesn't really hurt much
 mkDir :: [String] -> Shell ExitCode
-mkDir args = do withSubStateCalled "mkdir" (sequence_ opts>>run) noOpts
+mkDir args = do withSubState (sequence_ opts>>run) noOpts
                 return ExitSuccess
     where (opts,dirs,errs) = getOpt Permute optSpec args
           run :: ShellT Opts ()

@@ -13,7 +13,7 @@ import Data.List ( (\\) )
 import System.Console.GetOpt
 
 import System.Console.ShSh.IO ( oPutStrLn )
-import System.Console.ShSh.Shell ( Shell, ShellT, withSubStateCalled )
+import System.Console.ShSh.Shell ( Shell, ShellT, withSubState )
 import System.Console.ShSh.Util ( update )
 import System.Console.ShSh.ShellError ( exit )
 
@@ -47,7 +47,7 @@ withArgs :: Eq a
          -> ArgOrder (ShellA a ()) -- ^passed along
          -> ([String] -> ShellA a x) -- ^job to be done, passed unparsed args
          -> [String] -> Shell x
-withArgs name header spec ord job args = withSubStateCalled name `flip` [] $
+withArgs name header spec ord job args = withSubState `flip` [] $
                                          sequence_ opts >> run
     where (opts,rest,errs) = getOpt ord (helpVers name header spec) args
           run = do unless (null errs) $ fail $ unlines errs
