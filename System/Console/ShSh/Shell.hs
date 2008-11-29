@@ -485,6 +485,8 @@ redir expand p (n:>w) = do f <- unshell $ expand w
 redir expand p (n:>|w) = do f <- unshell $ expand w
                             h <- catchIO $ openFile f WriteMode
                             return $ toFile n h p
+redir expand p (2:>&1) = return $ p { p_err = p_out p }
+redir expand p (1:>&2) = return $ p { p_out = p_err p }
 redir expand p (n:>>w) = do f <- unshell $ expand w
                             h <- catchIO $ openFile f AppendMode
                             return $ toFile n h p
