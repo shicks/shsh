@@ -2,11 +2,8 @@
 import Distribution.Franchise
 import Data.List ( isSuffixOf )
 
-true_version = "0.0.2"
-
-configure = do version true_version
-               defineAs "PACKAGE_VERSION" true_version
-               ghcFlags ["-threaded","-O2"]
+main = build [] $
+            do ghcFlags ["-threaded","-O2"]
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
                withModule "System.FilePath.Glob" $ define "HAVE_GLOB"
@@ -18,23 +15,18 @@ configure = do version true_version
                    define "HAVE_CREATEPROCESS"
                tryHeader "pwd.h" (define "HAVE_PWD") -- test function?!
                          "tilde expansion will not work fully."
-               replace "@VERSION@" true_version
+               autoVersion NumberedPreRc >>= replace "@VERSION@"
                ghcFlags ["-I."]
                createFile "System/Console/ShSh/Constants.hs"
-
-buildable = do have_pwd <- isDefined "HAVE_PWD"
-               let cfiles = if have_pwd then ["hspwd.c"]
-                                        else []
-                   cfiles' = map ("System/Console/ShSh/Foreign/"++) cfiles
+               cfiles <- whenC (isDefined "HAVE_PWD") $ return ["hspwd.c"]
+               let cfiles' = map ("System/Console/ShSh/Foreign/"++) cfiles
                buildDoc
                executable "testlex" "testlex.hs" cfiles'
                executable "shsh" "shsh.hs" cfiles'
 
-main = build [] configure buildable
-
-tryHeader h job warn = (checkHeader h >> putS ("found header "++h) >> job)
-                       `catchC` \_ -> putS ("failed to find working "++h++": "
-                                            ++warn)
+tryHeader h job warn = requireWithFeedback ("for header "++h)
+                       ((checkHeader h >> job >> return "yes")
+                       `catchC` \_ -> return ("no\n"++warn))
 
 buildDoc =
     do addExtraData "haddock-directory" "doc/haddock"
