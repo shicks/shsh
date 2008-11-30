@@ -33,7 +33,6 @@ import Control.Monad.State ( MonadState, get, put, runStateT,
                              StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
 import Data.Char ( isDigit )
-import Data.Function ( on )
 import Data.List ( lookup, union, unionBy, (\\) )
 import Data.Maybe ( fromMaybe, isJust, listToMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
@@ -58,6 +57,7 @@ import System.Console.ShSh.Internal.Process ( launch,
                                             )
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError, exit )
+import System.Console.ShSh.Compat ( on )
 
 import Language.Sh.Syntax ( Word, Redir(..), Assignment(..) )
 

@@ -10,9 +10,10 @@ import qualified Text.ParserCombinators.Parsec.Token as P
 import Data.Bits ( shiftL, shiftR, complement, xor, (.&.), (.|.) )
 import Data.List ( unionBy )
 import Data.Maybe ( fromMaybe )
-import Data.Function ( on )
 
 import Debug.Trace ( trace )
+
+import Language.Sh.Compat ( on )
 
 type SS = [(String,String)]
 type SI = [(String,Int)]

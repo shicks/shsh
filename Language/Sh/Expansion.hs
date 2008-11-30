@@ -10,10 +10,10 @@ import Control.Monad.Reader ( ReaderT, runReaderT, asks )
 import Control.Monad.Trans ( lift )
 import Data.Char ( isAlphaNum )
 import Data.List ( takeWhile, dropWhile, groupBy )
-import Data.Function ( on )
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( Monoid, mappend, mempty )
 
+import Language.Sh.Compat ( on )
 import Language.Sh.Syntax ( Command, Word, Lexeme(..),
                             Expansion(..), Glob, GlobChar(..) )
 
