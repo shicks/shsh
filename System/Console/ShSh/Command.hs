@@ -25,7 +25,7 @@ import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Word(..), Assignment(..) )
 import qualified Language.Sh.Expansion as E
 
-import System.Directory ( findExecutable, doesFileExist )
+import System.Directory ( findExecutable, doesFileExist, getCurrentDirectory )
 import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( Handle, IOMode(..), openFile, hGetLine, hIsEOF )
 
@@ -102,18 +102,24 @@ run' (command:args) ip = do b <- builtin command
 -- at some point we need to use our own path here...
 runWithArgs :: String -> [String] -> ShellProcess ()
 runWithArgs cmd args ip = do exists <- liftIO $ doesFileExist cmd
+                             notWindows <- elem '/' `fmap` liftIO getCurrentDirectory
+                             exists_exe <- if notWindows
+                                           then return False
+                                           else liftIO $ doesFileExist (cmd++".exe")
+                             let path = if notWindows
+                                        then '/' `elem` cmd
+                                        else '/' `elem` cmd || '\\' `elem` cmd
+                                 notFound exists = if path && (exists || exists_exe)
+                                                   then fail $ cmd++": Permission denied"
+                                                   else fail $ cmd++": No such file or directory"
                              exe <- liftIO $ if path
-                                             then return $ if exists
+                                             then return $ if exists || exists_exe
                                                            then Just cmd
                                                            else Nothing
                                              else findExecutable cmd
                              case exe of
                                Just fp -> runInShell fp args ip
                                Nothing -> notFound exists -- just fail...
-    where path = '/' `elem` cmd
-          notFound exists = if path && exists
-                            then fail $ cmd++": Permission denied"
-                            else fail $ cmd++": No such file or directory"
 
 setVars [] = return ExitSuccess
 setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
