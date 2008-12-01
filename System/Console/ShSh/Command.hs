@@ -18,6 +18,7 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    getFlag, pipes, getAliases,
                                    withErrorsPrefixed, withPipes )
 
+import Language.Sh.Glob ( expandGlob )
 import Language.Sh.Parser ( parse )
 import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Pipeline(..), Statement(..),
@@ -157,7 +158,7 @@ ef :: E.ExpansionFunctions Shell
 ef = E.ExpansionFunctions { E.getAllEnv = getAllEnv,
                             E.setEnv = setEnv,
                             E.homeDir = liftIO . getHomeDir,
-                            E.expandGlob = E.noGlobExpansion,
+                            E.expandGlob = expandGlob,
                             E.commandSub = captureOutput .
                                            subShell . runCommands }
 

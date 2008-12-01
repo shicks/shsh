@@ -9,6 +9,7 @@ configure = do version true_version
                ghcFlags ["-threaded","-O2"]
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
+               withModule "System.FilePath.Glob" $ define "HAVE_GLOB"
                withModuleExporting "Text.ParserCombinators.Parsec.Expr"
                    "Operator(..)" "Postfix" $
                    define "HAVE_PARSEC_POSTFIX"

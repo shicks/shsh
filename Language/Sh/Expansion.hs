@@ -5,7 +5,7 @@ module Language.Sh.Expansion ( ExpansionFunctions(..),
                                noGlobExpansion,
                                expand, expandWord ) where
 
-import Control.Monad ( forM_ )
+import Control.Monad ( forM_, forM )
 import Control.Monad.Reader ( ReaderT, runReaderT, asks )
 import Control.Monad.Trans ( lift )
 import Data.Char ( isAlphaNum )
@@ -15,7 +15,7 @@ import Data.Monoid ( Monoid, mappend, mempty )
 
 import Language.Sh.Compat ( on )
 import Language.Sh.Syntax ( Command, Word, Lexeme(..),
-                            Expansion(..), Glob, GlobChar(..) )
+                            Expansion(..) ) -- , Glob, GlobChar(..) )
 
 import Language.Sh.Arithmetic ( runMathParser )
 
@@ -23,7 +23,7 @@ data ExpansionFunctions m = ExpansionFunctions {
       getAllEnv :: m [(String,String)],
       setEnv :: String -> String -> m (),
       homeDir :: String -> m (Maybe String), -- default: return . Just
-      expandGlob :: Glob -> m [String],
+      expandGlob :: Word -> m [FilePath],
       commandSub :: [Command] -> m String
     }
 
@@ -39,7 +39,7 @@ set :: Monad m => String -> String -> Exp m ()
 set s v = use2 setEnv s v
 home :: Monad m => String -> Exp m (Maybe String)
 home u = use homeDir u
-glob :: Monad m => Glob -> Exp m [String]
+glob :: Monad m => Word -> Exp m [FilePath]
 glob g = use expandGlob g
 run :: Monad m => [Command] -> Exp m String
 run cs = use commandSub cs
@@ -52,7 +52,10 @@ use2 f a b = asks f >>= lift . ($b) . ($a)
 
 
 -- |This is a default function that basically treats globs as literals.
-noGlobExpansion :: (Monad m,Functor m) => Glob -> m [String]
+noGlobExpansion :: Monad m => Word -> m [String]
+noGlobExpansion _ = return []
+{-
+noGlobExpansion :: (Monad m,Functor m) => Word -> m [String]
 noGlobExpansion x = do s <- nge x
                        return [s]
     where nge [] = return []
@@ -61,15 +64,35 @@ noGlobExpansion x = do s <- nge x
           nge (Many:gs) = ('*':) `fmap` nge gs
           nge (OneOf cs:gs) = (\s->'[':cs++']':s) `fmap` nge gs
           nge (NoneOf cs:gs) = (\s->"[^"++cs++']':s) `fmap` nge gs
+-}
 
+-- |We have one main sticking point here... in the case of @A=*@, we want
+-- to use expandWord, and do the glob expansion.  In the case of @>*@, we
+-- want to /try/ the glob expansion and then given an error in the case
+-- that we get multiple hits.  We could make one more expansion function?
+-- (expandNoAmbiguousGlob?)
 expand :: (Monad m,Functor m) => ExpansionFunctions m -> [Word] -> m [String]
 expand fs ws = runReaderT (expandE ws) fs
 
-expandE :: (Monad m,Functor m) => [Word] -> Exp m [String]
-expandE ws = fmap (map removeQuotes) $ splitFields =<< mapM expand' ws
 
+-- |Test: A=1\ \ * --> A=1 ... -> so it's getting expand'ed/joined, and not
+-- expandWord'ed.  For now, we'll leave globs out of this function, but it
+-- seems like maybe the only use is in redirects, so then we can make this
+-- the one that doesn't allow ambiguity.  Also, we know that glob expansion
+-- comes after field splitting... (B=\ \ ; A=2$B*)
+-- Tricky: A="3$B*"; echo $A --> looks silly, but echo "$A"...
 expandWord :: (Monad m,Functor m) => ExpansionFunctions m -> Word -> m String
 expandWord fs w = runReaderT (expandWordE w) fs
+
+--
+
+expandE :: (Monad m,Functor m) => [Word] -> Exp m [String]
+expandE ws = do sf <- splitFields =<< mapM expand' ws
+                sfs <- forM sf $ \w -> do g <- glob w
+                                          return $ if null g
+                                                   then [w]
+                                                   else map (map Literal) g
+                return $ map removeQuotes $ concat sfs
 
 expandWordE :: (Monad m,Functor m) => Word -> Exp m String
 expandWordE w = fmap removeQuotes $ expand' w

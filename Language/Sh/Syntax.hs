@@ -40,5 +40,5 @@ data Redir = Int :> Word  -- tests show that expansions don't lose spaces
 data Assignment = String := Word
                   deriving ( Show )
 
-data GlobChar = Lit Char | One | Many | OneOf String | NoneOf String
-type Glob = [GlobChar]
+--data GlobChar = Lit Char | One | Many | OneOf String | NoneOf String
+--type Glob = [GlobChar]
