@@ -7,6 +7,7 @@ import System.Console.ShSh.Builtins.Args ( withArgs, -- opt, optSet,
                                            flag, flagOn, flagOff )
 import System.Console.ShSh.Builtins.Cd ( chDir )
 import System.Console.ShSh.Builtins.Mkdir ( mkDir )
+import System.Console.ShSh.Builtins.Cmp ( cmp )
 import System.Console.ShSh.Builtins.Cp ( cp )
 import System.Console.ShSh.Builtins.Mv ( mv )
 import System.Console.ShSh.Builtins.Exit ( exit )
@@ -51,6 +52,7 @@ builtins = [(":",const $ return ExitSuccess),
             ("grep",grep),("ls",ls),
             ("mkdir",withExitHandler . mkDir),("pwd",pwd),
             ("cp",withExitHandler . cp), ("mv",withExitHandler . mv),
+            ("cmp",withExitHandler . cmp),
             ("set",set),
             ("true",const $ return ExitSuccess),
             ("unset",unset)]
