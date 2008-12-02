@@ -40,7 +40,7 @@ import System.Directory ( getCurrentDirectory, setCurrentDirectory,
                           getHomeDirectory, doesFileExist )
 import System.Exit ( ExitCode(..) )
 import System.Environment ( getEnvironment )
-import System.IO ( stdin, stdout, stderr, openFile, IOMode(..), Handle )
+import System.IO ( stdin, stdout, stderr, openFile, hClose, IOMode(..), Handle )
 import System.Process ( waitForProcess )
 
 import System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle )
@@ -475,28 +475,28 @@ assign expand e (n:=w) = do v <- unshell $ expand w
                             return $ update n v e
 
 redir :: (Word -> Shell String) -> PipeState -> Redir
-      -> InnerShell () PipeState
+      -> InnerShell () (PipeState, IO ())
 redir expand p (n:>w) = do f <- unshell $ expand w
                            exists <- catchIO $ doesFileExist f
                            noclobber <- unshell $ getFlag 'C'
                            when (exists && noclobber) $
                                 fail $ f++": cannot overwrite existing file"
                            h <- catchIO $ openFile f WriteMode
-                           return $ toFile n h p
+                           return (toFile n h p, hClose h)
 redir expand p (n:>|w) = do f <- unshell $ expand w
                             h <- catchIO $ openFile f WriteMode
-                            return $ toFile n h p
-redir expand p (2:>&1) = return $ p { p_err = p_out p }
-redir expand p (1:>&2) = return $ p { p_out = p_err p }
+                            return (toFile n h p, hClose h)
+redir expand p (2:>&1) = return (p { p_err = p_out p }, return ())
+redir expand p (1:>&2) = return (p { p_out = p_err p }, return ())
 redir expand p (n:>>w) = do f <- unshell $ expand w
                             h <- catchIO $ openFile f AppendMode
-                            return $ toFile n h p
+                            return (toFile n h p, hClose h)
 redir expand p (n:<w) = do f <- unshell $ expand w
                            h <- catchIO $ openFile f ReadMode
-                           return $ fromFile n h p
+                           return (fromFile n h p, hClose h)
 redir expand p (n:<>w) = do f <- unshell $ expand w -- probably doesn't work...?
                             h <- catchIO $ openFile f ReadWriteMode
-                            return $ fromFile n h p
+                            return (fromFile n h p, hClose h)
 redir _ _ r = fail $ show r ++ " not yet supported"
 
 toFile :: Int -> Handle -> PipeState -> PipeState
@@ -518,10 +518,14 @@ withEnvironment :: (Word -> Shell String) -> [Redir] -> [Assignment]
                 -> Shell a -> Shell a
 withEnvironment exp rs as (Shell sub) = Shell $ do
   s <- get
-  p <- flip (foldM (redir exp)) rs =<< gets pipeState
+  pipest <- gets pipeState
+  let redir' (xxx,yyy) zzz = do (xxx',yyy') <- redir exp xxx zzz
+                                return (xxx', yyy' >> yyy)
+  (p,closehs) <- foldM redir' (pipest, return ()) rs
   e <- flip (foldM (assign exp)) as =<< gets environment
   (result,s') <- catchIO $ runStateT (runErrorT sub) $
                  s { pipeState = p, environment = e }
+  catchIO closehs
   put $ s' { locals = locals s, pipeState = pipeState s }
   case result of
     Right a  -> return a
