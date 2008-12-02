@@ -337,6 +337,8 @@ pipes = Shell $ gets pipeState
 -- us a writehandle back out.
 data PipeInput = PipeInput (MVar WriteHandle) (MVar ExitCode) | InheritInput
 
+-- how about we pass a Maybe Shell in to the consumer instead of all this
+-- mvar nonsense?
 type ShellProcess e = PipeInput -> ShellT e ExitCode
 
 forkPipe :: ShellProcess e -> ShellT e (WriteHandle,MVar ExitCode)
