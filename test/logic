@@ -87,7 +87,7 @@ other pipe works
 false pipe works
 ~~~~
 
-~~~~ check-output/failing-order-of-output.sh
+~~~~ check-output/order-of-output.sh
 mkdir -p tmp/order
 cd tmp/order
 echo grep foo > grepfoo.sh
@@ -96,14 +96,14 @@ echo good food | shsh grepfoo.sh && echo pipe good grep works
 echo good food | shsh grepfoo.sh || echo pipe good grep FAILS
 ~~~~
 
-~~~~ known-output/failing-order-of-output.sh
+~~~~ known-output/order-of-output.sh
 good food
 pipe good grep works
 good food
 ~~~~
 
 
-~~~~ check-output/failing-pipe-to-grep.sh
+~~~~ check-output/pipe-to-grep.sh
 mkdir -p tmp/pipe-to-grep
 cd tmp/pipe-to-grep
 echo echo foo > echofoo.sh
@@ -115,7 +115,7 @@ shsh echofoo.sh | grep bar && echo echofoo to grep bar FAILS
 shsh echofoo.sh | grep bar || echo echofoo to grep bar works
 ~~~~
 
-~~~~ known-output/failing-pipe-to-grep.sh
+~~~~ known-output/pipe-to-grep.sh
 foo
 echofoo to grep works
 foo
