@@ -8,7 +8,7 @@
 -- us to use the 6.10 API even if we don't have the package.  We
 -- hide all the dirty laundry in here.
 module System.Console.ShSh.Internal.Process (
-  Pipe, PipeState(..), launch,
+  PipeState(..), launch,
   ReadStream(..), fromReadStream, WriteStream(..), fromWriteStream,
   toWriteStream, toReadStream
 ) where
@@ -36,13 +36,6 @@ import System.Console.ShSh.Internal.IO ( WriteHandle, ReadHandle,
 import Debug.Trace ( trace )
 
 tr a b = trace (a ++ show b) b
-
--- |This type is used to keep track of pipes, for the purpose of waiting
--- on them.  We might want to make it an 'MVar' 'ShellHandle' instead, so
--- that we can close the write end of it manually, if we want.
-newtype Pipe = Pipe (MVar ())
-instance Show Pipe where
-    showsPrec p _ = showsPrec p "Pipe"
 
 -- |This is basically copied directly out of the new 'System.Process' API,
 -- except we need that 'UseHandle' can be a generalized 'ReadHandle' or
@@ -111,7 +104,7 @@ launch c args ps = do let is = rMkStream $ p_in  ps
                       (oh,ps2) <- wProcess o (p_out ps) ps
                       (eh,ps3) <- wProcess e (p_err ps) ps
                       return (ih,oh,eh,
-                              do mapM_ waitForPipe $ concat [ps1,ps2,ps3]
+                              do sequence_ $ concat [ps1,ps2,ps3]
                                  waitForProcess pid)
     where rMkStream RInherit    = Inherit
           rMkStream RCreatePipe = CreatePipe
@@ -145,7 +138,7 @@ launch c args ps =
              _ -> do p1 <- openPipe (toReadHandle o) outs
                      p2 <- openPipe (toReadHandle e) errs
                      return (Just $ toWriteHandle i, Nothing, Nothing,
-                             do mapM_ waitForPipe [p1,p2]
+                             do sequence_ [p1,p2,hClose o, hClose e]
                                 waitForProcess pid)
     RInherit -> case (p_out ps, p_err ps) of
                   (WCreatePipe, _) -> fail "launch bug 3"
@@ -162,7 +155,7 @@ launch c args ps =
                                p1 <- openPipe (toReadHandle oo) outs
                                p2 <- openPipe (toReadHandle ee) errs
                                return (Nothing, Nothing, Nothing,
-                                       do mapM_ waitForPipe [p1,p2]
+                                       do sequence_ [p1,p2,hClose oo, hClose ee]
                                           waitForProcess pid)
     RUseHandle hin ->
         case (p_out ps, p_err ps) of
@@ -179,7 +172,7 @@ launch c args ps =
                       p2 <- openPipe (toReadHandle oo) outs
                       p3 <- openPipe (toReadHandle ee) errs
                       return (Nothing, Nothing, Nothing,
-                              do mapM_ waitForPipe [p1,p2,p3]
+                              do sequence_ [p1,p2,p3,hClose oo,hClose ee,hClose ii]
                                  waitForProcess pid)
     where errs = case p_err ps of WInherit -> toWriteHandle stderr
                                   WUseHandle herr -> herr
@@ -189,17 +182,14 @@ launch c args ps =
                                   WCreatePipe -> error "bad outh"
 #endif
 
-outChanPipe :: Handle -> WriteHandle -> IO Pipe
+outChanPipe :: Handle -> WriteHandle -> IO (IO ())
 outChanPipe h c = openPipe (toReadHandle h) c
 
-inChanPipe :: ReadHandle -> Handle -> IO Pipe
+inChanPipe :: ReadHandle -> Handle -> IO (IO ())
 inChanPipe c h = openPipe c (toWriteHandle h)
 
-openPipe :: ReadHandle -> WriteHandle -> IO Pipe
+openPipe :: ReadHandle -> WriteHandle -> IO (IO ())
 openPipe r w = do -- read (output) handle, write (input) handle
   mv <- newEmptyMVar
   forkIO $ joinHandles r w $ putMVar mv () >> return ()
-  return $ Pipe mv
-
-waitForPipe :: Pipe -> IO ()
-waitForPipe (Pipe mv) = takeMVar mv
+  return $ takeMVar mv

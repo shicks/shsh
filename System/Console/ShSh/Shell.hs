@@ -51,7 +51,7 @@ import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
                                          wIsOpen, rIsOpen )
 import System.Console.ShSh.Internal.Process ( launch,
                                               toWriteStream, toReadStream,
-                                              Pipe, PipeState(..),
+                                              PipeState(..),
                                               ReadStream(..), WriteStream(..),
                                               fromReadStream, fromWriteStream
                                             )
