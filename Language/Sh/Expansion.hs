@@ -235,7 +235,7 @@ expandWith _ [] = return []
 
 -- |Use @$IFS@ to split fields.
 splitFields :: Monad m => [Word] -> Exp m [Word]
-splitFields w = do ifs <- fmap (fromMaybe " \t") $ get "IFS"
+splitFields w = do ifs <- fmap (fromMaybe " \t\r\n") $ get "IFS"
                    let f (Literal c) = c `elem` ifs
                        f _ = False
                        split = filter (any (not . f)) . (groupBy ((==) `on` f))
