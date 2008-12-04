@@ -19,6 +19,8 @@ import Data.Maybe ( listToMaybe )
 import Control.Monad ( unless )
 import Debug.Trace ( trace )
 
+import Language.Sh.Syntax ( Word )
+
 -- |Generalized @Char@.
 data MChar = Ctl Control | Chr Char
 
@@ -40,21 +42,23 @@ data Control = AliasOn Bool
 data ParserState = PS { aliasOK :: Bool
                       , aliases :: [(String,String)]
                       , incPos :: Bool
-                      , parenDepth :: Int }
+                      , parenDepth :: Int
+                      , hereDocs :: [String]
+                      , readHereDocs :: [Word] }
 
 type P = GenParser MChar ParserState
 
 startState :: [(String,String)] -> ParserState
-startState as = PS True as True 0
+startState as = PS True as True 0 [] []
 
 modify :: (ParserState -> ParserState) -> P ()
 modify f = setState =<< fmap f getState
 
 getAliasInfo :: P (Bool, [(String,String)], Bool)
-getAliasInfo = fmap (\(PS a b c _) -> (a,b,c)) getState
+getAliasInfo = fmap (\(PS a b c _ _ _) -> (a,b,c)) getState
 
 setAliasInfo :: (Bool, [(String,String)], Bool) -> P ()
-setAliasInfo (a,b,c) = modify $ \(PS _ _ _ d) -> PS a b c d
+setAliasInfo (a,b,c) = modify $ \(PS _ _ _ d h h') -> PS a b c d h h'
 
 insideParens :: P Bool
 insideParens = fmap (\s -> parenDepth s > 0) getState
@@ -67,6 +71,24 @@ closeParen = modify $ \s -> s { parenDepth = parenDepth s-1 }
 
 getParenDepth :: P Int
 getParenDepth = fmap parenDepth getState
+
+addHereDoc :: String -> P ()
+addHereDoc d = modify $ \s -> s { hereDocs = hereDocs s ++ [d] }
+
+nextHereDoc :: P (Maybe String)
+nextHereDoc = fmap (listToMaybe . hereDocs) getState
+
+popHereDoc :: Word -> P ()
+popHereDoc w = modify $ \s -> s { hereDocs = drop 1 $ hereDocs s
+                                , readHereDocs = readHereDocs s ++ [w] }
+
+nextHDReplacement :: P (Maybe Word)
+nextHDReplacement = do rhd <- readHereDocs `fmap` getState
+                       case rhd of
+                         (next:rest) -> do modify $
+                                             \s -> s { readHereDocs = rest }
+                                           return $ Just next
+                         [] -> return Nothing
 
 fatal :: String -> P a
 fatal = fail . ('!':)

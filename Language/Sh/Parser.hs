@@ -14,7 +14,7 @@ import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        sepBy1, notFollowedBy, lookAhead,
                                        getInput, setInput, runParser
                                      )
-import Control.Monad ( unless, liftM2 )
+import Control.Monad ( unless, when, liftM2 )
 import Data.List ( (\\) )
 import Data.Char ( isDigit )
 
@@ -24,12 +24,13 @@ import Data.Char ( isDigit )
 -- #include "Language/Sh/Parser/safemany.h"
 -- #endif
 
-data WordContext = NormalContext | ParameterContext
+data WordContext = NormalContext | ParameterContext | HereEndContext
+     deriving ( Enum, Ord, Eq )
 
 delimiters :: WordContext -> String
 delimiters NormalContext = "&|;<>()# \t\r\n"
 delimiters ParameterContext = "}" -- don't delimit spaces yet
-
+delimiters HereEndContext = "&|;<>()# \t\r\n"
 
 cnewline :: P ()
 cnewline = do spaces
@@ -128,6 +129,9 @@ andorlist = assocL pipeline (try $ (string "||" >> return (:||:))
 
 -- |Here is where we need to be careful about parens, at least once we
 -- get to the case statements...?
+
+-- |Also, we can use 'commandTerminator' to substitute heredocs safely because
+-- @<<@ are not allowed in non-command arguments to control structures anyway.
 command :: P Command
 command = choice [fail "" -- reserved words, ...
                  ,do l <- andorlist <?> "list"
@@ -139,8 +143,15 @@ commandTerminator :: P Bool
 commandTerminator = do ip <- insideParens
                        res <- choice [char '&' >> return True
                                      ,char ';' >> return False
-                                     ,cnewline >> return False
-                                     ,eof      >> return False
+                                     ,do cnewline
+                                         hd <- nextHereDoc
+                                         case hd of
+                                           Just s -> readHD s
+                                           Nothing -> return ()
+                                         return False
+                                     ,do eof
+                                         closeHereDocs -- ?
+                                         return False
                                      ,do unless ip $ fail ""
                                          lookAhead $ char ')'
                                          return False
@@ -148,6 +159,14 @@ commandTerminator = do ip <- insideParens
                        newlines
                        return res
 
+readHD :: String -> P ()
+readHD = const $ return () -- undefined
+closeHereDocs :: P ()
+closeHereDocs = return () -- undefined
+
+-- |How can the many cnewline possibly fail...?  If spaces end in something
+-- else... So we should move over to gobbling spaces after words, rather
+-- than before...
 newlines :: P ()
 newlines = (try (many cnewline) <|> return [()]) >> return ()
 
@@ -173,7 +192,8 @@ word context = do spaces
                                w <- many $ noneOf "\'"
                                char '\''
                                return $ Quote '\'':map ql w++[Quote '\'']
-                           ,one expansion
+                           ,do when (context==HereEndContext) $ fail ""
+                               one expansion
                            ,do c <- noneOf s
                                return [Literal c]
                            ] <?> "word"
@@ -300,13 +320,34 @@ redirection = try (do spaces
                       d <- many digit
                       o <- redirOperator
                       spaces
-                      t <- word NormalContext
-                      mkRedir o (if null d then Nothing else Just $ read d) t)
+                      let fd = if null d then Nothing else Just $ read d
+                      if o `elem` ["<<","<<-"]
+                         then do t <- hereEnd
+                                 mkHereDoc o fd t
+                         else do t <- word NormalContext
+                                 mkRedir o fd t)
                 <?> "redirection"
+
+-- |Parse the heredoc delimiter.  Technically this is supposed to be a
+-- word, but we don't make certain distinctions that @sh@ does (i.e. @$a@
+-- vs @${a}@), so I think we're better off just using a string...
+hereEnd :: P String
+hereEnd = fromLit `fmap` word HereEndContext
+    where fromLit [] = ""
+          fromLit (Quote _:xs) = fromLit xs
+          fromLit (Quoted q:xs) = fromLit $ q:xs
+          fromLit (Literal l:xs) = l:fromLit xs
 
 commands :: P [Command]
 commands = do newlines
-              many $ newlines >> command -- maybe get rid of newlines?
+              c <- many $ newlines >> command -- maybe get rid of newlines?
+              expandHereDocs c -- may not be exhaustive...
+
+-- |This function simply  iterates through the commands until it finds
+-- unexpanded heredocs.  As long as there's a readHereDoc left in the
+-- queue, it substitutes it.
+expandHereDocs :: [Command] -> P [Command]
+expandHereDocs = return -- undefined
 
 only :: P a -> P a
 only p = p >>= (\a -> eof >> return a)

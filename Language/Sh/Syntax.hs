@@ -33,12 +33,30 @@ data Redir = Int :> Word  -- tests show that expansions don't lose spaces
            | Int :<> Word
            | Int :< Word
            | Int :<& Int
-           | Int :<< Word
-           | Int :<<- Word
-           | Heredoc Int String -- ^filled in version...?
+           | Int :<< String
+           | Int :<<- String
+           | Heredoc Int Word -- ^filled in version...?
            deriving ( Show )
 data Assignment = String := Word
                   deriving ( Show )
 
 --data GlobChar = Lit Char | One | Many | OneOf String | NoneOf String
 --type Glob = [GlobChar]
+
+{- Heredoc test:
+$ a=$(echo -e '\t\ta')
+$ echo "$a"
+-e              a
+$ a=$(echo '\t\ta')
+$ echo "$a"
+                a
+$ cat <<EOF
+> $a
+> EOF
+                a
+$ cat <<-EOF
+> $a
+> EOF
+                a
+-----> so tab removal occurs at parse time, NOT at expansion time
+-}

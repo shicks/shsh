@@ -22,7 +22,9 @@ redirOperator = choice [do char '>'
                                                       ,return "<<"]
                                   ,return "<"]]
 
-mkRedir :: String -> Maybe Int -> Word -> P Redir -- in monad for fail
+-- |Takes an operator, maybe an int, and a word target.
+-- |
+mkRedir :: String -> Maybe Int -> Word -> P Redir -- need P for fail
 mkRedir _ (Just d) _ | d > 255 = fail $ "file descriptor too large: "++show d
 mkRedir op@('<':_) Nothing t   = mkRedir op (Just 0) t
 mkRedir op@('>':_) Nothing t   = mkRedir op (Just 1) t -- defaults
@@ -30,13 +32,19 @@ mkRedir "<"   (Just s) t = return $ s :< t
 mkRedir "<&"  (Just s) t | Just t' <- wordToInt t = return $ s :<& t'
                          | otherwise = fail "bad file descriptor"
 mkRedir "<>"  (Just s) t = return $ s :<> t
-mkRedir "<<"  (Just s) t = return $ s :<< t
-mkRedir "<<-" (Just s) t = return $ s :<<- t
 mkRedir ">"   (Just s) t = return $ s :> t
 mkRedir ">&"  (Just s) t | Just t' <- wordToInt t = return $ s :>& t'
                          | otherwise = fail "bad file descriptor"
 mkRedir ">>"  (Just s) t = return $ s :>> t
 mkRedir ">|"  (Just s) t = return $ s :>| t
+
+
+mkHereDoc :: String -> Maybe Int -> String -> P Redir -- queues...
+mkHereDoc op Nothing t     = mkHereDoc op (Just 0) t
+mkHereDoc "<<"  (Just s) t = do addHereDoc t
+                                return $ s :<< t
+mkHereDoc "<<-" (Just s) t = do addHereDoc t
+                                return $ s :<<- t
 
 wordToInt :: Word -> Maybe Int
 wordToInt w = case fromLiteral w of
