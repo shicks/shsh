@@ -109,9 +109,6 @@ runWithArgs cmd args ip = do exists <- liftIO $ doesFileExist cmd
                              let path = if notWindows
                                         then '/' `elem` cmd
                                         else '/' `elem` cmd || '\\' `elem` cmd
-                                 notFound exists = if path && (exists || exists_exe)
-                                                   then fail $ cmd++": Permission denied"
-                                                   else fail $ cmd++": No such file or directory"
                              exe <- liftIO $ if path
                                              then return $ if exists || exists_exe
                                                            then Just cmd
@@ -119,7 +116,11 @@ runWithArgs cmd args ip = do exists <- liftIO $ doesFileExist cmd
                                              else findExecutable cmd
                              case exe of
                                Just fp -> runInShell fp args ip
-                               Nothing -> notFound exists -- just fail...
+                               Nothing ->  do if path && (exists || exists_exe)
+                                                  then ePutStrLn $ cmd++": Permission denied"
+                                                  else ePutStrLn $ cmd++": No such file or directory"
+                                              return $ ExitFailure 127
+
 
 setVars [] = return ExitSuccess
 setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
