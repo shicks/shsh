@@ -121,3 +121,13 @@ echofoo to grep works
 foo
 echofoo to grep bar works
 ~~~~
+
+
+~~~~ check-output/command-not-found-with-or.sh
+set -e
+command-that-does-not-exist || echo it is all right
+~~~~
+
+~~~~ known-output/command-not-found-with-or.sh
+it is all right
+~~~~
