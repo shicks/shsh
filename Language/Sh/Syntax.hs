@@ -12,6 +12,7 @@ data AndOrList = Singleton Pipeline
                | AndOrList :||: Pipeline
                deriving ( Show )
 data Pipeline = Pipeline [Statement] -- explicit type-level non-null?
+              | BangPipeline [Statement]
                 deriving ( Show )
 data Statement = Statement [Word] [Redir] [Assignment]
                | Subshell [Command] [Redir]

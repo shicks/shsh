@@ -119,7 +119,10 @@ injectAlias a s as ip = do i <- getInput
                                    setInput l -- $ trace ("input: "++show l) l
 
 pipeline :: P Pipeline
-pipeline = fmap Pipeline $ statement `sepBy1` pipe
+pipeline = (try $ do spaces
+                     char '!'
+                     fmap BangPipeline $ statement `sepBy1` pipe
+           ) <|> (fmap Pipeline $ statement `sepBy1` pipe)
 
 pipe :: P ()
 pipe = try $ do char '|'
@@ -409,6 +412,7 @@ mapRedirsM f cs = mapM e1 cs
           e2 (l :&&: p) = (:&&:) `fmap` e2 l `ap` e3 p
           e2 (l :||: p) = (:||:) `fmap` e2 l `ap` e3 p
           e3 (Pipeline ps) = Pipeline `fmap` mapM e4 ps
+          e3 (BangPipeline ps) = BangPipeline `fmap` mapM e4 ps
           e4 (Subshell cs rs) = Subshell `fmap` mapM e1 cs
                                 `ap` mapM f rs
           e4 (Statement ws rs as) = Statement `fmap` mapM (mapM e5) ws
