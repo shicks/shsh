@@ -1,7 +1,7 @@
 import Control.Monad ( when )
 import System.Exit ( exitWith, ExitCode(..) )
 import System.IO ( hIsEOF, stdin, hFlush, stdout )
-import Language.Sh.Parser ( parse )
+import Language.Sh.Parser ( parse, hereDocsComplete )
 -- import System.Console.ShSh.Expansions ( expansions )
 
 import System.Console.ShSh.Shell ( Shell, startShell )
@@ -18,9 +18,10 @@ loop pre = do let prompt = if null pre then "$ " else "> "
                                             ("blah","echo #")] $
                                      pre++x
                              case l of
-                               Right ts -> do process ts
-                                              hFlush stdout
-                                              loop ""
+                               Right ts -> do process ts >> hFlush stdout
+                                              loop $ if hereDocsComplete ts
+                                                     then ""
+                                                     else pre++x++"\n"
                                Left (err,False) -> do putStrLn err
                                                       loop $ pre++x++"\n"
                                Left (err,True) -> do putStrLn err

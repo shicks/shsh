@@ -44,7 +44,7 @@ data ParserState = PS { aliasOK :: Bool
                       , incPos :: Bool
                       , parenDepth :: Int
                       , hereDocs :: [String]
-                      , readHereDocs :: [Word] }
+                      , readHereDocs :: [(Word,Bool)] }
 
 type P = GenParser MChar ParserState
 
@@ -78,11 +78,11 @@ addHereDoc d = modify $ \s -> s { hereDocs = hereDocs s ++ [d] }
 nextHereDoc :: P (Maybe String)
 nextHereDoc = fmap (listToMaybe . hereDocs) getState
 
-popHereDoc :: Word -> P ()
-popHereDoc w = modify $ \s -> s { hereDocs = drop 1 $ hereDocs s
-                                , readHereDocs = readHereDocs s ++ [w] }
+popHereDoc :: (Word,Bool) -> P ()
+popHereDoc (w,b) = modify $ \s -> s { hereDocs = drop 1 $ hereDocs s
+                                    , readHereDocs = readHereDocs s ++ [(w,b)] }
 
-nextHDReplacement :: P (Maybe Word)
+nextHDReplacement :: P (Maybe (Word,Bool))
 nextHDReplacement = do rhd <- readHereDocs `fmap` getState
                        case rhd of
                          (next:rest) -> do modify $

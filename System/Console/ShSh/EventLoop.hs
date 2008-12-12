@@ -14,7 +14,7 @@ import System.Console.ShSh.Shell ( Shell, getAliases, getExitCode,
                                    getEnv, getFlag, withHandler )
 import System.Console.ShSh.Prompt ( prompt )
 
-import Language.Sh.Parser ( parse )
+import Language.Sh.Parser ( parse, hereDocsComplete )
 
 import System.IO ( hFlush, hIsEOF, openFile, IOMode(..),
                    stdin, stdout, stderr, hGetLine, Handle )
@@ -59,13 +59,22 @@ eventLoop i0 h = el i0
                                             ePutStrLn err
                                             when eof $ fail err
                                           el ""
-                    Right cs -> runCommands cs >> el ""
+                    Right cs -> if hereDocsComplete cs
+                                then runCommands cs >> el ""
+                                else if isJust h
+                                     then do eof <- liftIO $ hIsEOF $ fromJust h
+                                             if eof then runCommands cs >> el ""
+                                                    else el $ i++s++"\n"
+                                     else el $ i++s++"\n"
 
 -- What do we want to do with history?  Bash defines a $HISTFILE variable,
 -- but that only deals with saving the history on exit - apparently readline
 -- takes care of saving things automatically on a per-session basis.
 -- We certainly don't want to clobber ~/.bash_history.  But it would be
 -- good to have a variable such as $HISTFILE to deal with this...
+-- Notes: we want to change how history is saved depending on
+--  1. if we're continuing, we should save it as one big string
+--  2. if we're reading a HereDoc, we should ignore it
 getInput :: String -> Shell (Maybe String)
 #ifdef HAVE_HASKELINE
 getInput prompt =

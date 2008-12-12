@@ -20,6 +20,7 @@ redirOperator = choice [do char '>'
                            choice [char '&' >> return "<&"
                                   ,char '<' >> choice [char '-' >> return "<<-"
                                                       ,return "<<"]
+                                  ,char '>' >> return "<>"
                                   ,return "<"]]
 
 -- |Takes an operator, maybe an int, and a word target.

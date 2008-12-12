@@ -1,7 +1,7 @@
 -- |Here we use the stuff defined in the AST and Parsec modules
 -- to parse things.
 
-module Language.Sh.Parser ( parse ) where
+module Language.Sh.Parser ( parse, hereDocsComplete ) where
 
 import Language.Sh.Parser.Internal
 import Language.Sh.Parser.Parsec
@@ -351,6 +351,8 @@ expandHereDocs = return -- undefined
 
 only :: P a -> P a
 only p = p >>= (\a -> eof >> return a)
+
+hereDocsComplete = const True
 
 -- |We need to run the parser occasionally from within, so we provide
 -- a simpler interface that does all the mapping, etc, for us.

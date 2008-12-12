@@ -19,7 +19,7 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    withErrorsPrefixed, withPipes )
 
 import Language.Sh.Glob ( expandGlob )
-import Language.Sh.Parser ( parse )
+import Language.Sh.Parser ( parse, hereDocsComplete )
 import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Pipeline(..), Statement(..),
                             Word(..), Assignment(..) )
@@ -151,7 +151,11 @@ source' i h = do eof <- liftIO $ hIsEOF h
                         Left (err,True) -> do
                            ePutStrLn err -- refail at eof?
                            source' "" h
-                        Right cs -> runCommands cs >> source' "" h
+                        Right cs -> if hereDocsComplete cs
+                                    then runCommands cs >> source' "" h
+                                    else do eof <- liftIO $ hIsEOF h
+                                            if eof then runCommands cs
+                                                   else source' (i++s++"\n") h
 
 -- |Functions to pass to the actual @Expansion@ module.
 ef :: E.ExpansionFunctions Shell
