@@ -407,7 +407,7 @@ mapRedirsM f cs = mapM e1 cs
           -- more e1 defs as we expand the grammar
           e2 (Singleton p) = Singleton `fmap` e3 p
           e2 (l :&&: p) = (:&&:) `fmap` e2 l `ap` e3 p
-          e2 (l :||: p) = (:&&:) `fmap` e2 l `ap` e3 p
+          e2 (l :||: p) = (:||:) `fmap` e2 l `ap` e3 p
           e3 (Pipeline ps) = Pipeline `fmap` mapM e4 ps
           e4 (Subshell cs rs) = Subshell `fmap` mapM e1 cs
                                 `ap` mapM f rs
@@ -419,15 +419,39 @@ mapRedirsM f cs = mapM e1 cs
           e6 (FancyExpansion s c b w) = FancyExpansion s c b `fmap` mapM e5 w
           e6 (CommandSub cs) = CommandSub `fmap` mapM e1 cs
           e6 (Arithmetic w) = Arithmetic `fmap` mapM e5 w
+          e6 expansion = return expansion
+
+-- The order is wrong here, since we could put the Redir's either before or
+-- after the Word's...  We'll need to figure something out to deal with that.
+-- Easiest would be to just number them or something, and go through one at
+-- a time at the end to "de-number" them.
 
 expandHereDocs :: [Command] -> P [Command]
-expandHereDocs = return -- undefined
+expandHereDocs = mapRedirsM eHD
+    where --eHD (i :<< s) = mk i id
+          --eHD (i :<<- s) = mk i stripTabs
+          eHD r = return r
+          stripTabs [] = []
+          stripTabs (Literal n:Literal '\t':rest)
+              | n `elem` "\n\r" = stripTabs (Literal n:rest)
+          stripTabs (x:xs) = x:stripTabs xs
+--           mk i f = do mwb <- nextHDReplacement
+--                       case mwb of -- do we need the Nothing case? (impossible?)
+--                         Just (w,b) -> return $ Heredoc i b (f w)
+--                         Nothing    -> return $ Heredoc i False []
+
+-- here's a smart use of the Monad class...! :-)
+hereDocsComplete :: [Command] -> Bool
+hereDocsComplete = isJust . mapRedirsM complete
+    where complete r = case r of
+                         (_:<<_)  -> Nothing
+                         (_:<<-_) -> Nothing
+                         Heredoc _ False _ -> Nothing
+                         r        -> Just r
 
 -- |Ensures there's an 'eof' after whatever we parse.
 only :: P a -> P a
 only p = p >>= (\a -> eof >> return a)
-
-hereDocsComplete = const True
 
 -- |We need to run the parser occasionally from within, so we provide
 -- a simpler interface that does all the mapping, etc, for us.
