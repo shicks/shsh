@@ -2,7 +2,6 @@ Here's a list of all the stuff we need to do.
 
  - Get the Cabal file working
  - Get Franchise to play nicely with Cabal and two targets (lib and exe)
- - Globs
  - More redirects (deal with fd's correctly...)
  - Implement positional parameters
  - Haddock target
@@ -10,8 +9,9 @@ Here's a list of all the stuff we need to do.
  - Impossible macro
  - Work out EOT
  - Move bad substitution error from parser into expander
- - Wrap all builtins into withExitHandler correctly...?
- - Heredocs
- - While sourcing, parse or other error should quite; failing exit code doesn't
+ - Heredoc ordering
+ - While sourcing, parse or other error should quit; failing exit code doesn't
+ - Test suits for these issues.
+ - Figure out what's going on with fatal/non-fatal parse errors - tests?
 
 More later...
