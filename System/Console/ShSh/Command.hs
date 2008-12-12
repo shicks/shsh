@@ -65,6 +65,15 @@ pipeline :: OnErr -> Pipeline -> ShellProcess ()
 pipeline b (Pipeline [s]) = runStatement b s
 pipeline b (Pipeline (s:ss)) = pipeShells (runStatement IgnoreE s)
                                   (pipeline b $ Pipeline ss)
+pipeline b (BangPipeline [s]) = notProcess (runStatement IgnoreE s)
+pipeline b (BangPipeline (s:ss)) = pipeShells (runStatement IgnoreE s)
+                                      (pipeline IgnoreE $ BangPipeline ss)
+
+notProcess :: ShellProcess () -> ShellProcess ()
+notProcess sp ip = do ec <- sp ip
+                      case ec of
+                        ExitSuccess -> return $ ExitFailure 1
+                        ExitFailure _ -> return $ ExitSuccess
 
 -- |Run a 'Statement'.
 runStatement :: OnErr -> Statement -> ShellProcess ()
