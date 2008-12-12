@@ -14,9 +14,12 @@ import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        sepBy1, notFollowedBy, lookAhead,
                                        getInput, setInput, runParser
                                      )
-import Control.Monad ( unless, when, liftM2 )
+import Control.Monad ( unless, when, liftM2, ap )
 import Data.List ( (\\) )
 import Data.Char ( isDigit )
+import Data.Maybe ( isJust )
+
+import Debug.Trace ( trace )
 
 -- We don't actually really need Parsec3 - could adapt that Parsec2 source...
 -- Also, this should maybe be a debug switch...?
@@ -159,10 +162,44 @@ commandTerminator = do ip <- insideParens
                        newlines
                        return res
 
+manyTill' :: P a -> P end -> P ([a],end)
+manyTill' p end = scan
+    where scan = do e <- end
+                    return ([],e)
+                 <|> do x <- p
+                        (xs,e) <- scan
+                        return ((x:xs),e)
+
+-- |Given a delimiter, parses a heredoc and moves the delimiter off the
+-- delimiter list and instead replaces the replacement text onto the
+-- 'readHereDocs' list.  Note that we want to end with a newline, but it's
+-- being read by the "till" parser.  Instead, we use a 'wPutStrLn' in the
+-- 'Shell' module, rather than attempting to add the newline back in here.
 readHD :: String -> P ()
-readHD = const $ return () -- undefined
+readHD delim = popHereDoc =<< manyTill' (dqLex "\\$`")
+                                (choice [try $ do newline
+                                                  string delim
+                                                  newline <|> eof
+                                                  return True
+                                        ,eof >> return False])
+
+dqLex :: String -> P Lexeme -- input: chars to escape with \
+dqLex escape = choice [do char '\\'
+                          choice [newline >> dqLex escape
+                                 ,ql `fmap` oneOf escape
+                                 ,return $ ql '\\'
+                                 ]
+                      ,Quoted `fmap` expansion
+                      ,ql `fmap` anyChar
+                      ]
+
+-- |Nothing left after command terminator, so turn all the heredocs into
+-- empty @False@s.
 closeHereDocs :: P ()
-closeHereDocs = return () -- undefined
+closeHereDocs = do hd <- nextHereDoc
+                   case hd of
+                     Nothing -> return ()
+                     Just _  -> popHereDoc ([],False) >> closeHereDocs
 
 -- |How can the many cnewline possibly fail...?  If spaces end in something
 -- else... So we should move over to gobbling spaces after words, rather
@@ -213,6 +250,21 @@ isName :: String -> Bool
 isName s = case parse' [] (only name) s of
              Right _ -> True
              Left _  -> False
+
+-- dqWord :: P Word
+-- dqWord = manyTill (dqLex "\\$`\"") (char '"')
+
+-- dqLex :: String -> P Lexeme -- input: chars to escape with \
+-- dqLex escape = choice [do char '\\'
+--                           choice [newline >> dqLex escape
+--                                  ,ql `fmap` oneOf escape
+--                                  ,return $ ql '\\'
+--                                  ]
+--                       ,Quoted `fmap` expansion
+--                       ,ql `fmap` anyChar
+--                       ]
+
+-- Technically, we're not saving the \ quotes here....... does this matter?
 
 expansion :: P Lexeme
 expansion =
@@ -341,14 +393,37 @@ hereEnd = fromLit `fmap` word HereEndContext
 commands :: P [Command]
 commands = do newlines
               c <- many $ newlines >> command -- maybe get rid of newlines?
-              expandHereDocs c -- may not be exhaustive...
+              expandHereDocs c -- may not be exhaustive...?
 
--- |This function simply  iterates through the commands until it finds
--- unexpanded heredocs.  As long as there's a readHereDoc left in the
+-- |This function simply iterates through the commands until it finds
+-- unexpanded heredocs.  As long as there's a @readHereDoc@ left in the
 -- queue, it substitutes it.
+mapRedirsM :: (Monad m,Functor m)
+           => (Redir -> m Redir) -> [Command] -> m [Command]
+mapRedirsM f cs = mapM e1 cs
+    where e1 (Synchronous l) = Synchronous `fmap` e2 l
+          e1 (Asynchronous l) = Asynchronous `fmap` e2 l
+          e1 (For s ss cs') = For s ss `fmap` mapM e1 cs'
+          -- more e1 defs as we expand the grammar
+          e2 (Singleton p) = Singleton `fmap` e3 p
+          e2 (l :&&: p) = (:&&:) `fmap` e2 l `ap` e3 p
+          e2 (l :||: p) = (:&&:) `fmap` e2 l `ap` e3 p
+          e3 (Pipeline ps) = Pipeline `fmap` mapM e4 ps
+          e4 (Subshell cs rs) = Subshell `fmap` mapM e1 cs
+                                `ap` mapM f rs
+          e4 (Statement ws rs as) = Statement `fmap` mapM (mapM e5) ws
+                                    `ap` mapM f rs `ap` return as
+          e5 (Quoted lexeme) = Quoted `fmap` e5 lexeme
+          e5 (Expand xp) = Expand `fmap` e6 xp
+          e5 lexeme = return lexeme
+          e6 (FancyExpansion s c b w) = FancyExpansion s c b `fmap` mapM e5 w
+          e6 (CommandSub cs) = CommandSub `fmap` mapM e1 cs
+          e6 (Arithmetic w) = Arithmetic `fmap` mapM e5 w
+
 expandHereDocs :: [Command] -> P [Command]
 expandHereDocs = return -- undefined
 
+-- |Ensures there's an 'eof' after whatever we parse.
 only :: P a -> P a
 only p = p >>= (\a -> eof >> return a)
 
