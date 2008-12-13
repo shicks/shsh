@@ -1,0 +1,36 @@
+Control structures
+==================
+
+So far, we've implemented 'for' and 'if'
+
+~~~~ check-output/for.sh
+for a in 1 2 3; do echo $a; done
+~~~~
+
+~~~~ known-output/for.sh
+1
+2
+3
+~~~~
+
+~~~~ check-output/if.sh
+if true; then echo CORRECT; fi
+if true; then echo CORRECT; else echo FAIL; fi
+if false; true; then echo CORRECT; echo foo; else echo FAIL; fi
+if false; then echo FAIL; else echo CORRECT; echo foo; fi
+if false; then echo FAIL; elif false; then echo FAIL2; else echo CORRECT; fi
+if true
+  then echo newline ok
+fi
+~~~~
+
+~~~~ known-output/if.sh
+CORRECT
+CORRECT
+CORRECT
+foo
+CORRECT
+foo
+CORRECT
+newline ok
+~~~~
