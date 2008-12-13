@@ -20,7 +20,8 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
 
 import Language.Sh.Glob ( expandGlob )
 import Language.Sh.Parser ( parse, hereDocsComplete )
-import Language.Sh.Syntax ( Command(..), AndOrList(..),
+import Language.Sh.Syntax ( Command(..), CompoundCommand(..),
+                            AndOrList(..),
                             Pipeline(..), Statement(..),
                             Word(..), Assignment(..) )
 import qualified Language.Sh.Expansion as E
@@ -30,7 +31,7 @@ import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( Handle, IOMode(..), openFile, hGetLine, hIsEOF )
 
 import Control.Monad.Trans ( liftIO )
-import Control.Monad ( when )
+import Control.Monad ( when, forM )
 import Data.Monoid ( mempty )
 
 -- |What to do on failure?
@@ -41,7 +42,16 @@ runCommand :: Command -> Shell ExitCode
 runCommand (Asynchronous c) = do runAsync $ runCommand c --exitHandler? IgnoreE?
                                  return ExitSuccess
 runCommand (Synchronous list) = withExitHandler $ runList CheckE list
-runCommand c = fail $ "Control structure "++show c++" not yet supported."
+runCommand (Compound c rs) = withEnvironment expandWord rs [] $ runCompound c
+
+runCompound (For var list cs) = do ws <- expandWords list
+                                   ecs <- forM ws $ \w -> do setEnv var w
+                                                             runCommands cs
+                                   return $ if null ecs
+                                            then ExitSuccess
+                                            else head $ reverse $ ecs
+
+runCompound c = fail $ "Control structure "++show c++" not yet supported."
 
 runAsync :: Shell a -> Shell ExitCode
 runAsync _ = fail "Asyncronous commands not yet supported"
