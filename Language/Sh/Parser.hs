@@ -302,7 +302,7 @@ dqWord = fmap concat $ many $
                 ]
 
 isName :: String -> Bool
-isName s = case parse' [] (only name) s of
+isName s = case parse' [] (try (only name) <|> only (many1 digit)) s of
              Right _ -> True
              Left _  -> False
 
