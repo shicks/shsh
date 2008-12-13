@@ -50,8 +50,11 @@ runCompound (For var list cs) = do ws <- expandWords list
                                    return $ if null ecs
                                             then ExitSuccess
                                             else head $ reverse $ ecs
-
-runCompound c = fail $ "Control structure "++show c++" not yet supported."
+runCompound (If cond thn els) = do ec <- runCommands cond
+                                   case ec of
+                                     ExitSuccess -> runCommands thn
+                                     _           -> runCommands els
+--runCompound c = fail $ "Control structure "++show c++" not yet supported."
 
 runAsync :: Shell a -> Shell ExitCode
 runAsync _ = fail "Asyncronous commands not yet supported"
