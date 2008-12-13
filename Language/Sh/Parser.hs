@@ -142,18 +142,16 @@ andorlist = assocL pipeline (try $ (string "||" >> return (:||:))
 
 -- |Also, we can use 'commandTerminator' to substitute heredocs safely because
 -- @<<@ are not allowed in non-command arguments to control structures anyway.
-reservedWord :: String -> P ()
+reservedWord :: String -> P String
 reservedWord s = try $ do spaces
                           s' <- string s
                           lookAhead $ normalDelimiter <|> eof
                           spaces
+                          return s'
 
 inClause :: P [Word]
 inClause = choice [try $ do reservedWord "in" -- "do" OK w/o semicolon?
                             ws <- many (word NormalContext)
-                            sequentialSep
-                            return $ ws
-                  ,try $ do ws <- many1 (word NormalContext)
                             sequentialSep
                             return $ ws
                   ,optional sequentialSep >> return defaultIn]
@@ -167,12 +165,26 @@ command = do c <- choice [do reservedWord "for"
                              name <- basicName
                              vallist <- inClause
                              reservedWord "do"
-                             cs <- commandsTill "done"
+                             (cs,_) <- commandsTill $ reservedWord "done"
                              return $ Compound (For name vallist cs) []
+                         ,do reservedWord "if"
+                             fmap (Compound `flip` []) parseIf
                          ,Synchronous `fmap` andorlist <?> "list"]
                   <?> "command"
              t <- commandTerminator <?> "terminator"
              return $ if t then Asynchronous c else c
+
+parseIf :: P CompoundCommand
+parseIf = do (cond,_) <- commandsTill $ reservedWord "then"
+             (thn,next) <- commandsTill $ choice [reservedWord "elif"
+                                                 ,reservedWord "else"
+                                                 ,reservedWord "fi"]
+             case next of
+               "else" -> do (els,_) <- commandsTill $ reservedWord "fi"
+                            return $ If cond thn els
+               "elif" -> do elif <- parseIf
+                            return $ If cond thn $ [Compound elif []]
+               "fi" -> return $ If cond thn []
 
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM cond job = cond >>= (unless `flip` job)
@@ -428,10 +440,12 @@ commands = do newlines
               c <- many $ newlines >> command -- maybe get rid of newlines?
               expandHereDocs c -- may not be exhaustive...?
 
-commandsTill :: String -> P [Command]
+commandsTill :: P String -> P ([Command],String)
 commandsTill delim = do newlines
-                        c <- manyTill (newlines >> command) $ try (newlines >> reservedWord delim)
-                        expandHereDocs c -- may not be exhaustive...?
+                        (c,e) <- manyTill' (newlines >> command) $
+                                 try (newlines >> delim)
+                        c' <- expandHereDocs c -- may not be exhaustive...?
+                        return (c',e)
 
 -- |This function simply iterates through the commands until it finds
 -- unexpanded heredocs.  As long as there's a @readHereDoc@ left in the
@@ -443,6 +457,8 @@ mapRedirsM f cs = mapM e1 cs
           e1 (Asynchronous c) = Asynchronous `fmap` e1 c
           e1 (Compound c rs) = Compound `fmap` e1a c `ap` mapM f rs
           e1a (For s ss cs') = For s ss `fmap` mapM e1 cs'
+          e1a (If cond thn els) = If `fmap` mapM e1 cond `ap` mapM e1 thn
+                                     `ap` mapM e1 els
           -- more e1a defs as we expand the grammar
           e2 (Singleton p) = Singleton `fmap` e3 p
           e2 (l :&&: p) = (:&&:) `fmap` e2 l `ap` e3 p
