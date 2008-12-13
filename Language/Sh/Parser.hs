@@ -143,31 +143,38 @@ andorlist = assocL pipeline (try $ (string "||" >> return (:||:))
 -- |Also, we can use 'commandTerminator' to substitute heredocs safely because
 -- @<<@ are not allowed in non-command arguments to control structures anyway.
 command :: P Command
-command = choice [fail "" -- reserved words, ...
-                 ,do l <- andorlist <?> "list"
-                     t <- commandTerminator <?> "terminator"
-                     return $ if t then Asynchronous l else Synchronous l]
-          <?> "command"
+command = do c <- choice [do reservedWord "for"
+                             name <- basicName
+                             vallist <- inClause
+                             sequentialSep
+                             trace ("vallist: "++show vallist) $ reservedWord "do"
+                             cs <- commandsTill "done"
+                             return $ Compound (For name vallist cs) []
+                         ,Synchronous `fmap` andorlist <?> "list"]
+                  <?> "command"
+             t <- commandTerminator <?> "terminator"
+             trace ("read command: "++show c) $ return $ if t then Asynchronous c else c
+
+unlessM :: Monad m => m Bool -> m () -> m ()
+unlessM cond job = cond >>= (unless `flip` job)
+
+sequentialSep :: P ()
+sequentialSep = choice [char ';' >> return ()
+                       ,do cnewline
+                           hd <- nextHereDoc
+                           case hd of
+                             Just s  -> readHD s
+                             Nothing -> return ()
+                       ,eof >> closeHereDocs -- ?
+                       ,do unlessM insideParens $ fail ""
+                           lookAhead $ char ')'
+                           return ()]
+                >> newlines
 
 commandTerminator :: P Bool
-commandTerminator = do ip <- insideParens
-                       res <- choice [char '&' >> return True
-                                     ,char ';' >> return False
-                                     ,do cnewline
-                                         hd <- nextHereDoc
-                                         case hd of
-                                           Just s -> readHD s
-                                           Nothing -> return ()
-                                         return False
-                                     ,do eof
-                                         closeHereDocs -- ?
-                                         return False
-                                     ,do unless ip $ fail ""
-                                         lookAhead $ char ')'
-                                         return False
-                                     ] <?> "terminator"
-                       newlines
-                       return res
+commandTerminator = (char '&' >> newlines >> return True)
+                    <|> (sequentialSep >> return False)
+                            <?> "terminator"
 
 manyTill' :: P a -> P end -> P ([a],end)
 manyTill' p end = scan
