@@ -8,6 +8,7 @@
 module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
                                    tryEnv, withEnv, unsetEnv,
+                                   setFunction, getFunction,
                                    setAlias, getAlias, getAliases,
                                    getExitCode,
                                    getFlag, setFlag, unsetFlag, getFlags,
@@ -175,6 +176,9 @@ setEnv s x = Shell $ do e <- gets environment
 setFunction :: String -> CompoundStatement -> [Redir] -> ShellT e ()
 setFunction s c rs = Shell $ modify $ \st -> st { functions = update s (c,rs) $
                                                               functions st }
+
+getFunction :: String -> Shell (Maybe (CompoundStatement,[Redir]))
+getFunction s = Shell $ lookup s `fmap` gets functions
 
 getExitCode :: Shell ExitCode
 getExitCode = do e <- getEnv "?"

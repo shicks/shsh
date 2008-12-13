@@ -47,7 +47,12 @@ cnewline = do spaces
 
 statement :: P Statement
 statement = spaces >> aliasOn >>
-            choice [Compound `fmap` compoundStatement `ap` many redirection
+            choice [try $ do name <- basicName
+                             spaces >> char '(' >> spaces >> char ')'
+                             newlines -- optional
+                             FunctionDefinition name `fmap` compoundStatement
+                                                `ap` many redirection
+                   ,Compound `fmap` compoundStatement `ap` many redirection
                    ,do s <- statementNoSS
                        case s of -- needed to prevent errors w/ 'many'
                          Statement [] [] [] -> fail "empty statement"
@@ -468,6 +473,8 @@ mapRedirsM f cs = mapM e1 cs
           e4 (Statement ws rs as) = Statement `fmap` mapM (mapM e5) ws
                                     `ap` mapM f rs `ap` return as
           e4 (Compound c rs) = Compound `fmap` e4a c `ap` mapM f rs
+          e4 (FunctionDefinition s c rs) = FunctionDefinition s
+                                           `fmap` e4a c `ap` mapM f rs
           e4a (For s ss cs') = For s ss `fmap` mapM e1 cs'
           e4a (If cond thn els) = If `fmap` mapM e1 cond `ap` mapM e1 thn
                                      `ap` mapM e1 els

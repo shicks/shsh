@@ -16,6 +16,7 @@ data Pipeline = Pipeline [Statement] -- explicit type-level non-null?
                 deriving ( Show )
 data Statement = Statement [Word] [Redir] [Assignment]
                | Compound CompoundStatement [Redir]
+               | FunctionDefinition String CompoundStatement [Redir]
                deriving ( Show )
 data CompoundStatement = For String [Word] [Command]
                        | If [Command] [Command] [Command] -- etc...

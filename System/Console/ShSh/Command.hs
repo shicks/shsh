@@ -13,6 +13,7 @@ import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    maybeCloseOut, subShell,
                                    runShellProcess, setEnv, getAllEnv,
+                                   setFunction, getFunction,
                                    pipeShells, runInShell, getExitCode,
                                    withEnvironment, withExitHandler,
                                    getFlag, pipes, getAliases,
@@ -90,6 +91,8 @@ checkE sp ip = do ec <- sp ip
 run :: Statement -> ShellProcess ()
 run (Compound c rs) ip = mkShellProcess `flip` ip $
                          withEnvironment expandWord rs [] $ runCompound c
+run (FunctionDefinition s c rs) ip
+    = mkShellProcess `flip` ip $ setFunction s c rs >> return ExitSuccess
 run (Statement ws rs as) ip = do ws' <- expandWords ws
                                  case ws' of
                                    [] -> mkShellProcess (setVars as) ip
@@ -112,37 +115,45 @@ runCompound c = fail $ "Control structure "++show c++" not yet supported."
 
 run' :: [String] -> ShellProcess () -- list NOT EMPTY
 run' (".":args) ip = run' ("source":args) ip
-run' ("source":f:_) ip = do mkShellProcess (source f) ip
-run' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
-run' (command:args) ip = do b <- builtin command
-                            oFlush -- to behave like external commands we need to
-                            eFlush -- flush stdout/err after builtins are run.
-                            p <- pipes
-                            withExitHandler $ case b of
-                              Just b' -> withErrorsPrefixed command $ b' args ip
-                              Nothing -> runWithArgs command args ip
+run' (name:args) ip = do func <- getFunction name
+                         case func of
+                           Just (f,rs) -> mkShellProcess `flip` ip $
+                                          withEnvironment expandWord rs [] $
+                                          runCompound f
+                           Nothing     -> run'' (name:args) ip
+run' [] ip = fail "how did an empty command get through?"
+run'' ("source":f:_) ip = do mkShellProcess (source f) ip
+run'' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
+run'' (command:args) ip = do b <- builtin command
+                             oFlush -- to behave like external commands we need to
+                             eFlush -- flush stdout/err after builtins are run.
+                             p <- pipes
+                             withExitHandler $ case b of
+                               Just b' -> withErrorsPrefixed command $ b' args ip
+                               Nothing -> runWithArgs command args ip
 
 -- at some point we need to use our own path here...
 runWithArgs :: String -> [String] -> ShellProcess ()
-runWithArgs cmd args ip = do exists <- liftIO $ doesFileExist cmd
-                             notWindows <- elem '/' `fmap` liftIO getCurrentDirectory
-                             exists_exe <- if notWindows
-                                           then return False
-                                           else liftIO $ doesFileExist (cmd++".exe")
-                             let path = if notWindows
-                                        then '/' `elem` cmd
-                                        else '/' `elem` cmd || '\\' `elem` cmd
-                             exe <- liftIO $ if path
-                                             then return $ if exists || exists_exe
-                                                           then Just cmd
-                                                           else Nothing
-                                             else findExecutable cmd
-                             case exe of
-                               Just fp -> runInShell fp args ip
-                               Nothing ->  do if path && (exists || exists_exe)
-                                                  then ePutStrLn $ cmd++": Permission denied"
-                                                  else ePutStrLn $ cmd++": No such file or directory"
-                                              return $ ExitFailure 127
+runWithArgs cmd args ip
+    = do exists <- liftIO $ doesFileExist cmd
+         notWindows <- elem '/' `fmap` liftIO getCurrentDirectory
+         exists_exe <- if notWindows
+                       then return False
+                       else liftIO $ doesFileExist (cmd++".exe")
+         let path = if notWindows
+                    then '/' `elem` cmd
+                    else '/' `elem` cmd || '\\' `elem` cmd
+         exe <- liftIO $ if path
+                         then return $ if exists || exists_exe
+                                       then Just cmd
+                                       else Nothing
+                         else findExecutable cmd
+         case exe of
+           Just fp -> runInShell fp args ip
+           Nothing -> do if path && (exists || exists_exe)
+                            then ePutStrLn $ cmd++": Permission denied"
+                            else ePutStrLn $ cmd++": No such file or directory"
+                         return $ ExitFailure 127
 
 
 setVars [] = return ExitSuccess
