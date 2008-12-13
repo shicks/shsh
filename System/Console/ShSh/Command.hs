@@ -38,10 +38,9 @@ data OnErr = IgnoreE | CheckE
 
 -- |Simply run a 'Command'.
 runCommand :: Command -> Shell ExitCode
+runCommand (Asynchronous c) = do runAsync $ runCommand c --exitHandler? IgnoreE?
+                                 return ExitSuccess
 runCommand (Synchronous list) = withExitHandler $ runList CheckE list
-runCommand (Asynchronous list) = do runAsync $ withExitHandler $
-                                             runList IgnoreE list
-                                    return ExitSuccess
 runCommand c = fail $ "Control structure "++show c++" not yet supported."
 
 runAsync :: Shell a -> Shell ExitCode

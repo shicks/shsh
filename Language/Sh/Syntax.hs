@@ -4,9 +4,12 @@
 module Language.Sh.Syntax where
 
 data Command = Synchronous  AndOrList
-             | Asynchronous AndOrList
-             | For String [String] [Command] -- ...etc
+             | Asynchronous Command
+             | Compound CompoundCommand [Redir]
              deriving ( Show )
+data CompoundCommand = For String (Maybe [Word]) [Command]
+                     | If [Command] [Command] [Command] -- etc...
+                     deriving ( Show )
 data AndOrList = Singleton Pipeline
                | AndOrList :&&: Pipeline
                | AndOrList :||: Pipeline

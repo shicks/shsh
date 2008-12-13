@@ -409,9 +409,10 @@ mapRedirsM :: (Monad m,Functor m)
            => (Redir -> m Redir) -> [Command] -> m [Command]
 mapRedirsM f cs = mapM e1 cs
     where e1 (Synchronous l) = Synchronous `fmap` e2 l
-          e1 (Asynchronous l) = Asynchronous `fmap` e2 l
-          e1 (For s ss cs') = For s ss `fmap` mapM e1 cs'
-          -- more e1 defs as we expand the grammar
+          e1 (Asynchronous c) = Asynchronous `fmap` e1 c
+          e1 (Compound c rs) = Compound `fmap` e1a c `ap` mapM f rs
+          e1a (For s ss cs') = For s ss `fmap` mapM e1 cs'
+          -- more e1a defs as we expand the grammar
           e2 (Singleton p) = Singleton `fmap` e3 p
           e2 (l :&&: p) = (:&&:) `fmap` e2 l `ap` e3 p
           e2 (l :||: p) = (:||:) `fmap` e2 l `ap` e3 p
