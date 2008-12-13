@@ -35,8 +35,9 @@ delimiters NormalContext = "&|;<>()# \t\r\n"
 delimiters ParameterContext = "}" -- don't delimit spaces yet
 delimiters HereEndContext = "&|;<>()# \t\r\n"
 
-normalDelimiter :: P ()
-normalDelimiter = oneOf (delimiters NormalContext) >> return ()
+lookaheadNormalDelimiter :: P ()
+lookaheadNormalDelimiter = lookAhead $
+                           oneOf (delimiters NormalContext) >> return ()
 
 cnewline :: P ()
 cnewline = do spaces
@@ -124,7 +125,7 @@ injectAlias a s as ip = do i <- getInput
 pipeline :: P Pipeline
 pipeline = (try $ do spaces
                      char '!'
-                     normalDelimiter -- is this the right set?
+                     lookaheadNormalDelimiter -- is this the right set?
                      fmap BangPipeline $ statement `sepBy1` pipe
            ) <|> (fmap Pipeline $ statement `sepBy1` pipe)
 
@@ -152,7 +153,7 @@ command = do c <- choice [Compound `fmap` compoundCommand `ap` many redirection
 reservedWord :: String -> P String
 reservedWord s = try $ do spaces
                           s' <- string s
-                          lookAhead $ normalDelimiter <|> eof
+                          lookaheadNormalDelimiter <|> eof
                           spaces
                           return s'
 
