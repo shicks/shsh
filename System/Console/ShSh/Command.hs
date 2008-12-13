@@ -24,7 +24,7 @@ import Language.Sh.Parser ( parse, hereDocsComplete )
 import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Pipeline(..), Statement(..),
                             CompoundStatement(..),
-                            Word(..), Assignment(..) )
+                            Word, Lexeme(..), Assignment(..) )
 import qualified Language.Sh.Expansion as E
 
 import System.Directory ( findExecutable, doesFileExist, getCurrentDirectory )
@@ -120,9 +120,11 @@ run' (".":args) ip = run' ("source":args) ip
 run' (name:args) ip = do func <- getFunction name
                          case func of
                            Just (f,rs) -> mkShellProcess `flip` ip $
-                                          withEnvironment expandWord rs [] $
+                                          withEnvironment expandWord rs pos $
                                           runCompound f
                            Nothing     -> run'' (name:args) ip
+    where pos = map (\(n,s)->show n:=map Literal s) $ zip [1..] args
+
 run' [] ip = fail "how did an empty command get through?"
 run'' ("source":f:_) ip = do mkShellProcess (source f) ip
 run'' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
