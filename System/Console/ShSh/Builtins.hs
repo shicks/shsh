@@ -42,7 +42,8 @@ successfully :: ([String] -> ShellT e ()) -> [String] -> ShellT e ExitCode
 successfully job args = job args >> return ExitSuccess
 
 builtins :: [(String,[String] -> Shell ExitCode)]
-builtins = [("alias",alias),("cat",cat),
+builtins = [(":",const $ return ExitSuccess),
+            ("alias",alias),("cat",cat),
             ("cd",withPrefix "cd" . chDir),
             ("echo",echo),
             ("exec",const $ return ExitSuccess),
