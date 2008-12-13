@@ -95,7 +95,9 @@ run (FunctionDefinition s c rs) ip
     = mkShellProcess `flip` ip $ setFunction s c rs >> return ExitSuccess
 run (Statement ws rs as) ip = do ws' <- expandWords ws
                                  case ws' of
-                                   [] -> mkShellProcess (setVars as) ip
+                                   [] -> mkShellProcess `flip` ip $
+                                         withEnvironment expandWord rs [] $
+                                         setVars as
                                    ("local":xs) -> fail "can't do locals yet"
                                    xs -> withEnvironment expandWord rs as $
                                          run' xs ip
