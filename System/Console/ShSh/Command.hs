@@ -20,9 +20,9 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
 
 import Language.Sh.Glob ( expandGlob )
 import Language.Sh.Parser ( parse, hereDocsComplete )
-import Language.Sh.Syntax ( Command(..), CompoundCommand(..),
-                            AndOrList(..),
+import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Pipeline(..), Statement(..),
+                            CompoundStatement(..),
                             Word(..), Assignment(..) )
 import qualified Language.Sh.Expansion as E
 
@@ -39,22 +39,10 @@ data OnErr = IgnoreE | CheckE
 
 -- |Simply run a 'Command'.
 runCommand :: Command -> Shell ExitCode
-runCommand (Asynchronous c) = do runAsync $ runCommand c --exitHandler? IgnoreE?
-                                 return ExitSuccess
+runCommand (Asynchronous list) = do runAsync $ withExitHandler $
+                                             runList IgnoreE list
+                                    return ExitSuccess
 runCommand (Synchronous list) = withExitHandler $ runList CheckE list
-runCommand (Compound c rs) = withEnvironment expandWord rs [] $ runCompound c
-
-runCompound (For var list cs) = do ws <- expandWords list
-                                   ecs <- forM ws $ \w -> do setEnv var w
-                                                             runCommands cs
-                                   return $ if null ecs
-                                            then ExitSuccess
-                                            else head $ reverse $ ecs
-runCompound (If cond thn els) = do ec <- runCommands cond
-                                   case ec of
-                                     ExitSuccess -> runCommands thn
-                                     _           -> runCommands els
---runCompound c = fail $ "Control structure "++show c++" not yet supported."
 
 runAsync :: Shell a -> Shell ExitCode
 runAsync _ = fail "Asyncronous commands not yet supported"
@@ -100,13 +88,26 @@ checkE sp ip = do ec <- sp ip
                   return ec
 
 run :: Statement -> ShellProcess ()
-run (Subshell _ _) _ = fail "Subshells not supported yet."
+run (Compound c rs) ip = mkShellProcess `flip` ip $
+                         withEnvironment expandWord rs [] $ runCompound c
 run (Statement ws rs as) ip = do ws' <- expandWords ws
                                  case ws' of
                                    [] -> mkShellProcess (setVars as) ip
                                    ("local":xs) -> fail "can't do locals yet"
                                    xs -> withEnvironment expandWord rs as $
                                          run' xs ip
+
+runCompound (For var list cs) = do ws <- expandWords list
+                                   ecs <- forM ws $ \w -> do setEnv var w
+                                                             runCommands cs
+                                   return $ if null ecs
+                                            then ExitSuccess
+                                            else head $ reverse $ ecs
+runCompound (If cond thn els) = do ec <- runCommands cond
+                                   case ec of
+                                     ExitSuccess -> runCommands thn
+                                     _           -> runCommands els
+runCompound c = fail $ "Control structure "++show c++" not yet supported."
 
 run' :: [String] -> ShellProcess () -- list NOT EMPTY
 run' (".":args) ip = run' ("source":args) ip

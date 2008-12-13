@@ -59,7 +59,8 @@ import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError, exit )
 import System.Console.ShSh.Compat ( on )
 
-import Language.Sh.Syntax ( Word, Redir(..), Assignment(..) )
+import Language.Sh.Syntax ( Word, CompoundStatement,
+                            Redir(..), Assignment(..) )
 
 -- I might want to look into using ST to thread the state...?
 
@@ -67,7 +68,7 @@ data ShellState e = ShellState {
       environment :: [(String,String)],
       locals      :: [(String,String)],
       aliases     :: [(String,String)],
-      functions   :: [(String,String)],
+      functions   :: [(String,(CompoundStatement,[Redir]))],
       pipeState   :: PipeState,
       extra       :: e
     }
@@ -170,6 +171,10 @@ setEnv s x = Shell $ do e <- gets environment
                           Just v -> modify $ \st -> st { locals = update s x l }
                           Nothing -> modify $ \st ->
                                         st { environment = update s x e }
+
+setFunction :: String -> CompoundStatement -> [Redir] -> ShellT e ()
+setFunction s c rs = Shell $ modify $ \st -> st { functions = update s (c,rs) $
+                                                              functions st }
 
 getExitCode :: Shell ExitCode
 getExitCode = do e <- getEnv "?"

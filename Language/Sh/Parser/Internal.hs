@@ -54,15 +54,15 @@ wordToInt w = case fromLiteral w of
 
 addAssignment :: Assignment -> Statement -> Statement
 addAssignment a (Statement ws rs as) = Statement ws rs (a:as)
-addAssignment _ (Subshell _ _) = impossible "cannot add assignment to subshell"
+addAssignment _ (Compound _ _) = impossible "cannot add assignment to Compound"
 
 addWord :: Word -> Statement -> Statement
 addWord w (Statement ws rs as) = Statement (w:ws) rs as
-addWord _ (Subshell _ _) = impossible "cannot add word to subshell"
+addWord _ (Compound _ _) = impossible "cannot add word to Compound"
 
 addRedirection :: Redir -> Statement -> Statement
 addRedirection r (Statement ws rs as) = Statement ws (r:rs) as
-addRedirection r (Subshell cs rs) = Subshell cs (r:rs)
+addRedirection r (Compound c rs) = Compound c (r:rs)
 
 fromLiteral :: Word -> Maybe String
 fromLiteral [] = Just []

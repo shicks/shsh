@@ -3,23 +3,27 @@
 
 module Language.Sh.Syntax where
 
+-- *The statement level and above
 data Command = Synchronous  AndOrList
-             | Asynchronous Command
-             | Compound CompoundCommand [Redir]
+             | Asynchronous AndOrList
              deriving ( Show )
-data CompoundCommand = For String [Word] [Command]
-                     | If [Command] [Command] [Command] -- etc...
-                     deriving ( Show )
 data AndOrList = Singleton Pipeline
                | AndOrList :&&: Pipeline
                | AndOrList :||: Pipeline
-               deriving ( Show )
+                 deriving ( Show )
 data Pipeline = Pipeline [Statement] -- explicit type-level non-null?
               | BangPipeline [Statement]
                 deriving ( Show )
 data Statement = Statement [Word] [Redir] [Assignment]
-               | Subshell [Command] [Redir]
+               | Compound CompoundStatement [Redir]
                deriving ( Show )
+data CompoundStatement = For String [Word] [Command]
+                       | If [Command] [Command] [Command] -- etc...
+                       | Subshell [Command]
+                       | BraceGroup [Command]
+                       deriving ( Show )
+
+-- *The word level and below
 type Word = [Lexeme]
 data Lexeme = Literal Char | Quote Char
             | Expand Expansion | Quoted Lexeme

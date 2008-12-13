@@ -47,14 +47,7 @@ cnewline = do spaces
 
 statement :: P Statement
 statement = spaces >> aliasOn >>
-            choice [do char '('
-                       openParen
-                       cs <- many command
-                       schar ')'
-                       closeParen
-                       rs <- many redirection
-                       spaces
-                       return $ Subshell cs rs
+            choice [Compound `fmap` compoundStatement `ap` many redirection
                    ,do s <- statementNoSS
                        case s of -- needed to prevent errors w/ 'many'
                          Statement [] [] [] -> fail "empty statement"
@@ -123,9 +116,7 @@ injectAlias a s as ip = do i <- getInput
                                    setInput l -- $ trace ("input: "++show l) l
 
 pipeline :: P Pipeline
-pipeline = (try $ do spaces
-                     char '!'
-                     lookaheadNormalDelimiter -- is this the right set?
+pipeline = (try $ do reservedWord "!"
                      fmap BangPipeline $ statement `sepBy1` pipe
            ) <|> (fmap Pipeline $ statement `sepBy1` pipe)
 
@@ -138,17 +129,6 @@ andorlist = assocL pipeline (try $ (string "||" >> return (:||:))
                                <|> (string "&&" >> return (:&&:)))
                    Singleton
 
--- |Here is where we need to be careful about parens, at least once we
--- get to the case statements...?
-
--- |Also, we can use 'commandTerminator' to substitute heredocs safely because
--- @<<@ are not allowed in non-command arguments to control structures anyway.
-command :: P Command
-command = do c <- choice [Compound `fmap` compoundCommand `ap` many redirection
-                         ,Synchronous `fmap` andorlist <?> "list"]
-                  <?> "command"
-             t <- commandTerminator <?> "terminator"
-             return $ if t then Asynchronous c else c
 
 reservedWord :: String -> P String
 reservedWord s = try $ do spaces
@@ -165,17 +145,26 @@ inClause = choice [try $ do reservedWord "in" -- "do" OK w/o semicolon?
                   ,optional sequentialSep >> return defaultIn]
     where defaultIn = [[Quoted $ Expand $ SimpleExpansion "@"]]
 
-compoundCommand :: P CompoundCommand
-compoundCommand = choice [do reservedWord "for"
-                             name <- basicName
-                             vallist <- inClause
-                             reservedWord "do"
-                             (cs,_) <- commandsTill $ reservedWord "done"
-                             return $ For name vallist cs
-                         ,do reservedWord "if"
-                             parseIf]
+-- |Parse any of the compound statements: @if@, @for@, subshells,
+-- brace groups, ...
+compoundStatement :: P CompoundStatement
+compoundStatement = choice [do reservedWord "for"
+                               name <- basicName
+                               vallist <- inClause
+                               reservedWord "do"
+                               (cs,_) <- commandsTill $ reservedWord "done"
+                               return $ For name vallist cs
+                           ,do reservedWord "if"
+                               parseIf           -- recursive b/c of elif
+                           ,do char '('
+                               openParen
+                               cs <- many command
+                               schar ')'
+                               closeParen
+                               return $ Subshell cs
+                           ]
 
-parseIf :: P CompoundCommand
+parseIf :: P CompoundStatement
 parseIf = do (cond,_) <- commandsTill $ reservedWord "then"
              (thn,next) <- commandsTill $ choice [reservedWord "elif"
                                                  ,reservedWord "else"
@@ -184,8 +173,20 @@ parseIf = do (cond,_) <- commandsTill $ reservedWord "then"
                "else" -> do (els,_) <- commandsTill $ reservedWord "fi"
                             return $ If cond thn els
                "elif" -> do elif <- parseIf
-                            return $ If cond thn $ [Compound elif []]
+                            return $ If cond thn $ compound elif
                "fi" -> return $ If cond thn []
+    where compound x = [Synchronous $ Singleton $ Pipeline [Compound x []]]
+
+-- |Here is where we need to be careful about parens, at least once we
+-- get to the case statements...?
+
+-- |Also, we can use 'commandTerminator' to substitute heredocs safely because
+-- @<<@ are not allowed in non-command arguments to control structures anyway.
+command :: P Command
+command = do c <- andorlist <?> "list"
+             t <- commandTerminator <?> "terminator"
+             return $ if t then Asynchronous c
+                           else Synchronous  c
 
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM cond job = cond >>= (unless `flip` job)
@@ -455,21 +456,21 @@ mapRedirsM :: (Monad m,Functor m)
            => (Redir -> m Redir) -> [Command] -> m [Command]
 mapRedirsM f cs = mapM e1 cs
     where e1 (Synchronous l) = Synchronous `fmap` e2 l
-          e1 (Asynchronous c) = Asynchronous `fmap` e1 c
-          e1 (Compound c rs) = Compound `fmap` e1a c `ap` mapM f rs
-          e1a (For s ss cs') = For s ss `fmap` mapM e1 cs'
-          e1a (If cond thn els) = If `fmap` mapM e1 cond `ap` mapM e1 thn
-                                     `ap` mapM e1 els
-          -- more e1a defs as we expand the grammar
+          e1 (Asynchronous l) = Asynchronous `fmap` e2 l
           e2 (Singleton p) = Singleton `fmap` e3 p
           e2 (l :&&: p) = (:&&:) `fmap` e2 l `ap` e3 p
           e2 (l :||: p) = (:||:) `fmap` e2 l `ap` e3 p
           e3 (Pipeline ps) = Pipeline `fmap` mapM e4 ps
           e3 (BangPipeline ps) = BangPipeline `fmap` mapM e4 ps
-          e4 (Subshell cs rs) = Subshell `fmap` mapM e1 cs
-                                `ap` mapM f rs
           e4 (Statement ws rs as) = Statement `fmap` mapM (mapM e5) ws
                                     `ap` mapM f rs `ap` return as
+          e4 (Compound c rs) = Compound `fmap` e4a c `ap` mapM f rs
+          e4a (For s ss cs') = For s ss `fmap` mapM e1 cs'
+          e4a (If cond thn els) = If `fmap` mapM e1 cond `ap` mapM e1 thn
+                                     `ap` mapM e1 els
+          e4a (Subshell cs) = Subshell `fmap` mapM e1 cs
+          e4a (BraceGroup cs) = BraceGroup `fmap` mapM e1 cs
+          -- more e4a defs as we expand the grammar
           e5 (Quoted lexeme) = Quoted `fmap` e5 lexeme
           e5 (Expand xp) = Expand `fmap` e6 xp
           e5 lexeme = return lexeme
