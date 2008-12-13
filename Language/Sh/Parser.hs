@@ -9,7 +9,7 @@ import Language.Sh.Syntax
 
 import Text.ParserCombinators.Parsec.Error ( ParseError )
 import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
-                                       skipMany,
+                                       skipMany, optional,
                                        (<|>), (<?>), many, try, count,
                                        sepBy1, notFollowedBy, lookAhead,
                                        getInput, setInput, runParser
@@ -148,11 +148,16 @@ reservedWord s = try $ do spaces
                           lookAhead $ normalDelimiter <|> eof
                           spaces
 
-inClause :: P (Maybe [Word])
-inClause = choice [try $ do reservedWord "in"
-                            Just `fmap` many (word NormalContext)
-                  ,try $ do Just `fmap` many1 (word NormalContext)
-                  ,return Nothing]
+inClause :: P [Word]
+inClause = choice [try $ do reservedWord "in" -- "do" OK w/o semicolon?
+                            ws <- many (word NormalContext)
+                            sequentialSep
+                            return $ ws
+                  ,try $ do ws <- many1 (word NormalContext)
+                            sequentialSep
+                            return $ ws
+                  ,optional sequentialSep >> return defaultIn]
+    where defaultIn = [[Quoted $ Expand $ SimpleExpansion "@"]]
 
 compoundCommand :: P CompoundCommand
 compoundCommand = undefined -- parse this, then redirlist, in command
@@ -161,14 +166,13 @@ command :: P Command
 command = do c <- choice [do reservedWord "for"
                              name <- basicName
                              vallist <- inClause
-                             sequentialSep
-                             trace ("vallist: "++show vallist) $ reservedWord "do"
+                             reservedWord "do"
                              cs <- commandsTill "done"
                              return $ Compound (For name vallist cs) []
                          ,Synchronous `fmap` andorlist <?> "list"]
                   <?> "command"
              t <- commandTerminator <?> "terminator"
-             trace ("read command: "++show c) $ return $ if t then Asynchronous c else c
+             return $ if t then Asynchronous c else c
 
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM cond job = cond >>= (unless `flip` job)

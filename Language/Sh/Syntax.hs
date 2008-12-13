@@ -7,7 +7,7 @@ data Command = Synchronous  AndOrList
              | Asynchronous Command
              | Compound CompoundCommand [Redir]
              deriving ( Show )
-data CompoundCommand = For String (Maybe [Word]) [Command]
+data CompoundCommand = For String [Word] [Command]
                      | If [Command] [Command] [Command] -- etc...
                      deriving ( Show )
 data AndOrList = Singleton Pipeline
