@@ -9,7 +9,7 @@ import Control.Monad ( forM_, forM )
 import Control.Monad.Reader ( ReaderT, runReaderT, asks )
 import Control.Monad.Trans ( lift )
 import Data.Char ( isAlphaNum )
-import Data.List ( takeWhile, dropWhile, groupBy )
+import Data.List ( takeWhile, dropWhile, groupBy, intersperse )
 import Data.Maybe ( fromMaybe )
 import Data.Monoid ( Monoid, mappend, mempty )
 
@@ -206,19 +206,36 @@ setEnvW s w = do v <- expandWordE w
                  set s v
 
 getEnvQC :: Monad m => Bool -> Bool -> String -> Exp m (Maybe Word)
-getEnvQC q c n = do v <- get n
+getEnvQC q c n = do v <- getSpecial q n
                     case v of
                       Nothing -> return Nothing
-                      Just "" -> if c then return Nothing
+                      Just [] -> if c then return Nothing
                                       else return $ Just []
-                      Just v' -> return $ Just $ quoteLiteral q v'
+                      Just v' -> return $ Just v'
 
 getEnvQ :: Monad m => Bool -> String -> Exp m Word
-getEnvQ True "*" = undefined -- special treatment
-getEnvQ q n = do v <- get n
-                 case v of
-                   Nothing -> return $ []
-                   Just v' -> return $ quoteLiteral q v'
+getEnvQ q n = fromMaybe [] `fmap` getEnvQC q False n
+
+getSpecial :: Monad m => Bool -> String -> Exp m (Maybe Word)
+getSpecial q "@" = getAtStar q (map Literal)
+getSpecial q "*" = getAtStar q (quoteLiteral q)
+getSpecial q "#" = (Just . quoteLiteral q.show.length) `fmap` getPositionals 1
+getSpecial q n = fmap (quoteLiteral q) `fmap` get n
+
+-- |Helper function for 'getSpecial'.
+getAtStar :: Monad m => Bool -> (String -> Word) -> Exp m (Maybe Word)
+getAtStar q c2l = do ps <- map (quoteLiteral q) `fmap` getPositionals 1
+                     fs <- (c2l . take 1) `fmap` getIFS
+                     return $ if null ps
+                              then Nothing
+                              else Just $ concat $ intersperse fs ps
+
+-- |Returns a list of all the positional parameters from @n@ up.
+getPositionals :: Monad m => Int -> Exp m [String]
+getPositionals n = do v <- get (show n)
+                      case v of
+                        Nothing -> return []
+                        Just v' -> (v':) `fmap` getPositionals (n+1)
 
 -- |Helper function for expansions...  The @Bool@ argument is for
 -- whether or not we're quoted.
@@ -235,11 +252,14 @@ expandWith _ [] = return []
 
 -- |Use @$IFS@ to split fields.
 splitFields :: Monad m => [Word] -> Exp m [Word]
-splitFields w = do ifs <- fmap (fromMaybe " \t\r\n") $ get "IFS"
+splitFields w = do ifs <- getIFS
                    let f (Literal c) = c `elem` ifs
                        f _ = False
                        split = filter (any (not . f)) . (groupBy ((==) `on` f))
                    return $ concatMap split w
+
+getIFS :: Monad m => Exp m String
+getIFS = fmap (fromMaybe " \t\r\n") $ get "IFS"
 
 -- |This always returns a LitWord.
 removeQuotes :: Word -> String
