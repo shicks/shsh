@@ -142,6 +142,13 @@ andorlist = assocL pipeline (try $ (string "||" >> return (:||:))
 
 -- |Also, we can use 'commandTerminator' to substitute heredocs safely because
 -- @<<@ are not allowed in non-command arguments to control structures anyway.
+command :: P Command
+command = do c <- choice [Compound `fmap` compoundCommand `ap` many redirection
+                         ,Synchronous `fmap` andorlist <?> "list"]
+                  <?> "command"
+             t <- commandTerminator <?> "terminator"
+             return $ if t then Asynchronous c else c
+
 reservedWord :: String -> P String
 reservedWord s = try $ do spaces
                           s' <- string s
@@ -158,21 +165,14 @@ inClause = choice [try $ do reservedWord "in" -- "do" OK w/o semicolon?
     where defaultIn = [[Quoted $ Expand $ SimpleExpansion "@"]]
 
 compoundCommand :: P CompoundCommand
-compoundCommand = undefined -- parse this, then redirlist, in command
-
-command :: P Command
-command = do c <- choice [do reservedWord "for"
+compoundCommand = choice [do reservedWord "for"
                              name <- basicName
                              vallist <- inClause
                              reservedWord "do"
                              (cs,_) <- commandsTill $ reservedWord "done"
-                             return $ Compound (For name vallist cs) []
+                             return $ For name vallist cs
                          ,do reservedWord "if"
-                             fmap (Compound `flip` []) parseIf
-                         ,Synchronous `fmap` andorlist <?> "list"]
-                  <?> "command"
-             t <- commandTerminator <?> "terminator"
-             return $ if t then Asynchronous c else c
+                             parseIf]
 
 parseIf :: P CompoundCommand
 parseIf = do (cond,_) <- commandsTill $ reservedWord "then"
