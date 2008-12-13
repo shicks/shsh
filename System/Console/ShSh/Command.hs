@@ -107,6 +107,7 @@ runCompound (If cond thn els) = do ec <- runCommands cond
                                    case ec of
                                      ExitSuccess -> runCommands thn
                                      _           -> runCommands els
+runCompound (BraceGroup cs) = runCommands cs
 runCompound c = fail $ "Control structure "++show c++" not yet supported."
 
 run' :: [String] -> ShellProcess () -- list NOT EMPTY

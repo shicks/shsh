@@ -162,6 +162,9 @@ compoundStatement = choice [do reservedWord "for"
                                schar ')'
                                closeParen
                                return $ Subshell cs
+                           ,do reservedWord "{"
+                               (cs,_) <- commandsTill $ reservedWord "}"
+                               return $ BraceGroup cs
                            ]
 
 parseIf :: P CompoundStatement
