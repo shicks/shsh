@@ -142,6 +142,21 @@ andorlist = assocL pipeline (try $ (string "||" >> return (:||:))
 
 -- |Also, we can use 'commandTerminator' to substitute heredocs safely because
 -- @<<@ are not allowed in non-command arguments to control structures anyway.
+reservedWord :: String -> P ()
+reservedWord s = try $ do spaces
+                          s' <- string s
+                          lookAhead $ normalDelimiter <|> eof
+                          spaces
+
+inClause :: P (Maybe [Word])
+inClause = choice [try $ do reservedWord "in"
+                            Just `fmap` many (word NormalContext)
+                  ,try $ do Just `fmap` many1 (word NormalContext)
+                  ,return Nothing]
+
+compoundCommand :: P CompoundCommand
+compoundCommand = undefined -- parse this, then redirlist, in command
+
 command :: P Command
 command = do c <- choice [do reservedWord "for"
                              name <- basicName
@@ -408,6 +423,11 @@ commands :: P [Command]
 commands = do newlines
               c <- many $ newlines >> command -- maybe get rid of newlines?
               expandHereDocs c -- may not be exhaustive...?
+
+commandsTill :: String -> P [Command]
+commandsTill delim = do newlines
+                        c <- manyTill (newlines >> command) $ try (newlines >> reservedWord delim)
+                        expandHereDocs c -- may not be exhaustive...?
 
 -- |This function simply iterates through the commands until it finds
 -- unexpanded heredocs.  As long as there's a @readHereDoc@ left in the
