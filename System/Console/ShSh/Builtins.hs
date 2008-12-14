@@ -110,6 +110,7 @@ echo = withArgs "echo" header args RequireOrder $ successfully $ \ws -> do
                     "disable interpretation of backslash escapes (default)"]
 
 grep []  = fail "grep requires an argument!"
+grep ("-i":as) = grep as -- for now...
 grep [p] = do x <- iGetContents
               case filter (=~ p) $ lines x of
                 [] -> return $ ExitFailure 1
