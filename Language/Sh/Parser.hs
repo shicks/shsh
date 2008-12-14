@@ -41,9 +41,10 @@ lookaheadNormalDelimiter = lookAhead $
 
 cnewline :: P ()
 cnewline = do spaces
-              (do char '#'
-                  skipMany (noneOf "\n\r")
-                  newline <|> eof) <|> newline     <?> ""
+              newline <|> (do char '#'
+                              skipMany (noneOf "\n\r")
+                              newline <|> eof)         <?> ""
+              spaces
 
 statement :: P Statement
 statement = spaces >> aliasOn >>
@@ -137,10 +138,11 @@ andorlist = assocL pipeline (try $ (string "||" >> return (:||:))
 
 reservedWord :: String -> P String
 reservedWord s = try $ do spaces
-                          s' <- string s
+                          s' <- string s <?> show s
                           lookaheadNormalDelimiter <|> eof
                           spaces
                           return s'
+--                          return $ trace ("got reserved word: "++s) s'
 
 inClause :: P [Word]
 inClause = choice [try $ do reservedWord "in" -- "do" OK w/o semicolon?
@@ -195,6 +197,9 @@ command = do c <- andorlist <?> "list"
              t <- commandTerminator <?> "terminator"
              return $ if t then Asynchronous c
                            else Synchronous  c
+--              trace ("got command: "++show c) $
+--                  return $ if t then Asynchronous c
+--                                else Synchronous  c
 
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM cond job = cond >>= (unless `flip` job)
@@ -260,7 +265,7 @@ closeHereDocs = do hd <- nextHereDoc
 -- else... So we should move over to gobbling spaces after words, rather
 -- than before...
 newlines :: P ()
-newlines = (try (many cnewline) <|> return [()]) >> return ()
+newlines = (try (skipMany cnewline) <|> return ()) >> spaces
 
 -- |Parse a single word.  We need to take a @String@ input so that
 -- we can conditionally end on certain delimiters, e.g. @}@.
@@ -451,7 +456,8 @@ commands = do newlines
               expandHereDocs c -- may not be exhaustive...?
 
 commandsTill :: P String -> P ([Command],String)
-commandsTill delim = do newlines
+commandsTill delim = do --newlines
+                        rest <- getInput
                         (c,e) <- manyTill' (newlines >> command) $
                                  try (newlines >> delim)
                         c' <- expandHereDocs c -- may not be exhaustive...?
