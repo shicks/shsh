@@ -20,7 +20,7 @@ module System.Console.ShSh.Internal.IO (
   joinHandles ) where
 
 import Control.Concurrent ( MVar, newEmptyMVar, takeMVar, putMVar, yield )
-import Control.Monad ( when, unless )
+import Control.Monad ( when, unless, ap )
 import qualified Data.ByteString.Lazy.Char8 as B
 import System.IO ( Handle, hFlush, hClose,
                    hIsEOF, hIsOpen, hIsClosed,
@@ -35,6 +35,7 @@ import System.Console.ShSh.Internal.Chan ( Chan, newChan, isEOFChan,
                                            isOpenChan, requireOpenChan,
                                            isEmptyChan, getChanContents,
                                            readChan, writeChan )
+import System.Console.ShSh.Util ( whenM )
 
 -- * Data Types
 
@@ -186,7 +187,7 @@ wPutStrLn :: WriteHandle -> String -> IO ()
 wPutStrLn w s = wPutStr w (s++"\n")
 
 wFlush :: WriteHandle -> IO ()
-wFlush (WHandle h) = hFlush h
+wFlush (WHandle h) = whenM (hIsOpen h) (hFlush h)
 wFlush (WChan c) = requireOpenChan "wFlush" c
 
 wClose :: WriteHandle -> IO ()

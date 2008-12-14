@@ -1,7 +1,9 @@
 -- |This is a simple module where we define generally useful functions.
 
-module System.Console.ShSh.Util ( equating, split,
+module System.Console.ShSh.Util ( equating, split, whenM,
                                   update, updateWith ) where
+
+import Control.Monad ( when )
 
 equating :: Eq b => (a -> b) -> a -> a -> Bool
 equating p x y = p x == p y
@@ -25,3 +27,7 @@ updateWith :: Eq a => a -> (Maybe b -> b) -> [(a,b)] -> [(a,b)]
 updateWith x f [] = [(x,f Nothing)]
 updateWith x f ((x',y'):xs) | x'==x     = (x',f (Just y')):xs
                             | otherwise = (x',y'):updateWith x f xs
+
+whenM :: Monad m => m Bool -> m () -> m ()
+whenM cond job = do b <- cond
+                    when b job
