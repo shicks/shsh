@@ -13,7 +13,7 @@ import Language.Sh.Syntax ( Word, Lexeme(..) )
 -- we might get a bit fancier if older glob libraries will support
 -- a subset of what we want to do...?
 #ifdef HAVE_GLOB
-import System.FilePath.Glob ( tryCompile, globDir )
+import System.FilePath.Glob ( tryCompile, globDir, factorPath )
 #endif
 
 -- By the time this is called, we should only have quotes and quoted
@@ -88,14 +88,11 @@ expandGlob w = case mkGlob w of
                  Nothing -> return []
                  Just g  -> case tryCompile g of
                               Right g' -> liftIO $
-                                do cwd <- getCurrentDirectory
-                                   hits <- globDir [g'] cwd
-                                   let ps = [pathSeparator]
-                                   return $ map (removePrefix $ cwd++ps) $
-                                          head $ fst $ hits
+                                do let (dir,g'') = factorPath g'
+                                   liftIO $ putStrLn $ show (dir,g'')
+                                   hits <- globDir [g''] dir
+                                   return $ head $ fst $ hits
                               _ -> return []
-    where removePrefix pre s | pre `isPrefixOf` s = drop (length pre) s
-                             | otherwise = s
 #else
 expandGlob = const $ return []
 #endif
