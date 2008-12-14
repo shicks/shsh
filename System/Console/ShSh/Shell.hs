@@ -537,9 +537,9 @@ withEnvironment exp rs as (Shell sub) = Shell $ do
   let redir' (xxx,yyy) zzz = do (xxx',yyy') <- redir exp xxx zzz
                                 return (xxx', yyy' >> yyy)
   (p,closehs) <- foldM redir' (pipest, return ()) rs
-  e <- flip (foldM (assign exp)) as =<< gets environment
+  ls <- flip (foldM (assign exp)) as =<< gets locals
   (result,s') <- catchIO $ runStateT (runErrorT sub) $
-                 s { pipeState = p, environment = e }
+                 s { pipeState = p, locals = ls }
   catchIO closehs
   put $ s' { locals = locals s, pipeState = pipeState s }
   case result of
