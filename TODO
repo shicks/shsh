@@ -3,15 +3,33 @@ Here's a list of all the stuff we need to do.
  - Get the Cabal file working
  - Get Franchise to play nicely with Cabal and two targets (lib and exe)
  - More redirects (deal with fd's correctly...)
- - Implement positional parameters
  - Haddock target
  - Variable attributes (exported, read-only (e.g.  $-))
  - Impossible macro
  - Work out EOT
  - Move bad substitution error from parser into expander
- - Heredoc ordering
  - While sourcing, parse or other error should quit; failing exit code doesn't
- - Test suits for these issues.
  - Figure out what's going on with fatal/non-fatal parse errors - tests?
+ - Use own path, rather than (immutable) system path...
+ - SIGPIPE and other signals!
+ - Do we want to store positional params separately as a [String] and
+   then treat $N specially?  - makes shift/locality easier...
+ - Overhaul ShellProcess...
 
-More later...
+Tests Needed:
+ - Heredocs (incl. ordering - fails)
+ - Parse issues, including robust recovery from fatal errors
+ - Using empty > to create files
+ - Positional/special parameters
+
+Known Issues:
+ - Heredoc ordering is wrong, since we discard the order between
+   Word's and Redir's.  That is, "$(cat <<EOF) <<EOF" will not work
+   as expected.
+
+ - positional parameters NOT getting reset after... i.e. $3 persists
+ - set -e seems to cause some threads to block indefinitely...?
+   -> problem is that evaluating "ec/=ExitSuccess" in checkE is
+      never terminating...
+   -> NO... it's some other thread - the error happens at exitWith...?
+ - evaluating if clause when -e SHOULD NOT check for exit code...
