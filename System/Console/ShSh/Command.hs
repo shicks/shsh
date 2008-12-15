@@ -39,11 +39,11 @@ import Data.Monoid ( mempty )
 data OnErr = IgnoreE | CheckE
 
 -- |Simply run a 'Command'.
-runCommand :: Command -> Shell ExitCode
-runCommand (Asynchronous list) = do runAsync $ withExitHandler $
-                                             runList IgnoreE list
-                                    return ExitSuccess
-runCommand (Synchronous list) = withExitHandler $ runList CheckE list
+runCommand :: OnErr -> Command -> Shell ExitCode
+runCommand _ (Asynchronous list) = do runAsync $ withExitHandler $
+                                               runList IgnoreE list
+                                      return ExitSuccess
+runCommand b (Synchronous list) = withExitHandler $ runList b list
 
 runAsync :: Shell a -> Shell ExitCode
 runAsync _ = fail "Asyncronous commands not yet supported"
@@ -76,56 +76,53 @@ notProcess sp ip = do ec <- sp ip
                         ExitSuccess -> return $ ExitFailure 1
                         ExitFailure _ -> return $ ExitSuccess
 
+checkE :: OnErr -> Shell ExitCode -> Shell ExitCode
+checkE CheckE sp = do ec <- sp
+                      am_e <- getFlag 'e'
+                      when (am_e && ec/=ExitSuccess) $ liftIO $ exitWith ec
+                      return ec
+checkE IgnoreE sp = sp
+
 -- |Run a 'Statement'.
 runStatement :: OnErr -> Statement -> ShellProcess ()
-runStatement IgnoreE s = run s
-runStatement CheckE s = checkE $ run s
-
-checkE :: ShellProcess () -> ShellProcess ()
-checkE sp ip = do ec <- sp ip
-                  am_e <- getFlag 'e'
-                  when (am_e && ec/=ExitSuccess) $ liftIO $
-                       exitWith ec
-                  return ec
-
-run :: Statement -> ShellProcess ()
-run (Compound c rs) ip = mkShellProcess `flip` ip $
-                         withEnvironment expandWord rs [] $ runCompound c
-run (FunctionDefinition s c rs) ip
+runStatement b (Compound c rs) ip
+    = mkShellProcess `flip` ip $ withEnvironment expandWord rs [] $ runCompound b c
+runStatement _ (FunctionDefinition s c rs) ip
     = mkShellProcess `flip` ip $ setFunction s c rs >> return ExitSuccess
-run (Statement ws rs as) ip = do ws' <- expandWords ws
-                                 case ws' of
-                                   [] -> mkShellProcess `flip` ip $
-                                         withEnvironment expandWord rs [] $
-                                         setVars as
-                                   ("local":xs) -> fail "can't do locals yet"
-                                   xs -> withEnvironment expandWord rs as $
-                                         run' xs ip
+runStatement b (Statement ws rs as) ip =
+    checkE b $ do ws' <- expandWords ws
+                  case ws' of
+                    [] -> mkShellProcess `flip` ip $
+                          withEnvironment expandWord rs [] $ setVars as
+                    ("local":xs) -> fail "can't do locals yet"
+                    xs -> withEnvironment expandWord rs as $ run' b xs ip
 
-runCompound (For var list cs) = do ws <- expandWords list
-                                   ecs <- forM ws $ \w -> do setEnv var w
-                                                             runCommands cs
-                                   return $ if null ecs
-                                            then ExitSuccess
-                                            else head $ reverse $ ecs
-runCompound (If cond thn els) = do ec <- runCommands cond
-                                   case ec of
-                                     ExitSuccess -> runCommands thn
-                                     _           -> runCommands els
-runCompound (BraceGroup cs) = runCommands cs
-runCompound c = fail $ "Control structure "++show c++" not yet supported."
+runCompound b (For var list cs) =
+    do ws <- expandWords list
+       ecs <- forM ws $ \w -> do setEnv var w
+                                 runCommands' b cs
+       return $ if null ecs
+                then ExitSuccess
+                else head $ reverse $ ecs
+runCompound b (If cond thn els) =
+    do ec <- runCommands' IgnoreE cond
+       case ec of
+         ExitSuccess -> runCommands' b thn
+         _           -> runCommands' b els
+runCompound b (BraceGroup cs) = runCommands' b cs
+runCompound _ c = fail $ "Control structure "++show c++" not yet supported."
 
-run' :: [String] -> ShellProcess () -- list NOT EMPTY
-run' (".":args) ip = run' ("source":args) ip
-run' (name:args) ip = do func <- getFunction name
-                         case func of
-                           Just (f,rs) -> mkShellProcess `flip` ip $
-                                          withEnvironment expandWord rs pos $
-                                          runCompound f
-                           Nothing     -> run'' (name:args) ip
+run' :: OnErr -> [String] -> ShellProcess () -- list NOT EMPTY
+run' b (".":args) ip = run' b ("source":args) ip
+run' b (name:args) ip =
+    do func <- getFunction name
+       case func of
+         Just (f,rs) -> mkShellProcess `flip` ip $
+                        withEnvironment expandWord rs pos $ runCompound b f
+         Nothing     -> run'' (name:args) ip
     where pos = map (\(n,s)->show n:=map Literal s) $ zip [1..] args
 
-run' [] ip = fail "how did an empty command get through?"
+run' _ [] ip = fail "how did an empty command get through?"
 run'' ("source":f:_) ip = do mkShellProcess (source f) ip
 run'' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
 run'' (command:args) ip = do b <- builtin command
@@ -167,7 +164,10 @@ setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
 -- shell errors (bad substitution, parse, etc) cause it to quite, but
 -- bad exitcodes are OK.
 runCommands :: [Command] -> Shell ExitCode
-runCommands xs = mapM_ runCommand xs >> getExitCode
+runCommands = runCommands' CheckE
+
+runCommands' :: OnErr -> [Command] -> Shell ExitCode
+runCommands' b xs = mapM_ (runCommand b) xs >> getExitCode
 
 -- |We want to set up a @Chan@ to read from a process.
 captureOutput :: Shell a -> Shell String
