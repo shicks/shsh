@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 -- |This module exports a list of builtin commands and how we handle them.
 
 module System.Console.ShSh.Builtins ( builtin ) where
@@ -21,9 +22,7 @@ import System.Console.ShSh.Shell ( ShellT, Shell,
 import System.Console.ShSh.ShellError ( withPrefix )
 import System.Console.ShSh.Util ( split )
 
-import Language.Sh.Syntax ( Redir(..), Assignment(..), Word(..) )
-
-import Control.Monad ( forM_, unless, ap )
+import Control.Monad ( forM_, unless )
 import Control.Monad.State ( put )
 import Control.Monad.Trans ( liftIO )
 import Data.Char ( chr, ord )
@@ -31,7 +30,7 @@ import Data.List ( sort, sortBy )
 import Data.Ord ( comparing )
 import System.Console.GetOpt ( ArgOrder(..) )
 import System.Directory ( getCurrentDirectory, getDirectoryContents )
-import System.Exit ( ExitCode(..), exitWith )
+import System.Exit ( ExitCode(..) )
 
 {- What else do we want...? list here:
   rm
@@ -47,10 +46,10 @@ builtins = [(":",const $ return ExitSuccess),
             ("cd",withPrefix "cd" . chDir),
             ("echo",echo),
             ("exec",const $ return ExitSuccess),
-            ("exit",const $ liftIO $ exitWith ExitSuccess),
+            ("exit", exit),
             ("false",const $ return $ ExitFailure 1),
             ("grep",grep),("ls",ls),
-            ("mkdir",\a -> withExitHandler $ mkDir a),("pwd",pwd),
+            ("mkdir",withExitHandler . mkDir),("pwd",pwd),
             ("cp",withExitHandler . cp), ("mv",withExitHandler . mv),
             ("set",set),
             ("true",const $ return ExitSuccess),
@@ -65,15 +64,13 @@ builtin b = do noBuiltin <- getEnv "NOBUILTIN"
                return $ if r then Nothing
                              else (mkShellProcess .) `fmap` lookup b builtins
 
-source, alias, cat, echo, pwd, set, unset :: [String] -> Shell ExitCode
+alias, cat, echo, ls, pwd, set, unset :: [String] -> Shell ExitCode
 
 alias [] = showAliases
 alias as = mapM_ mkAlias as >> return ExitSuccess
 
 set [] = showEnv >> return ExitSuccess
 set foo = setOpts foo
-
-source _ = fail "don't know how to source yet!"
 
 cat [] = withPrefix "cat" $ do x <- iGetContents
                                oPutStr x
@@ -119,8 +116,8 @@ ls []  = do let unboring ('.':_) = False
             oPutStr $ unlines $ sort $
                     filter unboring fs
             return ExitSuccess
-ls fs = do oPutStrLn "TODO"
-           return ExitSuccess
+ls _ = do oPutStrLn "TODO"
+          return ExitSuccess
 
 unset [] = return ExitSuccess
 unset (a:as) = unsetEnv a >> unset as
@@ -144,8 +141,8 @@ showAliases = do as <- getAliases
                  return ExitSuccess
 
 mkAlias :: String -> Shell ()
-mkAlias a | null eqval = do a <- getAlias name
-                            case a of
+mkAlias a | null eqval = do aa <- getAlias name
+                            case aa of
                               Just v  -> showAlias (name,v)
                               Nothing -> ePutStrLn $
                                          "alias: "++name++" not found"
