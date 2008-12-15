@@ -9,6 +9,7 @@ import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Cp ( cp )
 import System.Console.ShSh.Builtins.Mv ( mv )
 import System.Console.ShSh.Builtins.Exit ( exit )
+import System.Console.ShSh.Builtins.Grep ( grep )
 
 import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
@@ -31,7 +32,6 @@ import Data.Ord ( comparing )
 import System.Console.GetOpt ( ArgOrder(..) )
 import System.Directory ( getCurrentDirectory, getDirectoryContents )
 import System.Exit ( ExitCode(..), exitWith )
-import Text.Regex.Posix ( (=~) )
 
 {- What else do we want...? list here:
   rm
@@ -65,7 +65,7 @@ builtin b = do noBuiltin <- getEnv "NOBUILTIN"
                return $ if r then Nothing
                              else (mkShellProcess .) `fmap` lookup b builtins
 
-source, alias, cat, echo, grep, pwd, set, unset :: [String] -> Shell ExitCode
+source, alias, cat, echo, pwd, set, unset :: [String] -> Shell ExitCode
 
 alias [] = showAliases
 alias as = mapM_ mkAlias as >> return ExitSuccess
@@ -108,24 +108,6 @@ echo = withArgs "echo" header args RequireOrder $ successfully $ \ws -> do
                     "enable interpretation of backslash escapes",
                   flagOff "E" [] 'e'
                     "disable interpretation of backslash escapes (default)"]
-
-grep []  = fail "grep requires an argument!"
-grep ("-i":as) = grep as -- for now...
-grep [p] = do x <- iGetContents
-              case filter (=~ p) $ lines x of
-                [] -> return $ ExitFailure 1
-                ls -> do oPutStr $ unlines ls
-                         return ExitSuccess
-grep (p:fs) = do x <- mapM (liftIO . readFile) fs
-                 let fm = zip fs $ map (filter (=~ p) . lines) x
-                     pretty (f,ls) = if length fs > 1
-                                     then map ((f++":")++) ls
-                                     else ls
-                 if null $ concatMap snd fm
-                    then return $ ExitFailure 1
-                    else do oPutStr $ unlines $
-                                    concatMap pretty fm
-                            return ExitSuccess
 
 pwd _ = do cwd <- liftIO getCurrentDirectory
            oPutStrLn cwd
