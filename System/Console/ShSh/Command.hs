@@ -179,9 +179,9 @@ captureOutput job = do (r,w) <- liftIO $ newPipe
 source :: FilePath -> Shell ExitCode
 source f = do h <- liftIO $ openFile f ReadMode
               source' "" h
-
-source' :: String -> Handle -> Shell ExitCode
-source' i h = do eof <- liftIO $ hIsEOF h
+    where source' :: String -> Handle -> Shell ExitCode
+          source' i h =
+              do eof <- liftIO $ hIsEOF h
                  if eof
                     then getExitCode
                     else liftIO (hGetLine h) >>= \s -> do
