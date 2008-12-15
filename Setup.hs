@@ -43,7 +43,9 @@ buildDoc =
        outputTests <- flip mapDirectory "test/check-output" $ \t ->
                       if ".sh" `isSuffixOf` t
                       then do expected <- cat $ "../known-output/"++t
-                              testOutput t expected $
+                              shshprefix <- whenC ((elem "fails-in-shsh" . words)
+                                                   `fmap` cat t) $ return "failing-"
+                              testOutput (shshprefix++t) expected $
                                    fmap (filter (/='\r')) $ systemOut "shsh" [t]
                               basht <- withProgram "bash" [] $ \_ ->
                                        do prefix <- whenC ((elem "fails-in-bash" . words)
@@ -59,7 +61,7 @@ buildDoc =
                                           testOutput (prefix++dash++"-"++t) expected $
                                                      fmap (filter (/='\r')) $ systemOut dash [t]
                                           return [prefix++dash++"-"++t]
-                              return (t:basht++dasht)
+                              return ((shshprefix++t):basht++dasht)
                       else return []
        test $ concat outputTests
     where buildOneTest f | ".splits" `isSuffixOf` f = return []
