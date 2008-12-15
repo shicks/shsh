@@ -502,17 +502,17 @@ mapRedirsM f cs = mapM e1 cs
 
 expandHereDocs :: [Command] -> P [Command]
 expandHereDocs = mapRedirsM eHD
-    where --eHD (i :<< s) = mk i id
-          --eHD (i :<<- s) = mk i stripTabs
+    where eHD (i :<< s) = mk i id
+          eHD (i :<<- s) = mk i stripTabs
           eHD r = return r
           stripTabs [] = []
           stripTabs (Literal n:Literal '\t':rest)
               | n `elem` "\n\r" = stripTabs (Literal n:rest)
           stripTabs (x:xs) = x:stripTabs xs
---           mk i f = do mwb <- nextHDReplacement
---                       case mwb of -- do we need the Nothing case? (impossible?)
---                         Just (w,b) -> return $ Heredoc i b (f w)
---                         Nothing    -> return $ Heredoc i False []
+          mk i f = do mwb <- nextHDReplacement
+                      case mwb of -- do we need the Nothing case? (impossible?)
+                        Just (w,b) -> return $ Heredoc i b (f w)
+                        Nothing    -> return $ Heredoc i False []
 
 -- here's a smart use of the Monad class...! :-)
 hereDocsComplete :: [Command] -> Bool
