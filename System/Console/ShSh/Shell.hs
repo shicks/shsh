@@ -471,12 +471,9 @@ withHandler_ :: Shell a -> Shell ()
 withHandler_ s = withHandler s >> return ()
 
 withExitHandler :: Shell ExitCode -> Shell ExitCode
-withExitHandler s = do ame <- getFlag 'e'
-                       catchError (catchS s $ \_ -> return ExitSuccess)
-                           $ \e -> if ame
-                                   then throwError e
-                                   else do announceError e
-                                           return $ exitCode e
+withExitHandler s = catchError (catchS s $ \_ -> return ExitSuccess)
+                    $ \e -> do announceError e
+                               return $ exitCode e
 
 assign :: (Word -> Shell String) -> [(String,String)]
        -> Assignment -> InnerShell () [(String,String)]
