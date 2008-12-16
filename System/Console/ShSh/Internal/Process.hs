@@ -135,10 +135,10 @@ launch c args ps =
                          Just $ toReadHandle e, waitForProcess pid)
              (WCreatePipe, _) -> fail "launch bug 1"
              (_, WCreatePipe) -> fail "launch bug 2"
-             _ -> do p1 <- openPipe (toReadHandle o) outs
-                     p2 <- openPipe (toReadHandle e) errs
+             _ -> do p1 <- outChanPipe o outs
+                     p2 <- outChanPipe e errs
                      return (Just $ toWriteHandle i, Nothing, Nothing,
-                             do sequence_ [p1,p2,hClose o, hClose e]
+                             do sequence_ [p1,p2]
                                 waitForProcess pid)
     RInherit -> case (p_out ps, p_err ps) of
                   (WCreatePipe, _) -> fail "launch bug 3"
@@ -152,10 +152,10 @@ launch c args ps =
                                       waitForProcess pid)
                        _ -> do (ii,oo,ee,pid) <- runInteractiveProcess c args Nothing Nothing
                                hClose ii -- this isn't right...
-                               p1 <- openPipe (toReadHandle oo) outs
-                               p2 <- openPipe (toReadHandle ee) errs
+                               p1 <- outChanPipe oo outs
+                               p2 <- outChanPipe ee errs
                                return (Nothing, Nothing, Nothing,
-                                       do sequence_ [p1,p2,hClose oo, hClose ee]
+                                       do sequence_ [p1,p2]
                                           waitForProcess pid)
     RUseHandle hin ->
         case (p_out ps, p_err ps) of
@@ -167,12 +167,13 @@ launch c args ps =
                       return (Nothing, Nothing, Nothing,
                               waitForProcess pid)
                (Nothing, _, _) ->
-                   do (ii, oo, ee, pid) <- runInteractiveProcess c args Nothing Nothing
-                      p1 <- openPipe hin $ toWriteHandle ii
-                      p2 <- openPipe (toReadHandle oo) outs
-                      p3 <- openPipe (toReadHandle ee) errs
+                   do putStrLn "hello world!"
+                      (ii, oo, ee, pid) <- runInteractiveProcess c args Nothing Nothing
+                      p1 <- inChanPipe hin ii
+                      p2 <- outChanPipe oo outs
+                      p3 <- outChanPipe ee errs
                       return (Nothing, Nothing, Nothing,
-                              do sequence_ [p1,p2,p3,hClose oo,hClose ee,hClose ii]
+                              do sequence_ [p1,p2,p3]
                                  waitForProcess pid)
     where errs = case p_err ps of WInherit -> toWriteHandle stderr
                                   WUseHandle herr -> herr
@@ -183,13 +184,13 @@ launch c args ps =
 #endif
 
 outChanPipe :: Handle -> WriteHandle -> IO (IO ())
-outChanPipe h c = openPipe (toReadHandle h) c
+outChanPipe r w = do mv <- newEmptyMVar
+                     forkIO $ joinHandles (toReadHandle r) w $ do putMVar mv ()
+                                                                  hClose r
+                     return $ takeMVar mv
 
 inChanPipe :: ReadHandle -> Handle -> IO (IO ())
-inChanPipe c h = openPipe c (toWriteHandle h)
-
-openPipe :: ReadHandle -> WriteHandle -> IO (IO ())
-openPipe r w = do -- read (output) handle, write (input) handle
-  mv <- newEmptyMVar
-  forkIO $ joinHandles r w $ putMVar mv () >> return ()
-  return $ takeMVar mv
+inChanPipe r w = do mv <- newEmptyMVar
+                    forkIO $ joinHandles r (toWriteHandle w) $ do putMVar mv ()
+                                                                  hClose w
+                    return $ takeMVar mv
