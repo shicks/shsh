@@ -146,8 +146,8 @@ reservedWord s = try $ do spaces
 
 inClause :: P [Word]
 inClause = choice [try $ do reservedWord "in" -- "do" OK w/o semicolon?
-                            ws <- many (word NormalContext)
-                            sequentialSep
+                            ws <- manyTill (word NormalContext) $
+                                  try $ spaces >> sequentialSep
                             return $ ws
                   ,optional sequentialSep >> return defaultIn]
     where defaultIn = [[Quoted $ Expand $ SimpleExpansion "@"]]
