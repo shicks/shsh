@@ -21,6 +21,7 @@ import System.Exit ( ExitCode )
 #ifdef HAVE_CREATEPROCESS
 import System.Process ( std_in, std_out, std_err, proc, StdStream(..),
                         createProcess, waitForProcess )
+import System.IO ( hClose )
 #else
 import System.Process ( runInteractiveProcess, runProcess, waitForProcess )
 import System.IO ( stdout, stderr, hGetContents, hPutStr, hClose )
