@@ -10,7 +10,7 @@ module System.Console.ShSh.Internal.Chan ( Chan, newChan, closeChan,
                                          ) where
 
 import Control.Concurrent ( MVar, newEmptyMVar, isEmptyMVar,
-                            takeMVar, putMVar )
+                            takeMVar, putMVar, yield )
 import qualified Control.Concurrent.Chan as C
 
 import qualified Data.ByteString.Lazy as B
@@ -62,7 +62,8 @@ getChanContents (A c _) = do bs <- C.getChanContents c
 -- not at empty.
 readChan :: Chan -> IO B.ByteString
 readChan (A c _) = do b <- C.readChan c
-                      if B.null b then fail "readChan: file closed"
+                      if B.null b then do C.unGetChan c b
+                                          fail "readChan: file closed"
                                   else return b
 
 -- |We're not allowed to write to the @Chan@ if it's closed, and the only
@@ -77,8 +78,8 @@ unGetChan (A c _) b = unless (B.null b) $ C.unGetChan c b
 
 -- |Here we interface with the messy part of @unGet@ting 'Nothing's.
 isEOFChan :: Chan -> IO Bool
-isEOFChan (A c _) = do e <- C.isEmptyChan c
-                       if e then return False
+isEOFChan (A c v) = do e <- C.isEmptyChan c
+                       if e then yield >> isEOFChan (A c v)
                             else do b <- C.readChan c
                                     C.unGetChan c b
                                     return $ B.null b

@@ -188,7 +188,7 @@ wPutStrLn w s = wPutStr w (s++"\n")
 
 wFlush :: WriteHandle -> IO ()
 wFlush (WHandle h) = whenM (hIsOpen h) (hFlush h)
-wFlush (WChan c) = requireOpenChan "wFlush" c
+wFlush (WChan c) = return () -- requireOpenChan "wFlush" c
 
 wClose :: WriteHandle -> IO ()
 wClose (WChan c) = closeChan c
