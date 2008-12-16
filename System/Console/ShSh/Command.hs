@@ -117,7 +117,6 @@ runCompound b (BraceGroup cs) = runCommands' b cs
 runCompound _ c = fail $ "Control structure "++show c++" not yet supported."
 
 run' :: OnErr -> [String] -> ShellProcess () -- list NOT EMPTY
-run' b (".":args) ip = run' b ("source":args) ip
 run' b (name:args) ip =
     do func <- getFunction name
        case func of
@@ -127,6 +126,7 @@ run' b (name:args) ip =
     where pos = map (\(n,s)->show n:=map Literal s) $ zip [1..] args
 
 run' _ [] ip = fail "how did an empty command get through?"
+run'' (".":args) ip = run'' ("source":args) ip
 run'' ("source":f:_) ip = do mkShellProcess (source f) ip
 run'' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
 run'' (command:args) ip = do b <- builtin command

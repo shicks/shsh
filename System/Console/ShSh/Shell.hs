@@ -26,16 +26,18 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                  )
     where
 
+import Control.Applicative ( (<|>) )
 import Control.Concurrent ( forkIO, MVar, newEmptyMVar, putMVar, takeMVar )
-import Control.Monad ( MonadPlus, mzero, mplus, when, foldM )
+import Control.Monad ( MonadPlus, mzero, mplus, when, foldM, join )
 import Control.Monad.Error ( ErrorT, runErrorT,
                              MonadError, throwError, catchError )
 import Control.Monad.State ( MonadState, get, put, runStateT,
                              StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, lift, liftIO )
+import Data.Bits ( Bits )
 import Data.Char ( isDigit )
 import Data.List ( lookup, union, unionBy, (\\) )
-import Data.Maybe ( fromMaybe, isJust, listToMaybe )
+import Data.Maybe ( fromMaybe, fromJust, isJust, listToMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
 import System.Directory ( getCurrentDirectory, setCurrentDirectory,
                           getHomeDirectory, doesFileExist )
@@ -63,11 +65,15 @@ import System.Console.ShSh.Compat ( on )
 import Language.Sh.Syntax ( Word, CompoundStatement,
                             Redir(..), Assignment(..) )
 
--- I might want to look into using ST to thread the state...?
+data VarFlags = VarFlags { exported :: Bool, readonly :: Bool }
+
+instance Monoid VarFlags where
+    mempty = VarFlags False False
+    VarFlags a b `mappend` VarFlags a' b' = VarFlags (a||a') (b||b')
 
 data ShellState e = ShellState {
-      environment :: [(String,String)],
-      locals      :: [(String,String)],
+      environment :: [(String,(VarFlags,String))],
+      locals      :: [(String,(VarFlags,Maybe String))], -- undefined vars too
       aliases     :: [(String,String)],
       functions   :: [(String,(CompoundStatement,[Redir]))],
       pipeState   :: PipeState,
@@ -91,7 +97,7 @@ unshell :: ShellT e a -> InnerShell e a
 unshell (Shell s) = s
 
 instance MonadSIO (InnerShell e) where
-    iHandle = (fromReadStream stdin . p_in) `fmap` gets pipeState
+    iHandle = (fromReadStream  stdin  . p_in)  `fmap` gets pipeState
     oHandle = (fromWriteStream stdout . p_out) `fmap` gets pipeState
     eHandle = (fromWriteStream stderr . p_err) `fmap` gets pipeState
 
@@ -107,10 +113,23 @@ update x y [] = [(x,y)]
 update x y ((x',y'):xs) | x'==x     = (x',y):xs
                         | otherwise = (x',y'):update x y xs
 
-updateWith :: Eq a => a -> (Maybe b -> b) -> [(a,b)] -> [(a,b)]
-updateWith x f [] = [(x,f Nothing)]
-updateWith x f ((x',y'):xs) | x'==x     = (x',f (Just y')):xs
-                            | otherwise = (x',y'):updateWith x f xs
+alter :: Eq a => a -> (Maybe b -> b) -> [(a,b)] -> [(a,b)]
+alter x f [] = [(x,f Nothing)]
+alter x f ((x',y'):xs) | x'==x     = (x',f (Just y')):xs
+                       | otherwise = (x',y'):alter x f xs
+
+-- More elaborate updateWith...
+alterM :: (Monad m,Functor m,Eq a)
+       => a -> (Maybe b -> m (Maybe b)) -> [(a,b)] -> m [(a,b)]
+alterM x f [] = do y <- f Nothing
+                   return $ case y of Nothing -> []
+                                      Just y' -> [(x,y')]
+alterM x f ((x0,y0):xs) | x0==x = do y <- f $ Just y0
+                                     xs' <- alterM x f xs
+                                     return $ case y of
+                                       Nothing -> xs'
+                                       Just y' -> (x,y'):xs'
+                        | otherwise = ((x0,y0):) `fmap` alterM x f xs
 
 class Maybeable a m where
     toMaybe :: m -> Maybe a
@@ -135,11 +154,12 @@ instance Monad m => Stringy m String where
 -- guarantee no failure.
 getEnv :: Stringy (InnerShell e) s => String -> ShellT e s
 getEnv s = Shell $ do e <- gets environment
-                      maybeToStringy (lookup s e) s
+                      maybeToStringy $ join (snd `fmap` lookup s e) s
 
 -- |This is a simpler version because we also give a default.
 tryEnv :: String -> String -> ShellT e String
-tryEnv d s = Shell $ gets environment >>= return . fromMaybe d . lookup s
+tryEnv d s = Shell $ gets environment >>= 
+                          return . fromMaybe d . join . fmap snd (lookup s)
 
 -- |Not much here - we don't care if the thing is currently defined or not:
 -- we just set it either way.
@@ -165,13 +185,26 @@ $ echo $B  # now it's 50...
 -- bash's behavior... (i.e. we could set the global version also no 
 -- matter what)
 
-setEnv :: String -> String -> ShellT e ()
-setEnv s x = Shell $ do e <- gets environment
+setVarHelper :: String -> Maybe String -> [(String,(VarFlags,a))]
+             -> Shell [(String,(VarFlags,a))]
+setVarHelper n v xs = alterM n f xs
+    where f Nothing  = return $ Just (mempty,v)
+          f (Just (flags,x)) | readonly flags = fail $ n++": is read only"
+                             | otherwise = return $ Just (flags,v)
+
+-- |Now this is more general - we can unset vars with it!  It also treats
+-- locals correctly.
+setEnv :: Maybeable String a => String -> a -> ShellT e ()
+setEnv s x = Shell $ do let mx = toMaybe x
+                        e <- gets environment
                         l <- gets locals
+                        e' <- case mx of
+                                Just x' -> setVarHelper s x' e
+                                Nothing -> return $ filter ((/=s).fst) e
+                        l' <- setVarHelper s mx l
                         case lookup s l of
-                          Just v -> modify $ \st -> st { locals = update s x l }
-                          Nothing -> modify $ \st ->
-                                        st { environment = update s x e }
+                          Just v -> modify $ \st -> st { locals = l' }
+                          Nothing -> modify $ \st -> st { environment = e' }
 
 setFunction :: String -> CompoundStatement -> [Redir] -> ShellT e ()
 setFunction s c rs = Shell $ modify $ \st -> st { functions = update s (c,rs) $
@@ -190,14 +223,14 @@ getExitCode = do e <- getEnv "?"
                                     n -> return $ ExitFailure n
                    Nothing -> return ExitSuccess
 
-setLocal :: String -> String -> ShellT e ()
-setLocal s x = Shell $ modify $ \st -> st { locals = update s x $ locals st }
+makeLocal :: String -> ShellT e ()
+makeLocal var = Shell $ do x <- getEnv var
+                           l <- gets locals
+                           modify $ \st -> st { locals = setVarHelper var x l }
 
 -- |Remove the environment variable from the list.
 unsetEnv :: String -> ShellT e ()
-unsetEnv s = Shell $ modify $ \st ->
-             st { environment = filter ((/=s).fst) (environment st),
-                  locals = filter ((/=s).fst) (locals st) }
+unsetEnv = setEnv `flip` Nothing
 
 -- |This is a bit more complicated, but basically what it says is that
 -- we can give it any function from something string-like to something else
@@ -213,11 +246,17 @@ withEnv s f = do e <- getEnv s
                    Just v  -> setEnv s v
                    Nothing -> unsetEnv s
 
-joinStringSet :: [(String,String)] -> [(String,String)] -> [(String,String)]
+joinStringSet :: Eq a => [(a,b)] -> [(a,b)] -> [(a,b)]
 joinStringSet = unionBy ((==) `on` fst)
 
 getAllEnv :: ShellT a [(String,String)]
-getAllEnv = Shell $ gets $ \s -> joinStringSet (locals s) (environment s)
+getAllEnv = Shell $ do l <- gets locals
+                       e <- gets environment
+                       let e' = map (\(a,(b,c))->(a,Just c)) e
+                           l' = map (\(a,(b,c))->(a,c)) l
+                       return $ map (\(a,b)->(a,fromJust b)) $
+                                filter (isJust.snd) $
+                                unionBy ((==)`on`fst) l' e'
 
 
 -- *Alias commands
@@ -264,15 +303,12 @@ startState = do e <- getEnvironment
                                     `catch` \_ -> return cwd
                 setCurrentDirectory cwd
                 home <- getHomeDirectory
-                let e' = updateWith "SHELL" (const "shsh") $
-                         updateWith "PWD" (const pwdval) $
-                         updateWith "HOME" (fromMaybe home) $
-                         updateWith "-" (fromMaybe f) e
+                let e' = update "SHELL" "shsh" $ update "PWD" pwdval $
+                         alter "HOME" (<|> home) $ alter "-" (<|> f) e
                 return $ ShellState e' [] [] [] mempty mempty
 
 startShell :: Monoid e => ShellT e ExitCode -> IO ExitCode
-startShell a = do s <- startState
-                  runShell a s
+startShell a = runShell a =<< startState
 
 runShell :: ShellT e ExitCode -> ShellState e -> IO ExitCode
 runShell (Shell s) e = do result <- evalStateT (runErrorT s) e
