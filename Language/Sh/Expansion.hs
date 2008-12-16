@@ -217,8 +217,8 @@ getEnvQ :: Monad m => Bool -> String -> Exp m Word
 getEnvQ q n = fromMaybe [] `fmap` getEnvQC q False n
 
 getSpecial :: Monad m => Bool -> String -> Exp m (Maybe Word)
-getSpecial q "@" = getAtStar q (map Literal)
-getSpecial q "*" = getAtStar q (quoteLiteral q)
+getSpecial q "@" = getAtStar q $ (++[SplitField]) . map Literal
+getSpecial q "*" = getAtStar q $ quoteLiteral q
 getSpecial q "#" = (Just . quoteLiteral q.show.length) `fmap` getPositionals 1
 getSpecial q n = fmap (quoteLiteral q) `fmap` get n
 
@@ -253,8 +253,9 @@ expandWith _ [] = return []
 -- |Use @$IFS@ to split fields.
 splitFields :: Monad m => [Word] -> Exp m [Word]
 splitFields w = do ifs <- getIFS
-                   let f (Literal c) = c `elem` ifs
-                       f _ = False
+                   let f SplitField  = True
+                       f (Literal c) = c `elem` ifs
+                       f _           = False
                        split = filter (any (not . f)) . (groupBy ((==) `on` f))
                    return $ concatMap split w
 
@@ -264,6 +265,7 @@ getIFS = fmap (fromMaybe " \t\r\n") $ get "IFS"
 -- |This always returns a LitWord.
 removeQuotes :: Word -> String
 removeQuotes [] = ""
+removeQuotes (SplitField:xs) = removeQuotes xs -- IFS should already be here
 removeQuotes (Quote _:xs) = removeQuotes xs
 removeQuotes (Quoted x:xs) = removeQuotes $ x:xs
 removeQuotes (Expand _:xs) = undefined -- shouldn't happen

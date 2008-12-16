@@ -28,6 +28,7 @@ data CompoundStatement = For String [Word] [Command]
 type Word = [Lexeme]
 data Lexeme = Literal Char | Quote Char
             | Expand Expansion | Quoted Lexeme
+            | SplitField -- this one should never come from parsing
             deriving ( Show )
 data Expansion = SimpleExpansion String
                | FancyExpansion String Char Bool Word
