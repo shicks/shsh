@@ -12,6 +12,7 @@ import System.Console.ShSh.Builtins.Cp ( cp )
 import System.Console.ShSh.Builtins.Mv ( mv )
 import System.Console.ShSh.Builtins.Exit ( exit )
 import System.Console.ShSh.Builtins.Grep ( grep )
+import System.Console.ShSh.Builtins.Sort ( runSort )
 
 import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
@@ -51,7 +52,7 @@ builtins = [(":",const $ return ExitSuccess),
             ("false",const $ return $ ExitFailure 1),
             ("grep",grep), ("ls",ls),
             ("mkdir",mkDir), ("mv",mv), ("pwd",pwd),
-            ("set",set), ("shift",shift),
+            ("set",set), ("shift",shift), ("sort",runSort),
             ("true",const $ return ExitSuccess),
             ("unalias",unalias),("unset",unset)]
             
