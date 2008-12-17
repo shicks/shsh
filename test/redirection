@@ -1,0 +1,26 @@
+Redirecting output of compound commands
+=======================================
+
+Here are some test cases involving redirection of output.
+
+~~~~ check-output/redirection.sh
+# fails-in-shsh
+announce () { "$@" && echo it works || echo it failed; }
+
+announce echo foo bar > out
+
+echo checking out out
+cat out
+echo grepping from out
+grep works out
+grep 'foo bar' out
+~~~~
+
+~~~~ known-output/redirection.sh
+checking out out
+foo bar
+it works
+grepping from out
+it works
+foo bar
+~~~~
