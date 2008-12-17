@@ -18,6 +18,7 @@ import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( ShellT, Shell,
                                    getPositionals, modifyPositionals,
                                    getAlias, getAliases, setAlias,
+                                   unsetAlias, unsetAllAliases,
                                    getAllEnv, getEnv, unsetEnv,
                                    ShellProcess, mkShellProcess )
 import System.Console.ShSh.ShellError ( withPrefix )
@@ -45,15 +46,14 @@ builtins :: [(String,[String] -> Shell ExitCode)]
 builtins = [(":",const $ return ExitSuccess),
             ("alias",alias),("cat",cat),
             ("cd",chDir), ("cmp",cmp), ("cp",cp),
-            ("echo",echo),
-            ("exec",const $ return ExitSuccess),
+            ("echo",echo),("exec",const $ return ExitSuccess),
             ("exit", exit),
             ("false",const $ return $ ExitFailure 1),
             ("grep",grep), ("ls",ls),
             ("mkdir",mkDir), ("mv",mv), ("pwd",pwd),
             ("set",set), ("shift",shift),
             ("true",const $ return ExitSuccess),
-            ("unset",unset)]
+            ("unalias",unalias),("unset",unset)]
             
 builtin :: String -> Shell (Maybe ([String] -> ShellProcess ()))
 builtin b = do noBuiltin <- getEnv "NOBUILTIN"
@@ -64,10 +64,14 @@ builtin b = do noBuiltin <- getEnv "NOBUILTIN"
                return $ if r then Nothing
                              else (mkShellProcess .) `fmap` lookup b builtins
 
-alias, cat, echo, ls, pwd, set, shift, unset :: [String] -> Shell ExitCode
+alias, cat, echo, ls, pwd, set, shift, unalias, unset
+    :: [String] -> Shell ExitCode
 
 alias [] = showAliases
 alias as = mapM_ mkAlias as >> return ExitSuccess
+
+unalias ("-a":_) = unsetAllAliases >> return ExitSuccess
+unalias as = mapM_ unsetAlias as >> return ExitSuccess
 
 set [] = showEnv >> return ExitSuccess
 set foo = setOpts foo

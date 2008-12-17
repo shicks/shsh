@@ -127,7 +127,9 @@ run' b (name:args) ip =
 
 run' _ [] ip = fail "how did an empty command get through?"
 run'' (".":args) ip = run'' ("source":args) ip
-run'' ("source":f:_) ip = do mkShellProcess (source f) ip
+run'' ("source":f:args) ip = do mkShellProcess (withPositionals args $
+                                                source f) ip
+run'' ("source":f:[]) ip = do mkShellProcess (source f) ip
 run'' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
 run'' (command:args) ip = do b <- builtin command
                              oFlush -- to behave like external commands, need to
@@ -164,6 +166,8 @@ runWithArgs cmd args ip
 setVars [] = return ExitSuccess
 setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
 
+-- |These should really be in 'Builtins', but we want them outside the
+-- 'withEnvironment'...  we could process in multiple stages...
 setLocals [] = return ExitSuccess
 setLocals (x:xs) = do let (name,val) = break (=='=') x
                       makeLocal name

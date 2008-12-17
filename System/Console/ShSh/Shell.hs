@@ -12,6 +12,7 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getPositionals, modifyPositionals,
                                    setFunction, getFunction,
                                    setAlias, getAlias, getAliases,
+                                   unsetAlias, unsetAllAliases,
                                    getExitCode,
                                    getFlag, setFlag, unsetFlag, getFlags,
                                    runShell_, runShell,
@@ -296,6 +297,13 @@ modifyPositionals f = Shell $ modify $
 setAlias :: String -> String -> ShellT e ()
 setAlias s x = Shell $ modify $ \st ->
                st { aliases = update s x (aliases st) }
+
+unsetAlias :: String -> ShellT e ()
+unsetAlias s = Shell $ modify $ \st ->
+               st { aliases = filter ((/=s).fst) (aliases st) }
+
+unsetAllAliases :: ShellT e ()
+unsetAllAliases = Shell $ modify $ \st -> st { aliases = [] }
 
 getAlias :: Stringy (InnerShell e) s => String -> ShellT e s
 getAlias s = Shell $ do e <- gets aliases
