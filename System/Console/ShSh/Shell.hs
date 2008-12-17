@@ -438,7 +438,8 @@ withPipes p (Shell s) = Shell $ do
 
 runInShell :: String -> [String] -> ShellProcess e
 runInShell c args ip = Shell $ do ps <- gets pipeState
-                                  (mh,_,_,wait) <- catchIO $ launch c args $
+                                  exp <- unshell getExports
+                                  (mh,_,_,wait) <- catchIO $ launch c args exp $
                                                                 fixInput ip ps
                                   unshell $ returnHandle ip mh
                                   -- do we need to wait for any open pipes...?

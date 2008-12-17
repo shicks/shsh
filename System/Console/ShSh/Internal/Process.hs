@@ -19,7 +19,7 @@ import Data.Monoid ( Monoid, mempty, mappend )
 import System.IO ( Handle )
 import System.Exit ( ExitCode )
 #ifdef HAVE_CREATEPROCESS
-import System.Process ( std_in, std_out, std_err, proc, StdStream(..),
+import System.Process ( std_in, std_out, std_err, env, proc, StdStream(..),
                         createProcess, waitForProcess )
 import System.IO ( hClose )
 #else
@@ -89,24 +89,26 @@ toReadStream = RUseHandle . toReadHandle
 
 -- This is a tricky function...  This PipeState needs to have CreatePipe.
 -- But the Shell's stored one does not.
-launch :: String -> [String] -> PipeState -> IO (Maybe WriteHandle,
-                                                 Maybe ReadHandle,
-                                                 Maybe ReadHandle,
-                                                 IO ExitCode)
+launch :: String -> [String] -> [(String,String)] -> PipeState
+       -> IO (Maybe WriteHandle,
+              Maybe ReadHandle,
+              Maybe ReadHandle,
+              IO ExitCode)
 #ifdef HAVE_CREATEPROCESS
-launch c args ps = do let is = rMkStream $ p_in  ps
-                          os = wMkStream $ p_out ps
-                          es = wMkStream $ p_err ps
-                      (i,o,e,pid) <- createProcess $
-                                     (proc c args) { std_in  = is,
-                                                     std_out = os,
-                                                     std_err = es }
-                      (ih,ps1) <- rProcess i (p_in ps) ps
-                      (oh,ps2) <- wProcess o (p_out ps) ps
-                      (eh,ps3) <- wProcess e (p_err ps) ps
-                      return (ih,oh,eh,
-                              do sequence_ $ concat [ps1,ps2,ps3]
-                                 waitForProcess pid)
+launch c args vars ps = do let is = rMkStream $ p_in  ps
+                               os = wMkStream $ p_out ps
+                               es = wMkStream $ p_err ps
+                           (i,o,e,pid) <- createProcess $
+                                          (proc c args) { env = Just vars,
+                                                          std_in  = is,
+                                                          std_out = os,
+                                                          std_err = es }
+                           (ih,ps1) <- rProcess i (p_in ps) ps
+                           (oh,ps2) <- wProcess o (p_out ps) ps
+                           (eh,ps3) <- wProcess e (p_err ps) ps
+                           return (ih,oh,eh,
+                                   do sequence_ $ concat [ps1,ps2,ps3]
+                                      waitForProcess pid)
     where rMkStream RInherit    = Inherit
           rMkStream RCreatePipe = CreatePipe
           rMkStream (RUseHandle h) = fromMaybe CreatePipe $
@@ -126,10 +128,10 @@ launch c args ps = do let is = rMkStream $ p_in  ps
           wProcess (Just h) (WUseHandle c) p = do pipe <- outChanPipe h c
                                                   return (Nothing,[pipe])
 #else
-launch c args ps =
+launch c args env ps =
     case p_in ps of
     RCreatePipe ->
-        do (i,o,e,pid) <- runInteractiveProcess c args Nothing Nothing
+        do (i,o,e,pid) <- runInteractiveProcess c args Nothing (Just env)
            case (p_out ps, p_err ps) of
              (WCreatePipe, WCreatePipe) ->
                  return (Just $ toWriteHandle i, Just $ toReadHandle o,
@@ -148,10 +150,10 @@ launch c args ps =
                        (Just ho, Just he) ->
                            do let mho = if ho == stdout then Nothing else Just ho
                                   mhe = if he == stderr then Nothing else Just he
-                              pid <- runProcess c args Nothing Nothing Nothing mho mhe
+                              pid <- runProcess c args Nothing (Just env) Nothing mho mhe
                               return (Nothing, Nothing, Nothing,
                                       waitForProcess pid)
-                       _ -> do (ii,oo,ee,pid) <- runInteractiveProcess c args Nothing Nothing
+                       _ -> do (ii,oo,ee,pid) <- runInteractiveProcess c args Nothing (Just env)
                                hClose ii -- this isn't right...
                                p1 <- outChanPipe oo outs
                                p2 <- outChanPipe ee errs
@@ -164,12 +166,12 @@ launch c args ps =
           (_, WCreatePipe) -> fail "launch bug 6"
           _ -> case (fromReadHandle hin, fromWriteHandle outs, fromWriteHandle errs) of
                (Just i, Just o, Just e) ->
-                   do pid <- runProcess c args Nothing Nothing (Just i) (Just o) (Just e)
+                   do pid <- runProcess c args Nothing (Just env) (Just i) (Just o) (Just e)
                       return (Nothing, Nothing, Nothing,
                               waitForProcess pid)
                (Nothing, _, _) ->
                    do putStrLn "hello world!"
-                      (ii, oo, ee, pid) <- runInteractiveProcess c args Nothing Nothing
+                      (ii, oo, ee, pid) <- runInteractiveProcess c args Nothing (Just env)
                       p1 <- inChanPipe hin ii
                       p2 <- outChanPipe oo outs
                       p3 <- outChanPipe ee errs
