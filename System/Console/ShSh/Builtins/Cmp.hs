@@ -1,6 +1,6 @@
 module System.Console.ShSh.Builtins.Cmp ( cmp ) where
 
-import System.Console.ShSh.IO ( oPutStrLn, ePutStrLn )
+import System.Console.ShSh.IO ( iGetContents, oPutStrLn, ePutStrLn )
 import System.Console.ShSh.Shell ( Shell, ShellT, withSubState )
 import System.Console.ShSh.ShellError ( exit )
 
@@ -40,16 +40,16 @@ cmp args = do withSubState (sequence_ opts>>run) noOpts
                      [] -> fail "missing operand"
                      [s] -> fail $ "missing operand after `"++s++"'"
                      [a,b] -> do --oPutStrLn $ unwords ["running cmp",a,b]
-                                 ae <- liftIO $ doesFileExist a
-                                 unless ae $ fail $ unwords [a,"does not exist"]
-                                 aa <- filter (/='\r') `fmap` liftIO (readFile a)
-                                 be <- liftIO $ doesFileExist b
-                                 unless be $ fail $ unwords [b,"does not exist"]
-                                 bb <- filter (/='\r') `fmap` liftIO (readFile b)
-                                 if aa == bb
+                                 aa <- readF a
+                                 bb <- readF b
+                                 if length aa == length bb && aa == bb
                                     then return ()
                                     else fail $ unwords ["files",a,"and",b,
                                                          "differ.",
                                                          show $ length aa,
                                                          show $ length bb]
                      args -> fail $ "too many arguments:  "++ show (length args)
+          readF "-" = filter (/='\r') `fmap` iGetContents
+          readF f = do exists <- liftIO $ doesFileExist f
+                       unless exists $ fail $ unwords [f,"does not exist"]
+                       filter (/='\r') `fmap` liftIO (readFile f)
