@@ -1,0 +1,17 @@
+Passing of environment variables
+================================
+
+Here are some test cases environment exporting
+
+~~~~ check-output/environment.sh
+export FOO=foo
+shsh -c 'echo FOO is $FOO'
+FOO=bar shsh -c 'echo FOO is $FOO'
+shsh -c 'echo FOO is $FOO'
+~~~~
+
+~~~~ known-output/environment.sh
+FOO is foo
+FOO is bar
+FOO is foo
+~~~~
