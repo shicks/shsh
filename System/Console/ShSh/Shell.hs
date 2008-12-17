@@ -78,11 +78,17 @@ instance Monoid VarFlags where
 data ShellState e = ShellState {
       environment :: [(String,(VarFlags,String))],
       locals      :: [(String,(VarFlags,Maybe String))], -- undefined vars too
+      positionals :: [String],
       aliases     :: [(String,String)],
       functions   :: [(String,(CompoundStatement,[Redir]))],
       pipeState   :: PipeState,
       extra       :: e
     }
+emptyState :: Monoid e => ShellState e
+emptyState = ShellState [] [] [] [] [] mempty mempty
+
+convertState :: ShellState e -> e' -> ShellState e'
+convertState (ShellState e l pp a f p _) x = ShellState e l pp a f p x
 
 type InnerShell e = ErrorT ShellError (StateT (ShellState e) IO)
 newtype ShellT e a = Shell ((InnerShell e) a)
@@ -161,10 +167,19 @@ instance Monad m => Stringy m String where
 -- a string, we'll get a fail.  If we put it in a MonadPlus then we
 -- guarantee no failure.
 getEnv :: Stringy (InnerShell e) s => String -> ShellT e s
-getEnv s = Shell $ do e <- gets environment
-                      l <- gets locals
-                      maybeToStringy (join $ snd `fmap` lookup s l <|>
-                                             (Just . snd) `fmap` lookup s e) s
+getEnv "#" = Shell $ do p <- gets positionals
+                        maybeToStringy (Just $ show $ length p) "#"
+getEnv "0" = Shell $ maybeToStringy Nothing "0"
+getEnv s | all isDigit s = Shell $ do p <- gets positionals
+                                      let n = read s
+                                      if n>length p
+                                         then maybeToStringy Nothing s
+                                         else maybeToStringy (Just $ p!!n) s
+         | otherwise = Shell $ do e <- gets environment
+                                  l <- gets locals
+                                  let x = join $ snd `fmap` lookup s l
+                                          <|> (Just . snd) `fmap` lookup s e
+                                  maybeToStringy x s
 
 -- |This is a simpler version because we also give a default.
 tryEnv :: String -> String -> ShellT e String
@@ -315,7 +330,7 @@ startState = do e <- getEnvironment
                          map (\(a,b)->(a,(exportedVar,b))) $
                          update "SHELL" "shsh" $ update "PWD" pwdval $
                          alter "HOME" (<|> Just home) e
-                return $ ShellState e' [] [] [] mempty mempty
+                return $ emptyState { environment = e' }
 
 startShell :: Monoid e => ShellT e ExitCode -> IO ExitCode
 startShell a = runShell a =<< startState
@@ -450,8 +465,6 @@ pipeShells source dest pi = do
 -- It seems like this has the nice property that it both threads the
 -- state properly, AND is atomic, so that state changes don't go through
 -- if we fail...
-convertState :: ShellState e -> e' -> ShellState e'
-convertState (ShellState e l a f p _) x = ShellState e l a f p x
 
 -- |This is the main worker function for working in a substate.
 withSubState :: ShellT e a                 -- ^a computation
