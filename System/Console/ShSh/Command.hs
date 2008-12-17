@@ -87,21 +87,12 @@ checkE IgnoreE sp = sp
 
 -- |Run a 'Statement'.
 runStatement :: OnErr -> Statement -> ShellProcess ()
-runStatement IgnoreE s = run s
-runStatement CheckE s = checkE $ run s
-
-checkE :: ShellProcess () -> ShellProcess ()
-checkE sp ip = do ec <- sp ip
-                  am_e <- getFlag 'e'
-                  when (am_e && ec/=ExitSuccess) $ liftIO $
-                       exitWith ec
-                  return ec
-
-run :: Statement -> ShellProcess ()
-run (Compound c rs) ip = mkShellProcess `flip` ip $
-                         withEnvironment expandWord rs [] $ runCompound c
-run (FunctionDefinition s c rs) ip
-    = mkShellProcess `flip` ip $ setFunction s c rs >> return ExitSuccess
+runStatement b (Compound c rs) ip = mkShellProcess `flip` ip $
+                                    withEnvironment expandWord rs [] $
+                                    runCompound b c
+runStatement _ (FunctionDefinition s c rs) ip = mkShellProcess `flip` ip $
+                                                do setFunction s c rs
+                                                   return ExitSuccess
 runStatement b (Statement ws rs as) ip =
     checkE b $ do ws' <- expandWords ws
                   case ws' of

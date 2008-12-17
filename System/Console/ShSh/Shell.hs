@@ -383,7 +383,7 @@ mkShellProcess job InheritInput = job
 forkShell :: ShellT e a -> ShellT e ()
 forkShell job = Shell $ do s <- get
                            let job' = job >> return ExitSuccess
-                           catchIO $ traceForkIO "forkShell" $ runShell job' s >> return ()
+                           catchIO $ forkIO $ runShell job' s >> return ()
                            return ()
 
 -- |This isolates a shell...  but we'll eventually need to do more...?
