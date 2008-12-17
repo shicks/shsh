@@ -67,6 +67,10 @@ import Language.Sh.Syntax ( Word, CompoundStatement,
 
 data VarFlags = VarFlags { exported :: Bool, readonly :: Bool }
 
+exportedVar :: VarFlags
+exportedVar = VarFlags True False
+
+
 instance Monoid VarFlags where
     mempty = VarFlags False False
     VarFlags a b `mappend` VarFlags a' b' = VarFlags (a||a') (b||b')
@@ -113,10 +117,14 @@ update x y [] = [(x,y)]
 update x y ((x',y'):xs) | x'==x     = (x',y):xs
                         | otherwise = (x',y'):update x y xs
 
-alter :: Eq a => a -> (Maybe b -> b) -> [(a,b)] -> [(a,b)]
-alter x f [] = [(x,f Nothing)]
-alter x f ((x',y'):xs) | x'==x     = (x',f (Just y')):xs
-                       | otherwise = (x',y'):alter x f xs
+alter :: Eq a => a -> (Maybe b -> Maybe b) -> [(a,b)] -> [(a,b)]
+alter x f [] = case f Nothing of
+                 Just y  -> [(x,y)]
+                 Nothing -> []
+alter x f ((x0,y0):xs) | x0==x     = case f $ Just y0 of
+                                       Just y' -> (x,y'):alter x f xs
+                                       Nothing -> alter x f xs
+                       | otherwise = (x0,y0):alter x f xs
 
 -- More elaborate updateWith...
 alterM :: (Monad m,Functor m,Eq a)
@@ -154,12 +162,13 @@ instance Monad m => Stringy m String where
 -- guarantee no failure.
 getEnv :: Stringy (InnerShell e) s => String -> ShellT e s
 getEnv s = Shell $ do e <- gets environment
-                      maybeToStringy $ join (snd `fmap` lookup s e) s
+                      l <- gets locals
+                      maybeToStringy (join $ snd `fmap` lookup s l <|>
+                                             (Just . snd) `fmap` lookup s e) s
 
 -- |This is a simpler version because we also give a default.
 tryEnv :: String -> String -> ShellT e String
-tryEnv d s = Shell $ gets environment >>= 
-                          return . fromMaybe d . join . fmap snd (lookup s)
+tryEnv d s = fromMaybe d `fmap` getEnv s
 
 -- |Not much here - we don't care if the thing is currently defined or not:
 -- we just set it either way.
@@ -185,8 +194,9 @@ $ echo $B  # now it's 50...
 -- bash's behavior... (i.e. we could set the global version also no 
 -- matter what)
 
-setVarHelper :: String -> Maybe String -> [(String,(VarFlags,a))]
-             -> Shell [(String,(VarFlags,a))]
+setVarHelper :: (Monad m, Functor m)
+             => String -> a -> [(String,(VarFlags,a))]
+             -> m [(String,(VarFlags,a))]
 setVarHelper n v xs = alterM n f xs
     where f Nothing  = return $ Just (mempty,v)
           f (Just (flags,x)) | readonly flags = fail $ n++": is read only"
@@ -224,13 +234,13 @@ getExitCode = do e <- getEnv "?"
                    Nothing -> return ExitSuccess
 
 makeLocal :: String -> ShellT e ()
-makeLocal var = Shell $ do x <- getEnv var
-                           l <- gets locals
-                           modify $ \st -> st { locals = setVarHelper var x l }
+makeLocal var = Shell $ do x <- unshell $ getEnv var
+                           l <- setVarHelper var (Just x) =<< gets locals
+                           modify $ \st -> st { locals = l }
 
 -- |Remove the environment variable from the list.
 unsetEnv :: String -> ShellT e ()
-unsetEnv = setEnv `flip` Nothing
+unsetEnv = setEnv `flip` (Nothing :: Maybe String)
 
 -- |This is a bit more complicated, but basically what it says is that
 -- we can give it any function from something string-like to something else
@@ -242,9 +252,7 @@ unsetEnv = setEnv `flip` Nothing
 withEnv :: (Stringy (InnerShell e) a,Maybeable String b) =>
            String -> (a -> b) -> ShellT e () -- could have safe one too
 withEnv s f = do e <- getEnv s
-                 case toMaybe $ f e of
-                   Just v  -> setEnv s v
-                   Nothing -> unsetEnv s
+                 setEnv s $ (toMaybe $ f e :: Maybe String)
 
 joinStringSet :: Eq a => [(a,b)] -> [(a,b)] -> [(a,b)]
 joinStringSet = unionBy ((==) `on` fst)
@@ -265,7 +273,7 @@ setAlias s x = Shell $ modify $ \st ->
                st { aliases = update s x (aliases st) }
 
 getAlias :: Stringy (InnerShell e) s => String -> ShellT e s
-getAlias s = Shell $ do e <- gets environment
+getAlias s = Shell $ do e <- gets aliases
                         maybeToStringy (lookup s e) s
 
 getAliases :: ShellT e [(String,String)]
@@ -303,8 +311,10 @@ startState = do e <- getEnvironment
                                     `catch` \_ -> return cwd
                 setCurrentDirectory cwd
                 home <- getHomeDirectory
-                let e' = update "SHELL" "shsh" $ update "PWD" pwdval $
-                         alter "HOME" (<|> home) $ alter "-" (<|> f) e
+                let e' = update "-" (mempty,f) $
+                         map (\(a,b)->(a,(exportedVar,b))) $
+                         update "SHELL" "shsh" $ update "PWD" pwdval $
+                         alter "HOME" (<|> Just home) e
                 return $ ShellState e' [] [] [] mempty mempty
 
 startShell :: Monoid e => ShellT e ExitCode -> IO ExitCode
@@ -511,10 +521,10 @@ withExitHandler s = catchError (catchS s $ \_ -> return ExitSuccess)
                     $ \e -> do announceError e
                                return $ exitCode e
 
-assign :: (Word -> Shell String) -> [(String,String)]
-       -> Assignment -> InnerShell () [(String,String)]
+assign :: (Word -> Shell String) -> [(String,(VarFlags,Maybe String))]
+       -> Assignment -> InnerShell () [(String,(VarFlags,Maybe String))]
 assign expand e (n:=w) = do v <- unshell $ expand w
-                            return $ update n v e
+                            setVarHelper n (Just v) e
 
 redir :: (Word -> Shell String) -> PipeState -> Redir
       -> InnerShell () (PipeState, IO ())
