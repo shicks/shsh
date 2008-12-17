@@ -1,7 +1,7 @@
 -- |Here we run commands.
 
 {-# OPTIONS_GHC -cpp #-}
-module System.Console.ShSh.Command ( runCommands, source ) where
+module System.Console.ShSh.Command ( runCommands, source, eval ) where
 
 import System.Console.ShSh.Builtins ( builtin )
 import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
@@ -226,6 +226,14 @@ source f = do h <- liftIO $ openFile f ReadMode
                                     else do eof <- liftIO $ hIsEOF h
                                             if eof then runCommands cs
                                                    else source' (i++s++"\n") h
+
+eval :: String -> Shell ExitCode
+eval code = do as <- getAliases
+               case parse as code of
+                 Left (err,_) -> fail err
+                 Right cs -> if hereDocsComplete cs
+                             then runCommands cs
+                             else fail "incomplete heredocs!"
 
 -- |Functions to pass to the actual @Expansion@ module.
 ef :: E.ExpansionFunctions Shell

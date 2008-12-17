@@ -4,7 +4,7 @@ import System.Exit ( exitWith, ExitCode(..) )
 import System.Environment ( getArgs )
 import System.Console.ShSh.Shell ( startShell )
 import System.Console.ShSh.EventLoop ( eventLoop, sourceProfile )
-import System.Console.ShSh.Command ( source )
+import System.Console.ShSh.Command ( source, eval )
 import System.IO ( stdin, hIsTerminalDevice )
 
 #ifdef HAVE_SIGNALS
@@ -21,4 +21,5 @@ main = do args <- getArgs
             [] -> startShell (sourceProfile >> eventLoop "" h) >>= exitWith
             [f] -> startShell (do sourceProfile
                                   source f) >>= exitWith
+            ["-c",code] -> startShell (sourceProfile >> eval code) >>= exitWith
             fs -> fail $ unwords $ "Weird arguments: ":fs
