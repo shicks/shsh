@@ -8,7 +8,7 @@
 module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
                                    tryEnv, withEnv, unsetEnv,
-                                   makeLocal, --withLocalScope,
+                                   makeLocal, setExport, getExports,
                                    getPositionals, modifyPositionals,
                                    setFunction, getFunction,
                                    setAlias, getAlias, getAliases,
@@ -72,13 +72,12 @@ data VarFlags = VarFlags { exported :: Bool, readonly :: Bool }
 exportedVar :: VarFlags
 exportedVar = VarFlags True False
 
-
 instance Monoid VarFlags where
     mempty = VarFlags False False
     VarFlags a b `mappend` VarFlags a' b' = VarFlags (a||a') (b||b')
 
 data ShellState e = ShellState {
-      environment :: [(String,(VarFlags,String))],
+      environment :: [(String,(VarFlags,Maybe String))],
       locals      :: [(String,(VarFlags,Maybe String))], -- undefined vars too
       positionals :: [String],
       aliases     :: [(String,String)],
@@ -180,7 +179,7 @@ getEnv s | all isDigit s = Shell $ do p <- gets positionals
          | otherwise = Shell $ do e <- gets environment
                                   l <- gets locals
                                   let x = join $ snd `fmap` lookup s l
-                                          <|> (Just . snd) `fmap` lookup s e
+                                             <|> snd `fmap` lookup s e
                                   maybeToStringy x s
 
 -- |This is a simpler version because we also give a default.
@@ -211,27 +210,53 @@ $ echo $B  # now it's 50...
 -- bash's behavior... (i.e. we could set the global version also no 
 -- matter what)
 
+-- |This has gotten a bit trickier... typically we pass this a
+-- Maybe (Maybe String).  The first Maybe tells whether to eliminate
+-- the record entirely, the second whether to simply mask it.  This
+-- is tricky semantics, with export, readonly, locals, etc...
 setVarHelper :: (Monad m, Functor m)
-             => String -> a -> [(String,(VarFlags,a))]
-             -> m [(String,(VarFlags,a))]
-setVarHelper n v xs = alterM n f xs
-    where f Nothing  = return $ Just (mempty,v)
+             => String -> Maybe (Maybe String)
+             -> [(String,(VarFlags,Maybe String))]
+             -> m [(String,(VarFlags,Maybe String))]
+setVarHelper n Nothing xs = alterM n f xs
+    where f (Just (flags,_)) | readonly flags = fail $ n++": is read only"
+          f _ = return $ Nothing
+setVarHelper n (Just v) xs = alterM n f xs
+    where f Nothing = return $ Just (mempty,v)
           f (Just (flags,x)) | readonly flags = fail $ n++": is read only"
                              | otherwise = return $ Just (flags,v)
 
+setFlagHelper :: String -> (VarFlags -> VarFlags)
+              -> [(String,(VarFlags,Maybe String))]
+              -> [(String,(VarFlags,Maybe String))]
+setFlagHelper n f xs = alter n ff xs
+    where ff Nothing = Just (f mempty,Nothing)
+          ff (Just (flags,x)) = Just (f flags,x)
+
 -- |Now this is more general - we can unset vars with it!  It also treats
--- locals correctly.
+-- locals correctly.  Unfortunately, because of the flags, we can't ever
+-- remove anything from the list...  
 setEnv :: Maybeable String a => String -> a -> ShellT e ()
 setEnv s x = Shell $ do let mx = toMaybe x
                         e <- gets environment
                         l <- gets locals
-                        e' <- case mx of
-                                Just x' -> setVarHelper s x' e
-                                Nothing -> return $ filter ((/=s).fst) e
-                        l' <- setVarHelper s mx l
+                        e' <- case mx of -- can still unset...?  readonly?
+                                Nothing -> setVarHelper s Nothing e
+                                Just x' -> setVarHelper s (Just mx) e
+                        l' <- setVarHelper s (Just mx) l
                         case lookup s l of
                           Just v -> modify $ \st -> st { locals = l' }
                           Nothing -> modify $ \st -> st { environment = e' }
+
+alterVarFlags :: String -> (VarFlags -> VarFlags) -> ShellT e ()
+alterVarFlags s f = Shell $ do e <- gets environment
+                               l <- gets locals
+                               let e' = setFlagHelper s f e
+                                   l' = setFlagHelper s f l
+                               case lookup s l of
+                                 Just v -> modify $ \st -> st { locals = l' }
+                                 Nothing -> modify $
+                                               \st -> st { environment = e' }
 
 setFunction :: String -> CompoundStatement -> [Redir] -> ShellT e ()
 setFunction s c rs = Shell $ modify $ \st -> st { functions = update s (c,rs) $
@@ -252,8 +277,12 @@ getExitCode = do e <- getEnv "?"
 
 makeLocal :: String -> ShellT e ()
 makeLocal var = Shell $ do x <- unshell $ getEnv var
-                           l <- setVarHelper var (Just x) =<< gets locals
+                           l <- setVarHelper var (Just $ Just x) =<< gets locals
                            modify $ \st -> st { locals = l }
+
+setExport :: String -> Bool -> ShellT e ()
+setExport var x = alterVarFlags var $ \f -> f { exported = x }
+
 
 -- |Remove the environment variable from the list.
 unsetEnv :: String -> ShellT e ()
@@ -277,11 +306,18 @@ joinStringSet = unionBy ((==) `on` fst)
 getAllEnv :: ShellT a [(String,String)]
 getAllEnv = Shell $ do l <- gets locals
                        e <- gets environment
-                       let e' = map (\(a,(b,c))->(a,Just c)) e
-                           l' = map (\(a,(b,c))->(a,c)) l
                        return $ map (\(a,b)->(a,fromJust b)) $
                                 filter (isJust.snd) $
-                                unionBy ((==)`on`fst) l' e'
+                                map (\(a,(b,c))->(a,c)) $
+                                unionBy ((==)`on`fst) l e
+
+getExports :: ShellT a [(String,String)]
+getExports = Shell $ do l <- gets locals
+                        e <- gets environment
+                        return $ map (\(a,(b,c))->(a,fromJust c)) $
+                                 filter (isJust.snd.snd) $
+                                 filter (exported.fst.snd) $
+                                 unionBy ((==)`on`fst) l e
 
 
 -- *Positional parameters
@@ -344,8 +380,8 @@ startState = do e <- getEnvironment
                                     `catch` \_ -> return cwd
                 setCurrentDirectory cwd
                 home <- getHomeDirectory
-                let e' = update "-" (mempty,f) $
-                         map (\(a,b)->(a,(exportedVar,b))) $
+                let e' = update "-" (mempty,Just f) $
+                         map (\(a,b)->(a,(exportedVar,Just b))) $
                          update "SHELL" "shsh" $ update "PWD" pwdval $
                          alter "HOME" (<|> Just home) e
                 return $ emptyState { environment = e' }
@@ -555,7 +591,7 @@ withExitHandler s = catchError (catchS s $ \_ -> return ExitSuccess)
 assign :: (Word -> Shell String) -> [(String,(VarFlags,Maybe String))]
        -> Assignment -> InnerShell () [(String,(VarFlags,Maybe String))]
 assign expand e (n:=w) = do v <- unshell $ expand w
-                            setVarHelper n (Just v) e
+                            setVarHelper n (Just $ Just v) e
 
 redir :: (Word -> Shell String) -> PipeState -> Redir
       -> InnerShell () (PipeState, IO ())

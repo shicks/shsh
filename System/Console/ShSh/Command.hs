@@ -14,6 +14,7 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    maybeCloseOut, subShell, makeLocal,
                                    runShellProcess, setEnv, getAllEnv,
                                    setFunction, getFunction,
+                                   setExport, getExports,
                                    pipeShells, runInShell, getExitCode,
                                    withEnvironment, withExitHandler,
                                    getFlag, getAliases, withPositionals,
@@ -99,6 +100,9 @@ runStatement b (Statement ws rs as) ip =
                     [] -> mkShellProcess `flip` ip $
                           withEnvironment expandWord rs [] $ setVars as
                     ("local":xs) -> mkShellProcess (setLocals xs) ip
+                    ["export"] -> withEnvironment expandWord rs as $
+                                  mkShellProcess (setExports []) ip
+                    ("export":xs) -> mkShellProcess (setExports xs) ip
                     xs -> withEnvironment expandWord rs as $ run' b xs ip
 
 runCompound b (For var list cs) =
@@ -127,9 +131,9 @@ run' b (name:args) ip =
 
 run' _ [] ip = fail "how did an empty command get through?"
 run'' (".":args) ip = run'' ("source":args) ip
-run'' ("source":f:args) ip = do mkShellProcess (withPositionals args $
-                                                source f) ip
-run'' ("source":f:[]) ip = do mkShellProcess (source f) ip
+run'' ("source":f:args) ip | null args = mkShellProcess (source f) ip
+                           | otherwise = mkShellProcess (withPositionals args $
+                                                         source f) ip
 run'' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
 run'' (command:args) ip = do b <- builtin command
                              oFlush -- to behave like external commands, need to
@@ -173,6 +177,13 @@ setLocals (x:xs) = do let (name,val) = break (=='=') x
                       makeLocal name
                       unless (null val) $ setEnv name $ drop 1 val
                       setLocals xs -- poor man's mapM_ >> return ExitSuccess
+
+setExports [] = getExports >>= mapM (oPutStrLn . (\(s,v) -> "export "++s++"="++v))
+                >> return ExitSuccess
+setExports xs = mapM_ se xs >> return ExitSuccess
+    where se x = do let (name,val) = break (=='=') x
+                    setExport name True
+                    unless (null val) $ setEnv name $ drop 1 val
 
 -- |We need to be able to do this in a sort of "half -v" mode in which
 -- shell errors (bad substitution, parse, etc) cause it to quite, but
