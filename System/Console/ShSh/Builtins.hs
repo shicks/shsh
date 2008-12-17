@@ -16,6 +16,7 @@ import System.Console.ShSh.Builtins.Grep ( grep )
 import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( ShellT, Shell,
+                                   getPositionals, modifyPositionals,
                                    getAlias, getAliases, setAlias,
                                    getAllEnv, getEnv, unsetEnv,
                                    ShellProcess, mkShellProcess )
@@ -25,7 +26,7 @@ import System.Console.ShSh.Util ( split )
 import Control.Monad ( forM_, unless )
 import Control.Monad.State ( put )
 import Control.Monad.Trans ( liftIO )
-import Data.Char ( chr, ord )
+import Data.Char ( chr, ord, isDigit )
 import Data.List ( sort, sortBy )
 import Data.Ord ( comparing )
 import System.Console.GetOpt ( ArgOrder(..) )
@@ -43,16 +44,14 @@ successfully job args = job args >> return ExitSuccess
 builtins :: [(String,[String] -> Shell ExitCode)]
 builtins = [(":",const $ return ExitSuccess),
             ("alias",alias),("cat",cat),
-            ("cd",chDir),
+            ("cd",chDir), ("cmp",cmp), ("cp",cp),
             ("echo",echo),
             ("exec",const $ return ExitSuccess),
             ("exit", exit),
             ("false",const $ return $ ExitFailure 1),
-            ("grep",grep),("ls",ls),
-            ("mkdir",mkDir),("pwd",pwd),
-            ("cp",cp), ("mv",mv),
-            ("cmp",cmp),
-            ("set",set),
+            ("grep",grep), ("ls",ls),
+            ("mkdir",mkDir), ("mv",mv), ("pwd",pwd),
+            ("set",set), ("shift",shift),
             ("true",const $ return ExitSuccess),
             ("unset",unset)]
             
@@ -65,7 +64,7 @@ builtin b = do noBuiltin <- getEnv "NOBUILTIN"
                return $ if r then Nothing
                              else (mkShellProcess .) `fmap` lookup b builtins
 
-alias, cat, echo, ls, pwd, set, unset :: [String] -> Shell ExitCode
+alias, cat, echo, ls, pwd, set, shift, unset :: [String] -> Shell ExitCode
 
 alias [] = showAliases
 alias as = mapM_ mkAlias as >> return ExitSuccess
@@ -110,6 +109,15 @@ echo = withArgs "echo" header args RequireOrder $ successfully $ \ws -> do
 pwd _ = do cwd <- liftIO getCurrentDirectory
            oPutStrLn cwd
            return ExitSuccess
+
+shift [] = shift ["1"]
+shift (s:_) | all isDigit s = do let n = read s
+                                 p <- getPositionals
+                                 if n > length p
+                                    then return $ ExitFailure 1
+                                    else do modifyPositionals $ drop n
+                                            return ExitSuccess
+            | otherwise     = fail $ s++": numeric argument required"
 
 ls []  = do let unboring ('.':_) = False
                 unboring _ = True

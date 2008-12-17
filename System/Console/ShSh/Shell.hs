@@ -8,21 +8,22 @@
 module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
                                    tryEnv, withEnv, unsetEnv,
+                                   makeLocal, --withLocalScope,
+                                   getPositionals, modifyPositionals,
                                    setFunction, getFunction,
                                    setAlias, getAlias, getAliases,
                                    getExitCode,
                                    getFlag, setFlag, unsetFlag, getFlags,
-                                   getShellState, runShell_, runShell,
+                                   runShell_, runShell,
                                    pipeShells, runInShell, withPipes,
                                    startShell, subShell,
                                    withHandler, withHandler_,
                                    withExitHandler, failOnError,
                                    pipeState, closeOut, maybeCloseOut,
                                    withSubState, withErrorsPrefixed,
-                                   withEnvironment,
+                                   withEnvironment, withPositionals,
                                    mkShellProcess, runShellProcess,
-                                   ShellProcess, PipeInput(..),
-                                   pipes -- debugging...
+                                   ShellProcess, PipeInput(..)
                                  )
     where
 
@@ -171,7 +172,7 @@ getEnv "#" = Shell $ do p <- gets positionals
                         maybeToStringy (Just $ show $ length p) "#"
 getEnv "0" = Shell $ maybeToStringy Nothing "0"
 getEnv s | all isDigit s = Shell $ do p <- gets positionals
-                                      let n = read s
+                                      let n = read s - 1 -- starts at 1
                                       if n>length p
                                          then maybeToStringy Nothing s
                                          else maybeToStringy (Just $ p!!n) s
@@ -282,6 +283,15 @@ getAllEnv = Shell $ do l <- gets locals
                                 unionBy ((==)`on`fst) l' e'
 
 
+-- *Positional parameters
+getPositionals :: ShellT e [String]
+getPositionals = Shell $ gets positionals
+
+modifyPositionals :: ([String] -> [String]) -> ShellT e ()
+modifyPositionals f = Shell $ modify $
+                      \s -> s { positionals = f $ positionals s }
+
+
 -- *Alias commands
 setAlias :: String -> String -> ShellT e ()
 setAlias s x = Shell $ modify $ \st ->
@@ -312,7 +322,7 @@ parseFlags = return "" -- start with no flags set, for now...
                        -- Later we'll get these with getopt
 
 getShellState :: ShellT e (ShellState e)
-getShellState = Shell $ get
+getShellState = Shell get
 
 startState :: Monoid e => IO (ShellState e)
 startState = do e <- getEnvironment
@@ -598,6 +608,28 @@ withEnvironment exp rs as (Shell sub) = Shell $ do
                  s { pipeState = p, locals = ls }
   catchIO closehs
   put $ s' { locals = locals s, pipeState = pipeState s }
+  case result of
+    Right a  -> return a
+    Left err -> throwError err
+
+withPositionals :: [String] -> Shell a -> Shell a
+withPositionals ps (Shell sub) = Shell $ do
+  s <- get
+  (result,s') <- catchIO $ runStateT (runErrorT sub) $ s { positionals = ps }
+  put $ s' { positionals = positionals s }
+  case result of
+    Right a  -> return a
+    Left err -> throwError err
+
+-- |This is a bit simpler: we just isolate a local scope...
+-- Note that we could have chosen to /not/ update the state on
+-- an error.  (we don't actually need to export this just now
+-- because functions already live inside a 'withEnvironment'.)
+withLocalScope :: Shell a -> Shell a
+withLocalScope (Shell sub) = Shell $ do
+  s <- get
+  (result,s') <- catchIO $ runStateT (runErrorT sub) s
+  put $ s' { locals = locals s }
   case result of
     Right a  -> return a
     Left err -> throwError err

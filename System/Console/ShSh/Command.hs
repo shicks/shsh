@@ -11,12 +11,12 @@ import System.Console.ShSh.Internal.Process ( WriteStream(..),
                                               PipeState(..) )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
-                                   maybeCloseOut, subShell,
+                                   maybeCloseOut, subShell, makeLocal,
                                    runShellProcess, setEnv, getAllEnv,
                                    setFunction, getFunction,
                                    pipeShells, runInShell, getExitCode,
                                    withEnvironment, withExitHandler,
-                                   getFlag, pipes, getAliases,
+                                   getFlag, getAliases, withPositionals,
                                    withErrorsPrefixed, withPipes )
 
 import Language.Sh.Glob ( expandGlob )
@@ -32,7 +32,7 @@ import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( Handle, IOMode(..), openFile, hGetLine, hIsEOF )
 
 import Control.Monad.Trans ( liftIO )
-import Control.Monad ( when, forM )
+import Control.Monad ( when, unless, forM )
 import Data.Monoid ( mempty )
 
 import Debug.Trace ( trace )
@@ -98,7 +98,7 @@ runStatement b (Statement ws rs as) ip =
                   case ws' of
                     [] -> mkShellProcess `flip` ip $
                           withEnvironment expandWord rs [] $ setVars as
-                    ("local":xs) -> fail "can't do locals yet"
+                    ("local":xs) -> mkShellProcess (setLocals xs) ip
                     xs -> withEnvironment expandWord rs as $ run' b xs ip
 
 runCompound b (For var list cs) =
@@ -121,20 +121,20 @@ run' b (name:args) ip =
     do func <- getFunction name
        case func of
          Just (f,rs) -> mkShellProcess `flip` ip $
-                        withEnvironment expandWord rs pos $ runCompound b f
+                        withEnvironment expandWord rs [] $
+                        withPositionals args $ runCompound b f
          Nothing     -> run'' (name:args) ip
-    where pos = map (\(n,s)->show n:=map Literal s) $ zip [1..] args
 
 run' _ [] ip = fail "how did an empty command get through?"
 run'' (".":args) ip = run'' ("source":args) ip
 run'' ("source":f:_) ip = do mkShellProcess (source f) ip
 run'' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
 run'' (command:args) ip = do b <- builtin command
-                             oFlush -- to behave like external commands we need to
+                             oFlush -- to behave like external commands, need to
                              eFlush -- flush stdout/err after builtins are run.
-                             p <- pipes
                              withExitHandler $ case b of
-                               Just b' -> withErrorsPrefixed command $ b' args ip
+                               Just b' -> withErrorsPrefixed command $
+                                          b' args ip
                                Nothing -> runWithArgs command args ip
 
 -- at some point we need to use our own path here...
@@ -163,6 +163,12 @@ runWithArgs cmd args ip
 
 setVars [] = return ExitSuccess
 setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
+
+setLocals [] = return ExitSuccess
+setLocals (x:xs) = do let (name,val) = break (=='=') x
+                      makeLocal name
+                      unless (null val) $ setEnv name $ drop 1 val
+                      setLocals xs -- poor man's mapM_ >> return ExitSuccess
 
 -- |We need to be able to do this in a sort of "half -v" mode in which
 -- shell errors (bad substitution, parse, etc) cause it to quite, but
