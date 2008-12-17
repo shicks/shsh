@@ -21,6 +21,7 @@ Tests Needed:
  - Parse issues, including robust recovery from fatal errors
  - Using empty > to create files
  - Positional/special parameters
+ - Exports, variable flags, setting/unsetting, readonly
 
 Known Issues:
  - Heredoc ordering is wrong, since we discard the order between
