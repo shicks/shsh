@@ -10,13 +10,18 @@ data Command = Synchronous  AndOrList
 data AndOrList = Singleton Pipeline
                | AndOrList :&&: Pipeline
                | AndOrList :||: Pipeline
-                 deriving ( Show )
+               deriving ( Show )
 data Pipeline = Pipeline [Statement] -- explicit type-level non-null?
               | BangPipeline [Statement]
-                deriving ( Show )
+              deriving ( Show )
+data Term = TWord Word
+          | TRedir Redir
+          | TAssignment Assignment -- internal only
+          deriving ( Show )
 data Statement = Statement [Word] [Redir] [Assignment]
                | Compound CompoundStatement [Redir]
                | FunctionDefinition String CompoundStatement [Redir]
+               | OrderedStatement [Term] -- internal only
                deriving ( Show )
 data CompoundStatement = For String [Word] [Command]
                        | If [Command] [Command] [Command] -- etc...

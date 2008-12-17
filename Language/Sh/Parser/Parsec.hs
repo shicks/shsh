@@ -80,7 +80,7 @@ nextHereDoc = fmap (listToMaybe . hereDocs) getState
 
 popHereDoc :: (Word,Bool) -> P ()
 popHereDoc (w,b) = modify $ \s -> s { hereDocs = drop 1 $ hereDocs s
-                                    , readHereDocs = readHereDocs s ++ [(w,b)] }
+                                       , readHereDocs = readHereDocs s ++ [(w,b)] }
 
 nextHDReplacement :: P (Maybe (Word,Bool))
 nextHDReplacement = do rhd <- readHereDocs `fmap` getState

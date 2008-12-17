@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
+
 -- |Here we use the stuff defined in the AST and Parsec modules
 -- to parse things.
 
@@ -14,7 +16,7 @@ import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        sepBy1, notFollowedBy, lookAhead,
                                        getInput, setInput, runParser
                                      )
-import Control.Monad ( unless, when, liftM2, ap )
+import Control.Monad ( unless, when, liftM2, ap, (<=<) )
 import Data.List ( (\\) )
 import Data.Char ( isDigit )
 import Data.Maybe ( isJust )
@@ -56,7 +58,7 @@ statement = spaces >> aliasOn >>
                    ,Compound `fmap` compoundStatement `ap` many redirection
                    ,do s <- statementNoSS
                        case s of -- needed to prevent errors w/ 'many'
-                         Statement [] [] [] -> fail "empty statement"
+                         OrderedStatement [] -> fail "empty statement"
                          s -> return s
                    ]
 
@@ -82,7 +84,7 @@ simpleStatement = do spaces
                                                 simpleStatement
                                  ,try $ do w <- word NormalContext
                                            fmap (addWord w) simpleStatement
-                                 ,return $ Statement [] [] []]
+                                 ,return $ OrderedStatement []]
                      spaces
                      return s
 
@@ -204,13 +206,15 @@ command = do c <- andorlist <?> "list"
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM cond job = cond >>= (unless `flip` job)
 
+readHDs :: P ()
+readHDs = do hd <- nextHereDoc
+             case hd of
+               Just s  -> readHD s >> readHDs
+               Nothing -> return ()
+
 sequentialSep :: P ()
 sequentialSep = choice [char ';' >> return ()
-                       ,do cnewline
-                           hd <- nextHereDoc
-                           case hd of
-                             Just s  -> readHD s
-                             Nothing -> return ()
+                       ,cnewline >> readHDs
                        ,eof >> closeHereDocs -- ?
                        ,do unlessM insideParens $ fail ""
                            lookAhead $ char ')'
@@ -452,8 +456,7 @@ hereEnd = fromLit `fmap` word HereEndContext
 
 commands :: P [Command]
 commands = do newlines
-              c <- many $ newlines >> command -- maybe get rid of newlines?
-              expandHereDocs c -- may not be exhaustive...?
+              many $ newlines >> command -- maybe get rid of newlines?
 
 commandsTill :: P String -> P ([Command],String)
 commandsTill delim = do --newlines
@@ -463,48 +466,128 @@ commandsTill delim = do --newlines
                         c' <- expandHereDocs c -- may not be exhaustive...?
                         return (c',e)
 
--- |This function simply iterates through the commands until it finds
--- unexpanded heredocs.  As long as there's a @readHereDoc@ left in the
--- queue, it substitutes it.
-mapRedirsM :: (Monad m,Functor m)
-           => (Redir -> m Redir) -> [Command] -> m [Command]
-mapRedirsM f cs = mapM e1 cs
-    where e1 (Synchronous l) = Synchronous `fmap` e2 l
-          e1 (Asynchronous l) = Asynchronous `fmap` e2 l
-          e2 (Singleton p) = Singleton `fmap` e3 p
-          e2 (l :&&: p) = (:&&:) `fmap` e2 l `ap` e3 p
-          e2 (l :||: p) = (:||:) `fmap` e2 l `ap` e3 p
-          e3 (Pipeline ps) = Pipeline `fmap` mapM e4 ps
-          e3 (BangPipeline ps) = BangPipeline `fmap` mapM e4 ps
-          e4 (Statement ws rs as) = Statement `fmap` mapM (mapM e5) ws
-                                    `ap` mapM f rs `ap` return as
-          e4 (Compound c rs) = Compound `fmap` e4a c `ap` mapM f rs
-          e4 (FunctionDefinition s c rs) = FunctionDefinition s
-                                           `fmap` e4a c `ap` mapM f rs
-          e4a (For s ss cs') = For s ss `fmap` mapM e1 cs'
-          e4a (If cond thn els) = If `fmap` mapM e1 cond `ap` mapM e1 thn
-                                     `ap` mapM e1 els
-          e4a (Subshell cs) = Subshell `fmap` mapM e1 cs
-          e4a (BraceGroup cs) = BraceGroup `fmap` mapM e1 cs
-          -- more e4a defs as we expand the grammar
-          e5 (Quoted lexeme) = Quoted `fmap` e5 lexeme
-          e5 (Expand xp) = Expand `fmap` e6 xp
-          e5 lexeme = return lexeme
-          e6 (FancyExpansion s c b w) = FancyExpansion s c b `fmap` mapM e5 w
-          e6 (CommandSub cs) = CommandSub `fmap` mapM e1 cs
-          e6 (Arithmetic w) = Arithmetic `fmap` mapM e5 w
-          e6 expansion = return expansion
+concatMapM :: (Monad m,Functor m) => (a -> m [b]) -> [a] -> m [b]
+concatMapM f = fmap concat . mapM f
+
+singleton :: a -> [a]
+singleton = replicate 1
+
+-- |The idea here is to prevent duplicating code needlessly.
+-- We could go even more extreme and make a third parameter, but
+-- then we have WAY too many instances, and they all depend on
+-- every other one anyway...
+-- class Applicative a => ExpressionMapper a f t where
+--   mapSh :: f -> t -> a t
+class (Monad m,Functor m) => ExpressionMapperM m f where
+    mapCommandsM :: f -> [Command] -> m [Command]
+    mapCommandsM f = mapM $ mapCommandM f
+
+    mapCommandM :: f -> Command -> m Command
+    mapCommandM f (Synchronous l) = Synchronous `fmap` mapListM f l
+    mapCommandM f (Asynchronous l) = Asynchronous `fmap` mapListM f l
+
+    mapListM :: f -> AndOrList -> m AndOrList
+    mapListM f (Singleton p) = Singleton `fmap` mapPipelineM f p
+    mapListM f (l :&&: p) = (:&&:) `fmap` mapListM f l `ap` mapPipelineM f p
+    mapListM f (l :||: p) = (:||:) `fmap` mapListM f l `ap` mapPipelineM f p
+    
+    mapPipelineM :: f -> Pipeline -> m Pipeline
+    mapPipelineM f (Pipeline ps) = Pipeline `fmap` mapM (mapStatementM f) ps
+    mapPipelineM f (BangPipeline ps) = BangPipeline `fmap`
+                                       mapM (mapStatementM f) ps
+
+    -- do we want mapStatementsM?
+    mapStatementM :: f -> Statement -> m Statement
+    mapStatementM f (Statement ws rs as)
+        = Statement `fmap` mapM (mapWordM f) ws -- plural?
+                    `ap` mapM (mapRedirM f) rs
+                    `ap` mapM (mapAssignmentM f) as
+    mapStatementM f (OrderedStatement ts)
+        = OrderedStatement `fmap` concatMapM (mapTermsM f) ts
+    mapStatementM f (Compound c rs)
+        = Compound `fmap` mapCompoundM f c `ap` mapM (mapRedirM f) rs
+    mapStatementM f (FunctionDefinition s c rs)
+        = FunctionDefinition s `fmap` (mapCompoundM f) c
+                               `ap` mapM (mapRedirM f) rs
+    
+    mapCompoundM :: f -> CompoundStatement -> m CompoundStatement
+    mapCompoundM f (For s ss cs') = For s ss `fmap` mapCommandsM f cs'
+    mapCompoundM f (If cond thn els)
+        = If `fmap` mapCommandsM f cond `ap` mapCommandsM f thn
+                                        `ap` mapCommandsM f els
+    mapCompoundM f (Subshell cs) = Subshell `fmap` mapCommandsM f cs
+    mapCompoundM f (BraceGroup cs) = BraceGroup `fmap` mapCommandsM f cs
+
+    mapTermsM :: f -> Term -> m [Term]
+    mapTermsM f t = singleton `fmap` mapTermM f t
+
+    mapTermM :: f -> Term -> m Term
+    mapTermM f (TWord w) = TWord `fmap` mapWordM f w
+    mapTermM f (TRedir r) = TRedir `fmap` mapRedirM f r
+    mapTermM f (TAssignment a) = TAssignment `fmap` mapAssignmentM f a
+
+    mapWordM :: f -> Word -> m Word
+    mapWordM f = concatMapM $ mapLexemesM f
+
+    mapLexemesM :: f -> Lexeme -> m [Lexeme]
+    mapLexemesM f l = singleton `fmap` mapLexemeM f l
+
+    mapLexemeM :: f -> Lexeme -> m Lexeme
+    mapLexemeM f (Quoted lexeme) = Quoted `fmap` mapLexemeM f lexeme
+    mapLexemeM f (Expand xp) = Expand `fmap` mapExpansionM f xp
+    mapLexemeM _ lexeme = return lexeme
+
+    mapExpansionM :: f -> Expansion -> m Expansion
+    mapExpansionM f (FancyExpansion s c b w)
+        = FancyExpansion s c b `fmap` mapWordM f w
+    mapExpansionM f (CommandSub cs) = CommandSub `fmap` mapCommandsM f cs
+    mapExpansionM f (Arithmetic w) = Arithmetic `fmap` mapWordM f w
+    mapExpansionM _ expansion = return expansion
+
+    mapAssignmentM :: f -> Assignment -> m Assignment
+    mapAssignmentM f (s:=w) = (s:=) `fmap` mapWordM f w
+
+    mapRedirM :: f -> Redir -> m Redir
+    mapRedirM f (n:>w) = (n:>) `fmap` mapWordM f w
+    mapRedirM f (n:>|w) = (n:>|) `fmap` mapWordM f w
+    mapRedirM f (n:>>w) = (n:>>) `fmap` mapWordM f w
+    mapRedirM f (n:<>w) = (n:<>) `fmap` mapWordM f w
+    mapRedirM f (n:<w) = (n:<) `fmap` mapWordM f w
+    mapRedirM f (Heredoc n c w) = (Heredoc n c) `fmap` mapWordM f w
+    mapRedirM _ redir = return redir
+
+instance (Monad m,Functor m) => ExpressionMapperM m (Redir -> m Redir)
+    where mapRedirM f = f
+instance (Monad m,Functor m) => ExpressionMapperM m (Statement -> m Statement)
+    where mapStatementM f = f
 
 -- The order is wrong here, since we could put the Redir's either before or
 -- after the Word's...  We'll need to figure something out to deal with that.
 -- Easiest would be to just number them or something, and go through one at
 -- a time at the end to "de-number" them.
 
+unorderStatements :: [Command] -> P [Command]
+unorderStatements = mapCommandsM f
+    where f :: Statement -> P Statement
+          f (OrderedStatement ts) = do (ws,rs,as) <- f' ts
+                                       return $ Statement ws rs as
+          f s = return s
+          f' [] = return ([],[],[])
+          f' (TWord w:ts) = do w' <- mapWordM f w
+                               (ws,rs,as) <- f' ts
+                               return (w':ws,rs,as)
+          f' (TRedir r:ts) = do r' <- mapRedirM f r
+                                (ws,rs,as) <- f' ts
+                                return (ws,r':rs,as)
+          f' (TAssignment a:ts) = do a' <- mapAssignmentM f a
+                                     (ws,rs,as) <- f' ts
+                                     return (ws,rs,a':as)
+
 expandHereDocs :: [Command] -> P [Command]
-expandHereDocs = mapRedirsM eHD
-    where eHD (i :<< s) = mk i id
-          eHD (i :<<- s) = mk i stripTabs
-          eHD r = return r
+expandHereDocs = unorderStatements <=< mapCommandsM f
+    where f (i :<< s) = mk i id
+          f (i :<<- s) = mk i stripTabs
+          f r = return r
           stripTabs [] = []
           stripTabs (Literal n:Literal '\t':rest)
               | n `elem` "\n\r" = stripTabs (Literal n:rest)
@@ -516,7 +599,7 @@ expandHereDocs = mapRedirsM eHD
 
 -- here's a smart use of the Monad class...! :-)
 hereDocsComplete :: [Command] -> Bool
-hereDocsComplete = isJust . mapRedirsM complete
+hereDocsComplete = isJust . mapCommandsM complete
     where complete r = case r of
                          (_:<<_)  -> Nothing
                          (_:<<-_) -> Nothing
@@ -539,7 +622,7 @@ parse' as p s = runParser p (startState as) "" (map Chr s)
 parse :: [(String,String)]  -- ^list of alises to expand
       -> String             -- ^input string
       -> Either (String,Bool) [Command]
-parse as s = case parse' as (only commands) s of
+parse as s = case parse' as (only commands >>= expandHereDocs) s of
                Left err -> case getFatal err of
                              Just f  -> Left (f,True)
                              Nothing -> Left (show err,False)

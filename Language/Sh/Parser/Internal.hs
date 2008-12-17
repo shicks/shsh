@@ -54,14 +54,17 @@ wordToInt w = case fromLiteral w of
 
 addAssignment :: Assignment -> Statement -> Statement
 addAssignment a (Statement ws rs as) = Statement ws rs (a:as)
+addAssignment a (OrderedStatement ts) = OrderedStatement (TAssignment a:ts)
 addAssignment _ (Compound _ _) = impossible "cannot add assignment to Compound"
 
 addWord :: Word -> Statement -> Statement
 addWord w (Statement ws rs as) = Statement (w:ws) rs as
+addWord w (OrderedStatement ts) = OrderedStatement (TWord w:ts)
 addWord _ (Compound _ _) = impossible "cannot add word to Compound"
 
 addRedirection :: Redir -> Statement -> Statement
 addRedirection r (Statement ws rs as) = Statement ws (r:rs) as
+addRedirection r (OrderedStatement ts) = OrderedStatement (TRedir r:ts)
 addRedirection r (Compound c rs) = Compound c (r:rs)
 
 fromLiteral :: Word -> Maybe String
