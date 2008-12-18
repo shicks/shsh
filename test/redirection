@@ -85,3 +85,18 @@ grepping from out
 it works
 foo bar
 ~~~~
+
+Here we check the order:
+
+~~~~ check-output/redir-function2.sh
+foo () { echo foo; } > foo
+foo > bar
+test -e bar && test ! -s bar && echo bar empty
+echo foo > foo.cmp
+cmp foo foo.cmp && echo foo says foo
+~~~~
+
+~~~~ known-output/redir-function2.sh
+bar empty
+foo says foo
+~~~~
