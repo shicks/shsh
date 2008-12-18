@@ -6,12 +6,16 @@ module System.Console.ShSh.Builtins ( builtin ) where
 import System.Console.ShSh.Builtins.Args ( withArgs, -- opt, optSet,
                                            flag, flagOn, flagOff )
 import System.Console.ShSh.Builtins.Cd ( chDir )
-import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Cmp ( cmp )
 import System.Console.ShSh.Builtins.Cp ( cp )
-import System.Console.ShSh.Builtins.Mv ( mv )
+import System.Console.ShSh.Builtins.Date ( date )
 import System.Console.ShSh.Builtins.Exit ( exit )
 import System.Console.ShSh.Builtins.Grep ( grep )
+import System.Console.ShSh.Builtins.Mkdir ( mkDir )
+import System.Console.ShSh.Builtins.Mv ( mv )
+import System.Console.ShSh.Builtins.Rm ( rm )
+import System.Console.ShSh.Builtins.Sort ( runSort )
+import System.Console.ShSh.Builtins.Touch ( touch )
 
 import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
 import System.Console.ShSh.Options ( setOpts )
@@ -45,15 +49,14 @@ successfully job args = job args >> return ExitSuccess
 builtins :: [(String,[String] -> Shell ExitCode)]
 builtins = [(":",const $ return ExitSuccess),
             ("alias",alias),("cat",cat),
-            ("cd",chDir), ("cmp",cmp), ("cp",cp),
+            ("cd",chDir), ("cmp",cmp), ("cp",cp), ("date",date),
             ("echo",echo),("exec",const $ return ExitSuccess),
             ("exit", exit),
             ("false",const $ return $ ExitFailure 1),
-            ("grep",grep), ("ls",ls), ("rm", rm),
-            ("touch", touch), ("date", date),
-            ("mkdir",mkDir), ("mv",mv), ("pwd",pwd),
+            ("grep",grep), ("ls",ls),
+            ("mkdir",mkDir), ("mv",mv), ("pwd",pwd), ("rm",rm),
             ("set",set), ("shift",shift), ("sort",runSort),
-            ("true",const $ return ExitSuccess),
+            ("touch", touch), ("true",const $ return ExitSuccess),
             ("unalias",unalias),("unset",unset)]
             
 builtin :: String -> Shell (Maybe ([String] -> ShellProcess ()))
