@@ -6,7 +6,7 @@ module Language.Sh.Parser.Parsec where
 
 import Text.ParserCombinators.Parsec ( GenParser, getState, setState,
                                        tokenPrim, count, (<|>), (<?>),
-                                       skipMany, many,
+                                       skipMany, many, eof,
                                        getInput, setInput )
 import Text.ParserCombinators.Parsec.Pos ( updatePosChar )
 import Text.ParserCombinators.Parsec.Error ( ParseError, Message(..),
@@ -16,7 +16,7 @@ import Data.Char ( isUpper, isLower, isAlpha, isAlphaNum,
                    isDigit, isHexDigit, isOctDigit )
 import Data.Monoid ( Monoid, mappend )
 import Data.Maybe ( listToMaybe )
-import Control.Monad ( unless )
+import Control.Monad ( unless, when )
 import Debug.Trace ( trace )
 
 import Language.Sh.Syntax ( Word )
@@ -258,3 +258,26 @@ assocL p op single = do x <- p
                       y <- p
                       rest (f x y)
                    <|> return x
+
+getInput' :: P String
+getInput' = do ts <- getInput
+               return $ concatMap f ts
+    where f (Chr c) = [c]
+          f _ = []
+
+tok :: Char -> String
+tok c | c `elem` "\n\r" = "newline"
+      | otherwise       = [c]
+
+unexpected :: P a
+unexpected = do s <- getInput'
+                when (null s) $ err '\n'
+                err (head s)
+    where err c = fatal $ "syntax error near unexpected token `"++tok c++"'"
+
+putBack :: Char -> P ()
+putBack c = setInput =<< ((Chr c:) `fmap` getInput)
+
+-- |This version allows a newline/eof without being fatal.
+unexpectedEOF :: P a
+unexpectedEOF = (anyChar >>= putBack >> unexpected) <|> fail ""

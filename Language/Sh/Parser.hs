@@ -146,8 +146,11 @@ reservedWord s = try $ do spaces
                           return s'
 --                          return $ trace ("got reserved word: "++s) s'
 
+reservedWord_ :: String -> P ()
+reservedWord_ s = reservedWord s >> return ()
+
 inClause :: P [Word]
-inClause = choice [try $ do reservedWord "in" -- "do" OK w/o semicolon?
+inClause = choice [try $ do newlines >> reservedWord "in" -- "do" OK w/o semicolon?
                             ws <- manyTill (word NormalContext) $
                                   try $ spaces >> sequentialSep
                             return $ ws
@@ -158,9 +161,9 @@ inClause = choice [try $ do reservedWord "in" -- "do" OK w/o semicolon?
 -- brace groups, ...
 compoundStatement :: P CompoundStatement
 compoundStatement = choice [do reservedWord "for"
-                               name <- basicName
+                               name <- basicName <|> unexpected
                                vallist <- inClause
-                               reservedWord "do"
+                               reservedWord "do" <|> unexpectedEOF
                                (cs,_) <- commandsTill $ reservedWord "done"
                                return $ For name vallist cs
                            ,do reservedWord "if"
@@ -168,7 +171,7 @@ compoundStatement = choice [do reservedWord "for"
                            ,do char '('
                                openParen
                                cs <- many command
-                               schar ')'
+                               schar ')' <|> unexpectedEOF
                                closeParen
                                return $ Subshell cs
                            ,do reservedWord "{"
