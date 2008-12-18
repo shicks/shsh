@@ -24,7 +24,8 @@ data ExpansionFunctions m = ExpansionFunctions {
       setEnv :: String -> String -> m (),
       homeDir :: String -> m (Maybe String), -- default: return . Just
       expandGlob :: Word -> m [FilePath],
-      commandSub :: [Command] -> m String
+      commandSub :: [Command] -> m String,
+      positionals :: m [String] -- maybe we want to just have getEnv...?
     }
 
 -- |This is a private monad we use to pass around the functions...
@@ -43,6 +44,8 @@ glob :: Monad m => Word -> Exp m [FilePath]
 glob g = use expandGlob g
 run :: Monad m => [Command] -> Exp m String
 run cs = use commandSub cs
+pos :: Monad m => Exp m [String]
+pos = asks positionals >>= lift
 
 -- |Helper functions to define these accessors
 use :: Monad m => (ExpansionFunctions m -> a -> m b) -> a -> Exp m b
@@ -219,23 +222,16 @@ getEnvQ q n = fromMaybe [] `fmap` getEnvQC q False n
 getSpecial :: Monad m => Bool -> String -> Exp m (Maybe Word)
 getSpecial q "@" = getAtStar q $ (++[SplitField]) . map Literal
 getSpecial q "*" = getAtStar q $ quoteLiteral q
-getSpecial q "#" = (Just . quoteLiteral q.show.length) `fmap` getPositionals 1
+getSpecial q "#" = (Just . quoteLiteral q.show.length) `fmap` pos
 getSpecial q n = fmap (quoteLiteral q) `fmap` get n
 
 -- |Helper function for 'getSpecial'.
 getAtStar :: Monad m => Bool -> (String -> Word) -> Exp m (Maybe Word)
-getAtStar q c2l = do ps <- map (quoteLiteral q) `fmap` getPositionals 1
+getAtStar q c2l = do ps <- map (quoteLiteral q) `fmap` pos
                      fs <- (c2l . take 1) `fmap` getIFS
                      return $ if null ps
                               then Nothing
                               else Just $ concat $ intersperse fs ps
-
--- |Returns a list of all the positional parameters from @n@ up.
-getPositionals :: Monad m => Int -> Exp m [String]
-getPositionals n = do v <- get (show n)
-                      case v of
-                        Nothing -> return []
-                        Just v' -> (v':) `fmap` getPositionals (n+1)
 
 -- |Helper function for expansions...  The @Bool@ argument is for
 -- whether or not we're quoted.

@@ -14,7 +14,7 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
                                    maybeCloseOut, subShell, makeLocal,
                                    runShellProcess, setEnv, getAllEnv,
                                    setFunction, getFunction,
-                                   setExport, getExports,
+                                   setExport, getExports, getPositionals,
                                    pipeShells, runInShell, getExitCode,
                                    withEnvironment, withExitHandler,
                                    getFlag, getAliases, withPositionals,
@@ -86,24 +86,33 @@ checkE CheckE sp = do ec <- sp
                       return ec
 checkE IgnoreE sp = sp
 
+withEnv = withEnvironment expandWord
+
 -- |Run a 'Statement'.
 runStatement :: OnErr -> Statement -> ShellProcess ()
 runStatement b (Compound c rs) ip = mkShellProcess `flip` ip $
-                                    withEnvironment expandWord rs [] $
+                                    withEnv rs [] $
                                     runCompound b c
 runStatement _ (FunctionDefinition s c rs) ip = mkShellProcess `flip` ip $
                                                 do setFunction s c rs
                                                    return ExitSuccess
-runStatement b (Statement ws rs as) ip =
-    checkE b $ do ws' <- expandWords ws
-                  case ws' of
-                    [] -> mkShellProcess `flip` ip $
-                          withEnvironment expandWord rs [] $ setVars as
-                    ("local":xs) -> mkShellProcess (setLocals xs) ip
-                    ["export"] -> withEnvironment expandWord rs as $
-                                  mkShellProcess (setExports []) ip
-                    ("export":xs) -> mkShellProcess (setExports xs) ip
-                    xs -> withEnvironment expandWord rs as $ run' b xs ip
+runStatement b (Statement ws rs as) ip = checkE b $
+  do ws' <- expandWords ws
+     case ws' of
+       [] -> mkShellProcess `flip` ip $
+             withEnv rs [] $ setVars as
+       ("local":xs) -> mkShellProcess (setLocals xs) ip
+       ["export"] -> withEnv rs as $
+                     mkShellProcess (setExports []) ip
+       ("export":xs) -> mkShellProcess (setExports xs) ip
+       (name:args) -> do func <- getFunction name
+                         case func of   -- order of redirs matches dash
+                           Just (f,rs') -> mkShellProcess `flip` ip $
+                                           withEnv (rs++rs') as $
+                                           withPositionals args $
+                                           runCompound b f
+                           Nothing      -> withEnv rs as $
+                                           runBuiltinOrExe (name:args) ip
 
 runCompound b (For var list cs) =
     do ws <- expandWords list
@@ -120,28 +129,19 @@ runCompound b (If cond thn els) =
 runCompound b (BraceGroup cs) = runCommands' b cs
 runCompound _ c = fail $ "Control structure "++show c++" not yet supported."
 
-run' :: OnErr -> [String] -> ShellProcess () -- list NOT EMPTY
-run' b (name:args) ip =
-    do func <- getFunction name
-       case func of
-         Just (f,rs) -> mkShellProcess `flip` ip $
-                        withEnvironment expandWord rs [] $
-                        withPositionals args $ runCompound b f
-         Nothing     -> run'' (name:args) ip
-
-run' _ [] ip = fail "how did an empty command get through?"
-run'' (".":args) ip = run'' ("source":args) ip
-run'' ("source":f:args) ip | null args = mkShellProcess (source f) ip
-                           | otherwise = mkShellProcess (withPositionals args $
-                                                         source f) ip
-run'' ["source"] ip = do mkShellProcess (fail "filename argument required") ip
-run'' (command:args) ip = do b <- builtin command
-                             oFlush -- to behave like external commands, need to
-                             eFlush -- flush stdout/err after builtins are run.
-                             withExitHandler $ case b of
-                               Just b' -> withErrorsPrefixed command $
-                                          b' args ip
-                               Nothing -> runWithArgs command args ip
+runBuiltinOrExe (x:xs) ip = run' x xs where
+  run' "." args = run' "source" args
+  run' "source" (f:args) | null args = mkShellProcess (source f) ip
+                         | otherwise = mkShellProcess (withPositionals args $
+                                                          source f) ip
+  run' "source" [] = do mkShellProcess (fail "filename argument required") ip
+  run' command args = do b <- builtin command
+                         oFlush -- to behave like external commands, need to
+                         eFlush -- flush stdout/err after builtins are run.
+                         withExitHandler $ case b of
+                           Just b' -> withErrorsPrefixed command $
+                                      b' args ip
+                           Nothing -> runWithArgs command args ip
 
 -- at some point we need to use our own path here...
 runWithArgs :: String -> [String] -> ShellProcess ()
@@ -234,7 +234,8 @@ ef = E.ExpansionFunctions { E.getAllEnv = getAllEnv,
                             E.homeDir = liftIO . getHomeDir,
                             E.expandGlob = expandGlob,
                             E.commandSub = captureOutput .
-                                           subShell . runCommands }
+                                           subShell . runCommands,
+                            E.positionals = getPositionals }
 
 -- |Expand a single word into a single string; no field splitting
 expandWord :: Word -> Shell String
