@@ -72,6 +72,9 @@ data VarFlags = VarFlags { exported :: Bool, readonly :: Bool }
 exportedVar :: VarFlags
 exportedVar = VarFlags True False
 
+setExportedFlag :: Bool -> VarFlags -> VarFlags
+setExportedFlag x f = f { exported = x }
+
 instance Monoid VarFlags where
     mempty = VarFlags False False
     VarFlags a b `mappend` VarFlags a' b' = VarFlags (a||a') (b||b')
@@ -281,8 +284,7 @@ makeLocal var = Shell $ do x <- unshell $ getEnv var
                            modify $ \st -> st { locals = l }
 
 setExport :: String -> Bool -> ShellT e ()
-setExport var x = alterVarFlags var $ \f -> f { exported = x }
-
+setExport var x = alterVarFlags var $ setExportedFlag x
 
 -- |Remove the environment variable from the list.
 unsetEnv :: String -> ShellT e ()
@@ -592,7 +594,8 @@ withExitHandler s = catchError (catchS s $ \_ -> return ExitSuccess)
 assign :: (Word -> Shell String) -> [(String,(VarFlags,Maybe String))]
        -> Assignment -> InnerShell () [(String,(VarFlags,Maybe String))]
 assign expand e (n:=w) = do v <- unshell $ expand w
-                            setVarHelper n (Just $ Just v) e
+                            e' <- setVarHelper n (Just $ Just v) e
+                            return $ setFlagHelper n (setExportedFlag True) e'
 
 redir :: (Word -> Shell String) -> PipeState -> Redir
       -> InnerShell () (PipeState, IO ())
