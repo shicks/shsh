@@ -3,7 +3,69 @@ Redirecting output of compound commands
 
 Here are some test cases involving redirection of output.
 
-~~~~ check-output/redirection.sh
+~~~~ check-output/redir-simple.sh
+mkdir tmp
+cd tmp
+
+cat <<EOF >foo
+baz
+foo
+bar
+EOF
+
+sort <foo
+
+cat <<EOF >>foo
+dog
+EOF
+
+sort <foo
+~~~~
+
+~~~~ known-output/redir-simple.sh
+bar
+baz
+foo
+bar
+baz
+dog
+foo
+~~~~
+
+This is tricky - it's possible to have multiple heredocs even without
+funny business with file descriptors:
+
+~~~~ check-output/redir-double-heredoc.sh
+# fails-in-bash
+$(cat <<EOF) <<EOF
+cat
+EOF
+foo
+EOF
+~~~~
+
+~~~~ known-output/redir-double-heredoc.sh
+foo
+~~~~
+
+Redirects need to work even when we don't have commands.
+~~~~ check-output/redir-empty-command.sh
+set -e
+! mkdir tmp 2>/dev/null
+cd tmp
+> foo
+test -e foo
+test ! -s foo
+~~~~
+
+~~~~ known-output/redir-empty-command.sh
+~~~~
+
+Redirecting function output is tricky because functions get their
+own redirects that go with them, and these need to be applied in
+the right order.
+
+~~~~ check-output/redir-function.sh
 # fails-in-shsh
 announce () { "$@" && echo it works || echo it failed; }
 
@@ -16,7 +78,7 @@ grep works out
 grep 'foo bar' out
 ~~~~
 
-~~~~ known-output/redirection.sh
+~~~~ known-output/redir-function.sh
 checking out out
 foo bar
 it works
