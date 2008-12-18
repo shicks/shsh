@@ -23,7 +23,7 @@ import System.FilePath ( (</>) )
 import System.Exit ( ExitCode(..) )
 import Control.Monad ( when )
 import Control.Monad.Trans ( liftIO )
-import Data.Maybe ( fromJust, isJust )
+import Data.Maybe ( fromJust, isJust, fromMaybe, isNothing )
 
 #ifdef HAVE_HASKELINE
 import System.Console.Haskeline ( runInputT, getInputLine,
@@ -37,35 +37,43 @@ sourceProfile = do withHandler $ do dir <- getEnv "HOME"
                                     when exists $ source file >> return ()
                    return ()
 
+{-
+cases:
+  1. interactive vs. non-interactive
+  2. string vs. EOF
+  3. null i vs. non-null i
+  4. fatal vs. non-fatal parse error
+  5. completed vs. incomplete heredocs
+-}
+
 eventLoop :: String -> Maybe Handle -> Shell ExitCode
 eventLoop i0 h = el i0
-    where el i = do        -- we save exit code in case EOT sent later.
-             s' <- case h of
-                     Nothing -> getInput =<< prompt i
-                     Just h' -> getNoninteractiveInput h'
-             case s' of
-               Nothing -> getExitCode
-               Just s  -> do
-                  am_v <- getFlag 'v'
-                  when am_v $ ePutStrLn s
-                  as <- getAliases
-                  case parse as (i++s) of -- Later, add more to s' (PS2)
-                    Left (err,False) -> do when (isJust h) $ do
-                                             eof <- liftIO $ hIsEOF $ fromJust h
-                                             when eof $ fail err
-                                           el $ i++s++"\n"
-                    Left (err,True) -> do when (isJust h) $ do
-                                            eof <- liftIO $ hIsEOF $ fromJust h
-                                            ePutStrLn err
-                                            when eof $ fail err
-                                          el ""
-                    Right cs -> if hereDocsComplete cs
-                                then runCommands cs >> el ""
-                                else if isJust h
-                                     then do eof <- liftIO $ hIsEOF $ fromJust h
-                                             if eof then runCommands cs >> el ""
-                                                    else el $ i++s++"\n"
-                                     else el $ i++s++"\n"
+ where el i
+         = do line <- case h of Nothing -> getInput =<< prompt i
+                                Just h' -> getNoninteractiveInput h'
+              --eof <- case h of Nothing -> return Nothing
+              --                 Just h' -> Just `fmap` hIsEOF h'
+              as <- getAliases
+              am_v <- getFlag 'v'
+              let cmd = i ++ fromMaybe "" line
+                  interactive = isNothing h
+                  (result,fatal) = case parse as cmd of
+                                     Left (err,b) -> (Left err,b)
+                                     Right cs -> (Right cs,hereDocsComplete cs)
+              case line of
+                Just s  -> when am_v $ ePutStrLn s
+                Nothing -> return ()
+       -- (Bool,Bool,Maybe Bool,Either ([Command],Bool) (String,Bool))
+              case (line,null i,interactive,result,fatal) of
+                (Nothing,True ,_    ,_       ,_    ) -> getExitCode
+                (Nothing,False,False,Right cs,_    ) -> runCommands cs
+                (Nothing,False,False,Left err,_    ) -> fail err
+                (Nothing,False,True ,Right cs,_    ) -> runCommands cs >> el ""
+                (Nothing,False,True ,Left err,_    ) -> el ""
+                (Just s ,_    ,_    ,_       ,False) -> el (i++s++"\n")
+                (Just _ ,_    ,_    ,Right cs,True ) -> runCommands cs >> el ""
+                (Just _ ,_    ,False,Left err,True ) -> fail err
+                (Just _ ,_    ,True ,Left err,True ) -> ePutStrLn err >> el ""
 
 -- What do we want to do with history?  Bash defines a $HISTFILE variable,
 -- but that only deals with saving the history on exit - apparently readline
