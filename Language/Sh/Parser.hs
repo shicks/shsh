@@ -88,7 +88,7 @@ simpleStatement = do spaces
                      spaces
                      return s
 
-expandAlias :: P () -- lookahead
+expandAlias :: P () -- lookAhead
 expandAlias = try $ do (aok,as,ip) <- getAliasInfo
                        unless aok $ fail ""
                        a <- many $ noneOf "\\\"'()|&;<> \t\r\n" -- correct set?
@@ -150,20 +150,24 @@ reservedWord_ :: String -> P ()
 reservedWord_ s = reservedWord s >> return ()
 
 inClause :: P [Word]
-inClause = choice [try $ do newlines >> reservedWord "in" -- "do" OK w/o semicolon?
-                            ws <- manyTill (word NormalContext) $
-                                  try $ spaces >> sequentialSep
-                            return $ ws
-                  ,optional sequentialSep >> return defaultIn]
+inClause = choice [try $ do optional sequentialSep
+                            reservedWord "do"
+                            return defaultIn
+                  ,do newlines
+                      reservedWord "in"               <|> unexpected
+                      ws <- many (word NormalContext)
+                      spaces -- word stops on ; anyway?
+                      sequentialSep                   <|> unexpected
+                      reservedWord "do"               <|> unexpected
+                      return ws]
     where defaultIn = [[Quoted $ Expand $ SimpleExpansion "@"]]
 
 -- |Parse any of the compound statements: @if@, @for@, subshells,
 -- brace groups, ...
 compoundStatement :: P CompoundStatement
 compoundStatement = choice [do reservedWord "for"
-                               name <- basicName <|> unexpected
+                               name <- basicName      <|> unexpectedNoEOF
                                vallist <- inClause
-                               reservedWord "do" <|> unexpectedEOF
                                (cs,_) <- commandsTill $ reservedWord "done"
                                return $ For name vallist cs
                            ,do reservedWord "if"
@@ -171,7 +175,7 @@ compoundStatement = choice [do reservedWord "for"
                            ,do char '('
                                openParen
                                cs <- many command
-                               schar ')' <|> unexpectedEOF
+                               schar ')'              <|> unexpected
                                closeParen
                                return $ Subshell cs
                            ,do reservedWord "{"
@@ -278,6 +282,8 @@ newlines = (try (skipMany cnewline) <|> return ()) >> spaces
 -- we can conditionally end on certain delimiters, e.g. @}@.
 -- Note that #()|&<>; are in fact all allowed inside ${A:- }, so
 -- we'll need to take them all as inputs.
+
+-- WE REALLY NEED TO MOVE THE SPACE PARSING TO AFTER!!!
 word :: WordContext -> P Word
 word context = do spaces
                   ip <- insideParens -- ')' below was '('; only mattered in {}

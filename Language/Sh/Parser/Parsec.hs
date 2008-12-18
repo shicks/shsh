@@ -269,15 +269,18 @@ tok :: Char -> String
 tok c | c `elem` "\n\r" = "newline"
       | otherwise       = [c]
 
-unexpected :: P a
-unexpected = do s <- getInput'
-                when (null s) $ err '\n'
-                err (head s)
+unexpectedToken :: P a
+unexpectedToken = do s <- getInput'
+                     when (null s) $ err '\n'
+                     err (head s)
     where err c = fatal $ "syntax error near unexpected token `"++tok c++"'"
 
 putBack :: Char -> P ()
 putBack c = setInput =<< ((Chr c:) `fmap` getInput)
 
 -- |This version allows a newline/eof without being fatal.
-unexpectedEOF :: P a
-unexpectedEOF = (anyChar >>= putBack >> unexpected) <|> fail ""
+unexpected :: P a
+unexpected = (anyChar >>= putBack >> unexpected) <|> fail ""
+
+unexpectedNoEOF :: P a
+unexpectedNoEOF = unexpected
