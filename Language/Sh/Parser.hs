@@ -9,6 +9,8 @@ import Language.Sh.Parser.Internal
 import Language.Sh.Parser.Parsec
 import Language.Sh.Syntax
 
+import Language.Sh.Compat ( (<=<) )
+
 import Text.ParserCombinators.Parsec.Error ( ParseError )
 import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        skipMany, optional,
@@ -16,7 +18,7 @@ import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        sepBy1, notFollowedBy, lookAhead,
                                        getInput, setInput, runParser
                                      )
-import Control.Monad ( unless, when, liftM2, ap, (<=<) )
+import Control.Monad ( unless, when, liftM2, ap )
 import Data.List ( (\\) )
 import Data.Char ( isDigit )
 import Data.Maybe ( isJust )
