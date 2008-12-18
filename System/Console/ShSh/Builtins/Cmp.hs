@@ -39,7 +39,7 @@ cmp args = do withSubState (sequence_ opts>>run) noOpts
                    case fs of
                      [] -> fail "missing operand"
                      [s] -> fail $ "missing operand after `"++s++"'"
-                     [a,b] -> do oPutStrLn $ unwords ["running cmp",a,b]
+                     [a,b] -> do --oPutStrLn $ unwords ["running cmp",a,b]
                                  ae <- liftIO $ doesFileExist a
                                  unless ae $ fail $ unwords [a,"does not exist"]
                                  aa <- filter (/='\r') `fmap` liftIO (readFile a)
