@@ -11,6 +11,6 @@ touch :: [String] -> Shell ExitCode
 touch [] = fail "missing file operand"
 touch fs = do mapM_ touch'' fs
               return ExitSuccess
-    where touch'' x = liftIO (openFile x WriteMode >>= hClose)
+    where touch'' x = liftIO (openFile x AppendMode >>= hClose)
 
 
