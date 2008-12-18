@@ -201,39 +201,31 @@ captureOutput job = do (r,w) <- liftIO $ newPipe
                            job >> maybeCloseOut
                        liftIO $ rGetContents r
 
-source :: FilePath -> Shell ExitCode
-source f = do h <- liftIO $ openFile f ReadMode
-              source' "" h
-    where source' :: String -> Handle -> Shell ExitCode
-          source' i h =
-              do eof <- liftIO $ hIsEOF h
-                 if eof
-                    then getExitCode
-                    else liftIO (hGetLine h) >>= \s -> do
-                      am_v <- getFlag 'v'
-                      when am_v $ ePutStrLn s
-                      as <- getAliases
-                      case parse as (i++s) of
-                        Left (err,False) -> do
-                           eof <- liftIO $ hIsEOF h
-                           when eof $ fail err
-                           source' (i++s++"\n") h
-                        Left (err,True) -> do
-                           ePutStrLn err -- refail at eof?
-                           source' "" h
-                        Right cs -> if hereDocsComplete cs
-                                    then runCommands cs >> source' "" h
-                                    else do eof <- liftIO $ hIsEOF h
-                                            if eof then runCommands cs
-                                                   else source' (i++s++"\n") h
-
 eval :: String -> Shell ExitCode
-eval code = do as <- getAliases
-               case parse as code of
-                 Left (err,_) -> fail err
-                 Right cs -> if hereDocsComplete cs
-                             then runCommands cs
-                             else fail "incomplete heredocs!"
+eval c = eval' "" $ lines c
+    where eval' :: String -> [String] -> Shell ExitCode
+          eval' i rest =
+              do if null rest
+                    then getExitCode
+                    else do let ([s],rest') = splitAt 1 rest
+                            am_v <- getFlag 'v'
+                            when am_v $ ePutStrLn s
+                            as <- getAliases
+                            case parse as (i++s) of
+                              Left (err,False) -> do
+                                when (null rest') $ fail err
+                                eval' (i++s++"\n") rest'
+                              Left (err,True) -> do
+                                ePutStrLn err -- refail at eof?
+                                eval' "" rest'
+                              Right cs -> if hereDocsComplete cs
+                                          then runCommands cs >> eval' "" rest'
+                                          else if null rest'
+                                               then runCommands cs
+                                               else eval' (i++s++"\n") rest'
+
+source :: FilePath -> Shell ExitCode
+source f = liftIO (readFile f) >>= eval
 
 -- |Functions to pass to the actual @Expansion@ module.
 ef :: E.ExpansionFunctions Shell
