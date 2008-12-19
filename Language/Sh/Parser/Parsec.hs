@@ -247,7 +247,9 @@ string (c:cs) = do c <- char c
                    fmap (c:) $ string cs -- errors should work correctly...
 
 schar :: Char -> P Char
-schar c = spaces >> char c
+schar c = do x <- char c
+             spaces
+             return x
 
 -- *More general functions
 
@@ -269,6 +271,12 @@ tok :: Char -> String
 tok c | c `elem` "\n\r" = "newline"
       | otherwise       = [c]
 
+-- |Parse spaces afterwards
+token :: P a -> P a
+token p = do p' <- p
+             spaces
+             return p'
+
 unexpectedToken :: P a
 unexpectedToken = do s <- getInput'
                      when (null s) $ err '\n'
@@ -276,11 +284,13 @@ unexpectedToken = do s <- getInput'
     where err c = fatal $ "syntax error near unexpected token `"++tok c++"'"
 
 putBack :: Char -> P ()
-putBack c = setInput =<< ((Chr c:) `fmap` getInput)
+--putBack c = setInput =<< ((Chr c:) `fmap` getInput)
+putBack c = do i <- getInput
+               setInput $ Chr c:trace ("putting back a "++[c]++": "++show i) i
 
 -- |This version allows a newline/eof without being fatal.
 unexpected :: P a
-unexpected = (anyChar >>= putBack >> unexpected) <|> fail ""
+unexpected = (anyChar >>= putBack >> unexpectedToken) <|> fail ""
 
 unexpectedNoEOF :: P a
 unexpectedNoEOF = unexpected

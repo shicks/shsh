@@ -11,20 +11,20 @@ import Text.ParserCombinators.Parsec ( choice )
 impossible = const undefined
 
 redirOperator :: P String
-redirOperator = choice [do char '>'
-                           choice [char '&' >> return ">&"
-                                  ,char '>' >> return ">>"
-                                  ,char '|' >> return ">|"
-                                  ,return ">"]
-                       ,do char '<'
-                           choice [char '&' >> return "<&"
-                                  ,char '<' >> choice [char '-' >> return "<<-"
-                                                      ,return "<<"]
-                                  ,char '>' >> return "<>"
-                                  ,return "<"]]
+redirOperator = token $ choice [do char '>'
+                                   choice [char '&' >> return ">&"
+                                          ,char '>' >> return ">>"
+                                          ,char '|' >> return ">|"
+                                          ,return ">"]
+                               ,do char '<'
+                                   choice [char '&' >> return "<&"
+                                          ,do char '<'
+                                              choice [char '-' >> return "<<-"
+                                                     ,return "<<"]
+                                          ,char '>' >> return "<>"
+                                          ,return "<"]]
 
 -- |Takes an operator, maybe an int, and a word target.
--- |
 mkRedir :: String -> Maybe Int -> Word -> P Redir -- need P for fail
 mkRedir _ (Just d) _ | d > 255 = fail $ "file descriptor too large: "++show d
 mkRedir op@('<':_) Nothing t   = mkRedir op (Just 0) t

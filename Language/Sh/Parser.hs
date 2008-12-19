@@ -18,10 +18,10 @@ import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        sepBy1, notFollowedBy, lookAhead,
                                        getInput, setInput, runParser
                                      )
-import Control.Monad ( unless, when, liftM2, ap )
+import Control.Monad ( unless, when, liftM2, ap, guard )
 import Data.List ( (\\) )
 import Data.Char ( isDigit )
-import Data.Maybe ( isJust )
+import Data.Maybe ( isJust, catMaybes )
 
 import Debug.Trace ( trace )
 
@@ -44,19 +44,21 @@ lookaheadNormalDelimiter = lookAhead $
                            oneOf (delimiters NormalContext) >> return ()
 
 cnewline :: P ()
-cnewline = do spaces
-              newline <|> (do char '#'
+cnewline = do newline <|> (do char '#'
                               skipMany (noneOf "\n\r")
                               newline <|> eof)         <?> ""
               spaces
 
 statement :: P Statement
-statement = spaces >> aliasOn >>
-            choice [try $ do name <- basicName
-                             spaces >> char '(' >> spaces >> char ')'
-                             newlines -- optional
-                             FunctionDefinition name `fmap` compoundStatement
-                                                `ap` many redirection
+statement = do aliasOn
+               choice [try $ do name <- basicName
+                                char '(' >> spaces
+                                char ')' <|> unexpectedNoEOF
+                                spaces
+                                newlines -- optional
+                                FunctionDefinition name
+                                        `fmap` compoundStatement
+                                        `ap` many redirection
                    ,Compound `fmap` compoundStatement `ap` many redirection
                    ,do s <- statementNoSS
                        case s of -- needed to prevent errors w/ 'many'
@@ -68,27 +70,21 @@ statement = spaces >> aliasOn >>
 -- We could probably wrap these into one function, since there's a fair
 -- amount of repitition here...
 statementNoSS :: P Statement
-statementNoSS = do spaces >> aliasOn
-                   s <- choice [expandAlias >> statementNoSS
-                               ,try $ do a <- assignment
-                                         fmap (addAssignment a) statementNoSS
-                               ,try $ do r <- redirection
-                                         fmap (addRedirection r) statementNoSS
-                               ,simpleStatement]
-                   spaces
-                   return s
+statementNoSS = do aliasOn
+                   choice [expandAlias >> statementNoSS
+                          ,try $ do a <- assignment
+                                    fmap (addAssignment a) statementNoSS
+                          ,try $ do r <- redirection
+                                    fmap (addRedirection r) statementNoSS
+                          ,simpleStatement]
 
 simpleStatement :: P Statement
-simpleStatement = do spaces
-                     s <- choice [expandAlias >> simpleStatement
-                                 ,try $ do r <- redirection
-                                           fmap (addRedirection r)
-                                                simpleStatement
-                                 ,try $ do w <- word NormalContext
-                                           fmap (addWord w) simpleStatement
-                                 ,return $ OrderedStatement []]
-                     spaces
-                     return s
+simpleStatement = choice [expandAlias >> simpleStatement
+                         ,try $ do r <- redirection
+                                   fmap (addRedirection r) simpleStatement
+                         ,try $ do w <- word NormalContext
+                                   fmap (addWord w) simpleStatement
+                         ,return $ OrderedStatement []]
 
 expandAlias :: P () -- lookAhead
 expandAlias = try $ do (aok,as,ip) <- getAliasInfo
@@ -124,6 +120,7 @@ injectAlias a s as ip = do i <- getInput
                            unless True $
                                 do l <- getInput
                                    setInput l -- $ trace ("input: "++show l) l
+                           spaces
 
 pipeline :: P Pipeline
 pipeline = (try $ do reservedWord "!"
@@ -133,23 +130,32 @@ pipeline = (try $ do reservedWord "!"
 pipe :: P ()
 pipe = try $ do char '|'
                 notFollowedBy $ fmap Chr $ char '|'
+                spaces
 
 andorlist :: P AndOrList
-andorlist = assocL pipeline (try $ (string "||" >> return (:||:))
-                               <|> (string "&&" >> return (:&&:)))
+andorlist = assocL pipeline (try $ (operator "||" >> return (:||:))
+                               <|> (operator "&&" >> return (:&&:)))
                    Singleton
 
-
 reservedWord :: String -> P String
-reservedWord s = try $ do spaces
-                          s' <- string s <?> show s
+reservedWord s = try $ do s' <- string s <?> show s
                           lookaheadNormalDelimiter <|> eof
                           spaces
                           return s'
---                          return $ trace ("got reserved word: "++s) s'
 
 reservedWord_ :: String -> P ()
 reservedWord_ s = reservedWord s >> return ()
+
+isOperator :: String -> Bool
+isOperator x = x`elem`[">",">>",">|","<","<>","<<","<<-",">&","<&",
+                       "|","||","&","&&",";",";;","(",")"]
+
+operator :: String -> P String
+operator s = try $ do string s
+                      eof <|> (do c <- lookAhead anyChar
+                                  guard $ not $ isOperator $ s++[c])
+                      spaces
+                      return s
 
 inClause :: P [Word]
 inClause = choice [try $ do optional sequentialSep
@@ -158,7 +164,6 @@ inClause = choice [try $ do optional sequentialSep
                   ,do newlines
                       reservedWord "in"               <|> unexpected
                       ws <- many (word NormalContext)
-                      spaces -- word stops on ; anyway?
                       sequentialSep                   <|> unexpected
                       reservedWord "do"               <|> unexpected
                       return ws]
@@ -174,10 +179,10 @@ compoundStatement = choice [do reservedWord "for"
                                return $ For name vallist cs
                            ,do reservedWord "if"
                                parseIf           -- recursive b/c of elif
-                           ,do char '('
+                           ,do operator "("
                                openParen
                                cs <- many command
-                               schar ')'              <|> unexpected
+                               operator ")"              <|> unexpected
                                closeParen
                                return $ Subshell cs
                            ,do reservedWord "{"
@@ -222,16 +227,17 @@ readHDs = do hd <- nextHereDoc
                Nothing -> return ()
 
 sequentialSep :: P ()
-sequentialSep = choice [char ';' >> return ()
+sequentialSep = choice [operator ";" >> return ()
                        ,cnewline >> readHDs
                        ,eof >> closeHereDocs -- ?
                        ,do unlessM insideParens $ fail ""
-                           lookAhead $ char ')'
-                           return ()]
-                >> newlines
+                           lookAhead $ operator ")"
+                           return ()
+                       ]
+                >> newlines >> spaces
 
 commandTerminator :: P Bool
-commandTerminator = (char '&' >> newlines >> return True)
+commandTerminator = (operator "&" >> newlines >> return True)
                     <|> (sequentialSep >> return False)
                             <?> "terminator"
 
@@ -248,6 +254,7 @@ manyTill' p end = scan
 -- 'readHereDocs' list.  Note that we want to end with a newline, but it's
 -- being read by the "till" parser.  Instead, we use a 'wPutStrLn' in the
 -- 'Shell' module, rather than attempting to add the newline back in here.
+
 readHD :: String -> P ()
 readHD delim = popHereDoc =<< manyTill' (dqLex "\\$`")
                                 (choice [try $ do newline
@@ -285,12 +292,12 @@ newlines = (try (skipMany cnewline) <|> return ()) >> spaces
 -- Note that #()|&<>; are in fact all allowed inside ${A:- }, so
 -- we'll need to take them all as inputs.
 
--- WE REALLY NEED TO MOVE THE SPACE PARSING TO AFTER!!!
 word :: WordContext -> P Word
-word context = do spaces
-                  ip <- insideParens -- ')' below was '('; only mattered in {}
+word context = do ip <- insideParens -- ')' below was '('; only mattered in {}
                   let del = (if ip then (')':) else id) $ delimiters context
-                  fmap concat $ word' del <:> many (word' $ del\\"#")
+                  w <- fmap concat $ word' del <:> many (word' $ del\\"#")
+                  spaces
+                  return w
     where word' :: String -> P Word
           word' s = choice [do char '\\'
                                try (newline >> return [])  <|>
@@ -384,7 +391,8 @@ expansion =
                       ,return $ Literal '$'
                       ]
            ,do char '`'
-               s <- many $ escape "`$\\" <|> noneOf "`"
+               s <- fmap catMaybes $ many $
+                    escape "`$\\" <|> Just `fmap` noneOf "`"
                char '`'
                (_,as,_) <- getAliasInfo -- cf. bash: alias foo='`foo`'
                case parse' as (only commands) s of
@@ -423,20 +431,21 @@ $ foo
 dash: foo: not found
 -}
 
-escape :: String -> P Char
-escape s = char '\\' >> (oneOf s <|> return '\\')
+escape :: String -> P (Maybe Char)
+escape s = char '\\' >> choice [newline >> return Nothing
+                               ,Just `fmap` oneOf s
+                               ,return $ Just '\\']
 
 name :: P String
-name = count 1 (oneOf "@*#?-$!" <|> digit) <|>
-       alphaUnder <:> many alphaUnderNum
-         <?> "name"
+name = token (count 1 (oneOf "@*#?-$!" <|> digit) <|>
+              alphaUnder <:> many alphaUnderNum)
+                             <?> "name"
 
 basicName :: P String
-basicName = alphaUnder <:> many alphaUnderNum <?> "name"
+basicName = token (alphaUnder <:> many alphaUnderNum) <?> "name"
 
 assignment :: P Assignment
-assignment = do spaces
-                var <- basicName <?> "name"
+assignment = do var <- basicName <?> "name"
                 char '='
                 val <- word NormalContext
                 return $ var := val
@@ -459,7 +468,7 @@ redirection = try (do spaces
 -- word, but we don't make certain distinctions that @sh@ does (i.e. @$a@
 -- vs @${a}@), so I think we're better off just using a string...
 hereEnd :: P String
-hereEnd = fromLit `fmap` word HereEndContext
+hereEnd = token $ fromLit `fmap` word HereEndContext
     where fromLit [] = ""
           fromLit (Quote _:xs) = fromLit xs
           fromLit (Quoted q:xs) = fromLit $ q:xs
