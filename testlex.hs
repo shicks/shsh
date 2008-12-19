@@ -4,9 +4,6 @@ import System.IO ( hIsEOF, stdin, hFlush, stdout )
 import Language.Sh.Parser ( parse, hereDocsComplete )
 -- import System.Console.ShSh.Expansions ( expansions )
 
-import System.Console.ShSh.Shell ( Shell, startShell )
-import System.Console.ShSh.IO ( oPutStrLn )
-
 loop pre = do let prompt = if null pre then "$ " else "> "
               putStr prompt >> hFlush stdout
               eof <- hIsEOF stdin
