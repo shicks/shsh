@@ -96,6 +96,8 @@ runStatement b (Compound c rs) ip = mkShellProcess `flip` ip $
 runStatement _ (FunctionDefinition s c rs) ip = mkShellProcess `flip` ip $
                                                 do setFunction s c rs
                                                    return ExitSuccess
+runStatement _ (OrderedStatement ts) _ = fail $ "OrderedStatement got through:"
+                                                ++ show ts
 runStatement b (Statement ws rs as) ip = checkE b $
   do ws' <- expandWords ws
      case ws' of
