@@ -175,7 +175,7 @@ compoundStatement :: P CompoundStatement
 compoundStatement = choice [do reservedWord "for"
                                name <- basicName      <|> unexpectedNoEOF
                                vallist <- inClause
-                               (cs,_) <- commandsTill $ reservedWord "done"
+                               (cs,_) <- commandsTill (reservedWord "done")
                                return $ For name vallist cs
                            ,do reservedWord "if"
                                parseIf           -- recursive b/c of elif
@@ -479,7 +479,7 @@ commands = do newlines
               many $ newlines >> command -- maybe get rid of newlines?
 
 commandsTill :: P String -> P ([Command],String)
-commandsTill delim = do --newlines
+commandsTill delim = do --newlines       -- we need a way to put an <|> unexp.
                         rest <- getInput
                         (c,e) <- manyTill' (newlines >> command) $
                                  try (newlines >> delim)
@@ -500,86 +500,120 @@ singleton = replicate 1
 --   mapSh :: f -> t -> a t
 class (Monad m,Functor m) => ExpressionMapperM m f where
     mapCommandsM :: f -> [Command] -> m [Command]
-    mapCommandsM f = mapM $ mapCommandM f
+    mapCommandsM = defaultMapCommandsM
+    defaultMapCommandsM :: f -> [Command] -> m [Command]
+    defaultMapCommandsM f = mapM $ mapCommandM f
 
     mapCommandM :: f -> Command -> m Command
-    mapCommandM f (Synchronous l) = Synchronous `fmap` mapListM f l
-    mapCommandM f (Asynchronous l) = Asynchronous `fmap` mapListM f l
+    mapCommandM = defaultMapCommandM
+    defaultMapCommandM :: f -> Command -> m Command
+    defaultMapCommandM f (Synchronous l) = Synchronous `fmap` mapListM f l
+    defaultMapCommandM f (Asynchronous l) = Asynchronous `fmap` mapListM f l
 
     mapListM :: f -> AndOrList -> m AndOrList
-    mapListM f (Singleton p) = Singleton `fmap` mapPipelineM f p
-    mapListM f (l :&&: p) = (:&&:) `fmap` mapListM f l `ap` mapPipelineM f p
-    mapListM f (l :||: p) = (:||:) `fmap` mapListM f l `ap` mapPipelineM f p
+    mapListM = defaultMapListM
+    defaultMapListM :: f -> AndOrList -> m AndOrList
+    defaultMapListM f (Singleton p) = Singleton `fmap` mapPipelineM f p
+    defaultMapListM f (l :&&: p) = (:&&:) `fmap` mapListM f l
+                                          `ap` mapPipelineM f p
+    defaultMapListM f (l :||: p) = (:||:) `fmap` mapListM f l
+                                          `ap` mapPipelineM f p
     
     mapPipelineM :: f -> Pipeline -> m Pipeline
-    mapPipelineM f (Pipeline ps) = Pipeline `fmap` mapM (mapStatementM f) ps
-    mapPipelineM f (BangPipeline ps) = BangPipeline `fmap`
-                                       mapM (mapStatementM f) ps
+    mapPipelineM = defaultMapPipelineM
+    defaultMapPipelineM :: f -> Pipeline -> m Pipeline
+    defaultMapPipelineM f (Pipeline ps) = Pipeline `fmap`
+                                          mapM (mapStatementM f) ps
+    defaultMapPipelineM f (BangPipeline ps) = BangPipeline `fmap`
+                                              mapM (mapStatementM f) ps
 
     -- do we want mapStatementsM?
     mapStatementM :: f -> Statement -> m Statement
-    mapStatementM f (Statement ws rs as)
+    mapStatementM = defaultMapStatementM
+    defaultMapStatementM :: f -> Statement -> m Statement
+    defaultMapStatementM f (Statement ws rs as)
         = Statement `fmap` mapM (mapWordM f) ws -- plural?
                     `ap` mapM (mapRedirM f) rs
                     `ap` mapM (mapAssignmentM f) as
-    mapStatementM f (OrderedStatement ts)
+    defaultMapStatementM f (OrderedStatement ts)
         = OrderedStatement `fmap` concatMapM (mapTermsM f) ts
-    mapStatementM f (Compound c rs)
+    defaultMapStatementM f (Compound c rs)
         = Compound `fmap` mapCompoundM f c `ap` mapM (mapRedirM f) rs
-    mapStatementM f (FunctionDefinition s c rs)
+    defaultMapStatementM f (FunctionDefinition s c rs)
         = FunctionDefinition s `fmap` (mapCompoundM f) c
                                `ap` mapM (mapRedirM f) rs
     
     mapCompoundM :: f -> CompoundStatement -> m CompoundStatement
-    mapCompoundM f (For s ss cs') = For s ss `fmap` mapCommandsM f cs'
-    mapCompoundM f (If cond thn els)
+    mapCompoundM = defaultMapCompoundM
+    defaultMapCompoundM :: f -> CompoundStatement -> m CompoundStatement
+    defaultMapCompoundM f (For s ss cs') = For s `fmap` mapM (mapWordM f) ss
+                                                 `ap` mapCommandsM f cs'
+    defaultMapCompoundM f (If cond thn els)
         = If `fmap` mapCommandsM f cond `ap` mapCommandsM f thn
                                         `ap` mapCommandsM f els
-    mapCompoundM f (Subshell cs) = Subshell `fmap` mapCommandsM f cs
-    mapCompoundM f (BraceGroup cs) = BraceGroup `fmap` mapCommandsM f cs
+    defaultMapCompoundM f (Subshell cs) = Subshell `fmap` mapCommandsM f cs
+    defaultMapCompoundM f (BraceGroup cs) = BraceGroup `fmap` mapCommandsM f cs
 
     mapTermsM :: f -> Term -> m [Term]
-    mapTermsM f t = singleton `fmap` mapTermM f t
+    mapTermsM = defaultMapTermsM
+    defaultMapTermsM :: f -> Term -> m [Term]
+    defaultMapTermsM f t = singleton `fmap` mapTermM f t
 
     mapTermM :: f -> Term -> m Term
-    mapTermM f (TWord w) = TWord `fmap` mapWordM f w
-    mapTermM f (TRedir r) = TRedir `fmap` mapRedirM f r
-    mapTermM f (TAssignment a) = TAssignment `fmap` mapAssignmentM f a
+    mapTermM = defaultMapTermM
+    defaultMapTermM :: f -> Term -> m Term
+    defaultMapTermM f (TWord w) = TWord `fmap` mapWordM f w
+    defaultMapTermM f (TRedir r) = TRedir `fmap` mapRedirM f r
+    defaultMapTermM f (TAssignment a) = TAssignment `fmap` mapAssignmentM f a
 
     mapWordM :: f -> Word -> m Word
-    mapWordM f = concatMapM $ mapLexemesM f
+    mapWordM = defaultMapWordM
+    defaultMapWordM :: f -> Word -> m Word
+    defaultMapWordM f = concatMapM $ mapLexemesM f
 
     mapLexemesM :: f -> Lexeme -> m [Lexeme]
-    mapLexemesM f l = singleton `fmap` mapLexemeM f l
+    mapLexemesM = defaultMapLexemesM
+    defaultMapLexemesM :: f -> Lexeme -> m [Lexeme]
+    defaultMapLexemesM f l = singleton `fmap` mapLexemeM f l
 
     mapLexemeM :: f -> Lexeme -> m Lexeme
-    mapLexemeM f (Quoted lexeme) = Quoted `fmap` mapLexemeM f lexeme
-    mapLexemeM f (Expand xp) = Expand `fmap` mapExpansionM f xp
-    mapLexemeM _ lexeme = return lexeme
+    mapLexemeM = defaultMapLexemeM
+    defaultMapLexemeM :: f -> Lexeme -> m Lexeme
+    defaultMapLexemeM f (Quoted lexeme) = Quoted `fmap` mapLexemeM f lexeme
+    defaultMapLexemeM f (Expand xp) = Expand `fmap` mapExpansionM f xp
+    defaultMapLexemeM _ lexeme = return lexeme
 
     mapExpansionM :: f -> Expansion -> m Expansion
-    mapExpansionM f (FancyExpansion s c b w)
+    mapExpansionM = defaultMapExpansionM
+    defaultMapExpansionM :: f -> Expansion -> m Expansion
+    defaultMapExpansionM f (FancyExpansion s c b w)
         = FancyExpansion s c b `fmap` mapWordM f w
-    mapExpansionM f (CommandSub cs) = CommandSub `fmap` mapCommandsM f cs
-    mapExpansionM f (Arithmetic w) = Arithmetic `fmap` mapWordM f w
-    mapExpansionM _ expansion = return expansion
+    defaultMapExpansionM f (CommandSub cs) = CommandSub `fmap`
+                                             mapCommandsM f cs
+    defaultMapExpansionM f (Arithmetic w) = Arithmetic `fmap` mapWordM f w
+    defaultMapExpansionM _ expansion = return expansion
 
     mapAssignmentM :: f -> Assignment -> m Assignment
-    mapAssignmentM f (s:=w) = (s:=) `fmap` mapWordM f w
+    mapAssignmentM = defaultMapAssignmentM
+    defaultMapAssignmentM :: f -> Assignment -> m Assignment
+    defaultMapAssignmentM f (s:=w) = (s:=) `fmap` mapWordM f w
 
     mapRedirM :: f -> Redir -> m Redir
-    mapRedirM f (n:>w) = (n:>) `fmap` mapWordM f w
-    mapRedirM f (n:>|w) = (n:>|) `fmap` mapWordM f w
-    mapRedirM f (n:>>w) = (n:>>) `fmap` mapWordM f w
-    mapRedirM f (n:<>w) = (n:<>) `fmap` mapWordM f w
-    mapRedirM f (n:<w) = (n:<) `fmap` mapWordM f w
-    mapRedirM f (Heredoc n c w) = (Heredoc n c) `fmap` mapWordM f w
-    mapRedirM _ redir = return redir
+    mapRedirM = defaultMapRedirM
+    defaultMapRedirM :: f -> Redir -> m Redir
+    defaultMapRedirM f (n:>w) = (n:>) `fmap` mapWordM f w
+    defaultMapRedirM f (n:>|w) = (n:>|) `fmap` mapWordM f w
+    defaultMapRedirM f (n:>>w) = (n:>>) `fmap` mapWordM f w
+    defaultMapRedirM f (n:<>w) = (n:<>) `fmap` mapWordM f w
+    defaultMapRedirM f (n:<w) = (n:<) `fmap` mapWordM f w
+    defaultMapRedirM f (Heredoc n c w) = (Heredoc n c) `fmap` mapWordM f w
+    defaultMapRedirM _ redir = return redir
 
 instance (Monad m,Functor m) => ExpressionMapperM m (Redir -> m Redir)
-    where mapRedirM f = f
+    where mapRedirM f r = defaultMapRedirM f =<< f r
 instance (Monad m,Functor m) => ExpressionMapperM m (Statement -> m Statement)
-    where mapStatementM f = f
+    where mapStatementM f s = defaultMapStatementM f =<< f s
+
 
 -- The order is wrong here, since we could put the Redir's either before or
 -- after the Word's...  We'll need to figure something out to deal with that.
