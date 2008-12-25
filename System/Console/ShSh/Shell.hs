@@ -13,7 +13,7 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    setFunction, getFunction,
                                    setAlias, getAlias, getAliases,
                                    unsetAlias, unsetAllAliases,
-                                   getExitCode,
+                                   getExitCode, setExitCode,
                                    getFlag, setFlag, unsetFlag, getFlags,
                                    runShell_, runShell,
                                    pipeShells, runInShell, withPipes,
@@ -21,12 +21,15 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    withHandler, withHandler_,
                                    withExitHandler, failOnError,
                                    pipeState, closeOut, maybeCloseOut,
+                                   maybeCloseIn,
                                    withSubState, withErrorsPrefixed,
                                    withEnvironment, withPositionals,
-                                   mkShellProcess, runShellProcess,
-                                   ShellProcess, PipeInput(..)
+                                   runShellProcess, withShellProcess,
+                                   ShellProcess(..)
                                  )
     where
+
+import Debug.Trace ( trace )
 
 import Control.Applicative ( (<|>) )
 import Control.Concurrent ( forkIO, MVar, newEmptyMVar, putMVar, takeMVar )
@@ -110,10 +113,38 @@ instance MonadIO (ShellT e) where
 unshell :: ShellT e a -> InnerShell e a
 unshell (Shell s) = s
 
+-- |In this new instance, we make the pipes lazily.  We don't actually
+-- gain anything by doing this, except convenience, because we'll
+-- always close the handles, which will create and then immediately
+-- close the pipe.
 instance MonadSIO (InnerShell e) where
-    iHandle = (fromReadStream  stdin  . p_in)  `fmap` gets pipeState
-    oHandle = (fromWriteStream stdout . p_out) `fmap` gets pipeState
-    eHandle = (fromWriteStream stderr . p_err) `fmap` gets pipeState
+    iHandle = do ps <- gets pipeState
+                 case p_in ps of
+                   RCreatePipe mw ->
+                       do (r,w) <- catchIO newPipe
+                          modify $ \s -> s { pipeState = ps
+                                             { p_in = RUseHandle r } }
+                          catchIO $ putMVar mw w
+                          return r
+                   i -> return $ fromReadStream stdin i
+    oHandle = do ps <- gets pipeState
+                 case p_out ps of
+                   WCreatePipe mr ->
+                       do (r,w) <- catchIO newPipe
+                          modify $ \s -> s { pipeState = ps
+                                             { p_out = WUseHandle w } }
+                          catchIO $ putMVar mr r
+                          return w
+                   o -> return $ fromWriteStream stdout o
+    eHandle = do ps <- gets pipeState
+                 case p_err ps of
+                   WCreatePipe mr ->
+                       do (r,w) <- catchIO newPipe
+                          modify $ \s -> s { pipeState = ps
+                                             { p_err = WUseHandle w } }
+                          catchIO $ putMVar mr r
+                          return w
+                   e -> return $ fromWriteStream stderr e
 
 instance MonadState e (ShellT e) where
     get = Shell $ gets extra
@@ -438,14 +469,13 @@ withPipes p (Shell s) = Shell $ do
                           modify $ \st -> st { pipeState = ps }
                           return ret
 
-runInShell :: String -> [String] -> ShellProcess e
-runInShell c args ip = Shell $ do ps <- gets pipeState
-                                  exp <- unshell getExports
-                                  (mh,_,_,wait) <- catchIO $ launch c args exp $
-                                                                fixInput ip ps
-                                  unshell $ returnHandle ip mh
-                                  -- do we need to wait for any open pipes...?
-                                  catchIO wait
+runInShell :: String -> [String] -> Shell ExitCode
+runInShell c args = Shell $ do ps <- gets pipeState
+                               exp <- unshell getExports
+                               catchIO $ catchIO $ launch c args exp ps
+
+-- ps <- gets pipeState
+-- ... $ fixInput ip ps
 
 pipes :: ShellT e PipeState
 pipes = Shell $ gets pipeState
@@ -462,57 +492,56 @@ pipes = Shell $ gets pipeState
 -- |Here's YET ANOTHER way to do things...
 -- The idea is that when we start a process, we may want it to give
 -- us a writehandle back out.
-data PipeInput = PipeInput (MVar WriteHandle) (MVar ExitCode) | InheritInput
 
 -- how about we pass a Maybe Shell in to the consumer instead of all this
 -- mvar nonsense?
-type ShellProcess e = PipeInput -> ShellT e ExitCode
+data ShellProcess = BuiltinProcess  (Shell ExitCode)
+                  | ExternalProcess (Shell ExitCode)
 
-forkPipe :: ShellProcess e -> ShellT e (WriteHandle,MVar ExitCode)
+forkPipe :: ShellProcess -> Shell (WriteHandle,MVar ExitCode)
 forkPipe job = do mvh <- liftIO $ newEmptyMVar
                   mve <- liftIO $ newEmptyMVar
-                  forkShell $ job (PipeInput mvh mve) >>= liftIO . putMVar mve
+                  forkShell mvh $ do ec <- runShellProcess job
+                                     liftIO $ putMVar mve ec
+                                     return ExitSuccess -- not used...?
                   h <- liftIO $ takeMVar mvh
                   return (h,mve)
 
-fixInput :: PipeInput -> PipeState -> PipeState
-fixInput InheritInput p = p
-fixInput (PipeInput _ _) p = p { p_in = RCreatePipe }
-
-returnHandle :: PipeInput -> Maybe WriteHandle -> ShellT e ()
-returnHandle InheritInput _ = return ()
-returnHandle (PipeInput _ _) Nothing = fail "no WriteHandle given"
-returnHandle (PipeInput m _) (Just h) = liftIO $ putMVar m h
+fixInput :: Maybe (MVar WriteHandle) -> PipeState -> PipeState
+fixInput Nothing p = p
+fixInput (Just mv) p = p { p_in = RCreatePipe mv}
 
 setExitCode :: ExitCode -> ShellT e ExitCode
 setExitCode ExitSuccess = setEnv "?" "0" >> return ExitSuccess
 setExitCode (ExitFailure n) = setEnv "?" (show n) >> return (ExitFailure n)
 
-runShellProcess :: ShellProcess e -> ShellT e ExitCode
-runShellProcess sp = do sp InheritInput >>= setExitCode
+runShellProcess :: ShellProcess -> Shell ExitCode
+runShellProcess (BuiltinProcess  s) = s
+runShellProcess (ExternalProcess s) = s
 
-mkShellProcess :: ShellT e ExitCode -> ShellProcess e
-mkShellProcess job (PipeInput h _) = do (r,w) <- liftIO newPipe
-                                        liftIO $ putMVar h w
-                                        let p = mempty { p_in = RUseHandle r }
-                                        withPipes p job >>= setExitCode
-mkShellProcess job InheritInput = job
+withShellProcess :: (Shell ExitCode -> Shell ExitCode)
+                 -> ShellProcess -> ShellProcess
+withShellProcess f (BuiltinProcess  s) = BuiltinProcess  $ f s
+withShellProcess f (ExternalProcess s) = ExternalProcess $ f s
 
-forkShell :: ShellT e a -> ShellT e ()
-forkShell job = Shell $ do s <- get
-                           let job' = job >> return ExitSuccess
-                           catchIO $ forkIO $ runShell job' s >> return ()
-                           return ()
+forkShell :: MVar WriteHandle -> ShellT e ExitCode -> ShellT e ()
+forkShell mvh job = Shell $ do s <- get
+                               let job' = do -- w <- liftIO $ takeMVar mvh
+                                             withPipes `flip` job $
+                                               mempty { p_in = RCreatePipe mvh }
+                               catchIO $ forkIO $ runShell job' s >> return ()
+                               return ()
 
 -- |This isolates a shell...  but we'll eventually need to do more...?
 subShell :: ShellT e ExitCode -> ShellT e ExitCode
 subShell job = Shell $ do s <- get
                           catchIO $ runShell job s
 
-pipeShells :: ShellProcess e -> ShellProcess e -> ShellProcess e
-pipeShells source dest pi = do
+pipeShells :: ShellProcess -> ShellProcess -> ShellProcess
+pipeShells source dest = BuiltinProcess $ do
   (h,e) <- forkPipe dest
-  withPipes (mempty { p_out = WUseHandle h }) $ source pi >> maybeCloseOut
+  withPipes (mempty { p_out = WUseHandle h }) $
+            runShellProcess source >> maybeCloseOut
   liftIO (takeMVar e) >>= setExitCode -- this should work....?
 
 --runShell :: Shell a -> IO a

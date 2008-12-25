@@ -5,15 +5,16 @@ module System.Console.ShSh.Command ( runCommands, source, eval ) where
 
 import System.Console.ShSh.Builtins ( builtin )
 import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
-import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush )
+import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush, iHandle )
 import System.Console.ShSh.Internal.IO ( newPipe, rGetContents )
 import System.Console.ShSh.Internal.Process ( WriteStream(..),
                                               PipeState(..) )
 import System.Console.ShSh.ShellError ( announceError )
-import System.Console.ShSh.Shell ( Shell, ShellProcess, mkShellProcess,
+import System.Console.ShSh.Shell ( Shell, ShellProcess(..),
+                                   withShellProcess, maybeCloseIn,
                                    maybeCloseOut, subShell, makeLocal,
                                    runShellProcess, setEnv, getAllEnv,
-                                   setFunction, getFunction,
+                                   setFunction, getFunction, setExitCode,
                                    setExport, getExports, getPositionals,
                                    pipeShells, runInShell, getExitCode,
                                    withEnvironment, withExitHandler,
@@ -54,67 +55,75 @@ runAsync _ = fail "Asyncronous commands not yet supported"
 
 -- |Run an 'AndOrList'.
 runList :: OnErr -> AndOrList -> Shell ExitCode
-runList b (Singleton p) = runShellProcess $ pipeline b p
+runList b (Singleton p) = runShellProcess =<< pipeline b p
 runList b (l :&&: p)    = do ec <- runList IgnoreE l
                              if ec == ExitSuccess
-                                then runShellProcess $ pipeline b p
+                                then runShellProcess =<< pipeline b p
                                 else return ec
 runList b (l :||: p)    = do ec <- runList IgnoreE l
                              if ec /= ExitSuccess
-                                then runShellProcess $ pipeline b p
+                                then runShellProcess =<< pipeline b p
                                 else return ec
 
 -- |Run a 'Pipeline'.  (or rather, return something that will)
-pipeline :: OnErr -> Pipeline -> ShellProcess ()
-pipeline b (Pipeline [s]) = runStatement b s
-pipeline b (Pipeline (s:ss)) = pipeShells (runStatement IgnoreE s)
-                                  (pipeline b $ Pipeline ss)
-pipeline b (BangPipeline [s]) = notProcess (runStatement IgnoreE s)
-pipeline b (BangPipeline (s:ss)) = pipeShells (runStatement IgnoreE s)
-                                      (pipeline IgnoreE $ BangPipeline ss)
+sec :: Shell ShellProcess -> Shell ShellProcess
+sec = fmap $ withShellProcess $ \job -> job >>= setExitCode
 
-notProcess :: ShellProcess () -> ShellProcess ()
-notProcess sp ip = do ec <- sp ip
-                      case ec of
-                        ExitSuccess -> return $ ExitFailure 1
-                        ExitFailure _ -> return $ ExitSuccess
+pipeline :: OnErr -> Pipeline -> Shell ShellProcess
+pipeline b (Pipeline [s]) = sec $ runStatement b s
+pipeline b (Pipeline (s:ss)) = do s' <- runStatement IgnoreE s
+                                  ss' <- pipeline b $ Pipeline ss
+                                  return $ pipeShells s' ss'
+pipeline b (BangPipeline [s]) = sec $ notProcess `fmap` runStatement IgnoreE s
+pipeline b (BangPipeline (s:ss)) = do s' <- runStatement IgnoreE s
+                                      ss' <- pipeline IgnoreE $ BangPipeline ss
+                                      return $ pipeShells s' ss'
 
-checkE :: OnErr -> Shell ExitCode -> Shell ExitCode
-checkE CheckE sp = do ec <- sp
-                      am_e <- getFlag 'e'
-                      when (am_e && ec/=ExitSuccess) $ liftIO $ exitWith ec
-                      return ec
-checkE IgnoreE sp = sp
+notProcess :: ShellProcess -> ShellProcess
+notProcess = withShellProcess $ \sp ->
+             do ec <- sp
+                case ec of
+                  ExitSuccess -> return $ ExitFailure 1
+                  ExitFailure _ -> return $ ExitSuccess
+
+checkE :: OnErr -> ShellProcess -> ShellProcess
+checkE CheckE = withShellProcess $ \sp ->
+                do ec <- sp
+                   am_e <- getFlag 'e'
+                   when (am_e && ec/=ExitSuccess) $ liftIO $ exitWith ec
+                   return ec
+checkE IgnoreE = id
 
 withEnv = withEnvironment expandWord
 
 -- |Run a 'Statement'.
-runStatement :: OnErr -> Statement -> ShellProcess ()
-runStatement b (Compound c rs) ip = mkShellProcess `flip` ip $
-                                    withEnv rs [] $
-                                    runCompound b c
-runStatement _ (FunctionDefinition s c rs) ip = mkShellProcess `flip` ip $
-                                                do setFunction s c rs
-                                                   return ExitSuccess
-runStatement _ (OrderedStatement ts) _ = fail $ "OrderedStatement got through:"
-                                                ++ show ts
-runStatement b (Statement ws rs as) ip = checkE b $
-  do ws' <- expandWords ws
-     case ws' of
-       [] -> mkShellProcess `flip` ip $
-             withEnv rs [] $ setVars as
-       ("local":xs) -> mkShellProcess (setLocals xs) ip
-       ["export"] -> withEnv rs as $
-                     mkShellProcess (setExports []) ip
-       ("export":xs) -> mkShellProcess (setExports xs) ip
-       (name:args) -> do func <- getFunction name
-                         case func of   -- order of redirs matches dash
-                           Just (f,rs') -> mkShellProcess `flip` ip $
-                                           withEnv (rs++rs') as $
-                                           withPositionals args $
-                                           runCompound b f
-                           Nothing      -> withEnv rs as $
-                                           runBuiltinOrExe (name:args) ip
+runStatement :: OnErr -> Statement -> Shell ShellProcess
+runStatement b (Compound c rs) = return $ BuiltinProcess $ withEnv rs [] $
+                                                  runCompound b c
+runStatement _ (FunctionDefinition s c rs) = return $ BuiltinProcess $
+                                             do setFunction s c rs
+                                                return ExitSuccess
+runStatement _ (OrderedStatement ts) = fail $ "OrderedStatement got through: "
+                                         ++ show ts
+runStatement b (Statement ws rs as) = checkE b `fmap`
+    do ws' <- expandWords ws
+       case ws' of
+         [] -> return $ BuiltinProcess $ withEnv rs [] $ setVars as
+         ("local":xs) -> return $ BuiltinProcess $ setLocals xs
+         ["export"] -> return $ BuiltinProcess $ withEnv rs as $ setExports []
+         ("export":xs) -> return $ BuiltinProcess $
+                          setExports xs -- NOTE: can't be in a withEnv
+         (name:args) -> do func <- getFunction name
+                           case func of   -- order of redirs matches dash
+                             Just (f,rs') -> return $ BuiltinProcess $
+                                               withEnv (rs++rs') as $
+                                               withPositionals args $
+                                               runCompound b f
+                             Nothing      -> do job <- runBuiltinOrExe
+                                                       name args
+                                                return $
+                                                  withShellProcess `flip` job $
+                                                    \j -> withEnv rs as j
 
 runCompound b (For var list cs) =
     do ws <- expandWords list
@@ -131,23 +140,29 @@ runCompound b (If cond thn els) =
 runCompound b (BraceGroup cs) = runCommands' b cs
 runCompound _ c = fail $ "Control structure "++show c++" not yet supported."
 
-runBuiltinOrExe (x:xs) ip = run' x xs where
+runBuiltinOrExe :: String -> [String] -> Shell ShellProcess
+runBuiltinOrExe = run' where -- now this is just for layout...
   run' "." args = run' "source" args
-  run' "source" (f:args) | null args = mkShellProcess (source f) ip
-                         | otherwise = mkShellProcess (withPositionals args $
-                                                          source f) ip
-  run' "source" [] = do mkShellProcess (fail "filename argument required") ip
+  run' "source" (f:args) | null args = return $ BuiltinProcess $ source f
+                         | otherwise = return $ BuiltinProcess $
+                                                withPositionals args $ source f
+  run' "source" [] = return $ BuiltinProcess $ fail "filename argument required"
   run' command args = do b <- builtin command
-                         oFlush -- to behave like external commands, need to
-                         eFlush -- flush stdout/err after builtins are run.
-                         withExitHandler $ case b of
-                           Just b' -> withErrorsPrefixed command $
-                                      b' args ip
-                           Nothing -> runWithArgs command args ip
+                         return $ case b of
+                           Just b' -> BuiltinProcess $ withExitHandler $
+                                      withErrorsPrefixed command $ do
+                                        oFlush -- to behave like external
+                                        eFlush -- commands, need to flush
+                                        iHandle -- make sure it's open...?
+                                        b' args -- after builtins are run.
+                           Nothing -> ExternalProcess $ withExitHandler $ do
+                                        oFlush
+                                        eFlush
+                                        runWithArgs command args
 
 -- at some point we need to use our own path here...
-runWithArgs :: String -> [String] -> ShellProcess ()
-runWithArgs cmd args ip
+runWithArgs :: String -> [String] -> Shell ExitCode
+runWithArgs cmd args
     = do exists <- liftIO $ doesFileExist cmd
          notWindows <- elem '/' `fmap` liftIO getCurrentDirectory
          exists_exe <- if notWindows
@@ -162,7 +177,7 @@ runWithArgs cmd args ip
                                        else Nothing
                          else findExecutable cmd
          case exe of
-           Just fp -> runInShell fp args ip
+           Just fp -> runInShell fp args
            Nothing -> do if path && (exists || exists_exe)
                             then ePutStrLn $ cmd++": Permission denied"
                             else ePutStrLn $ cmd++": No such file or directory"

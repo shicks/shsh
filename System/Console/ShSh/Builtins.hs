@@ -23,8 +23,7 @@ import System.Console.ShSh.Shell ( ShellT, Shell,
                                    getPositionals, modifyPositionals,
                                    getAlias, getAliases, setAlias,
                                    unsetAlias, unsetAllAliases,
-                                   getAllEnv, getEnv, unsetEnv,
-                                   ShellProcess, mkShellProcess )
+                                   getAllEnv, getEnv, unsetEnv )
 import System.Console.ShSh.ShellError ( withPrefix )
 import System.Console.ShSh.Util ( split )
 
@@ -59,14 +58,14 @@ builtins = [(":",const $ return ExitSuccess),
             ("touch", touch), ("true",const $ return ExitSuccess),
             ("unalias",unalias),("unset",unset)]
             
-builtin :: String -> Shell (Maybe ([String] -> ShellProcess ()))
+builtin :: String -> Shell (Maybe ([String] -> Shell ExitCode))
 builtin b = do noBuiltin <- getEnv "NOBUILTIN"
                let r = case noBuiltin of
                          Just s  -> let nb = split ':' s
                                     in b `elem` nb
                          Nothing -> False
                return $ if r then Nothing
-                             else (mkShellProcess .) `fmap` lookup b builtins
+                             else lookup b builtins
 
 alias, cat, echo, ls, pwd, set, shift, unalias, unset
     :: [String] -> Shell ExitCode
