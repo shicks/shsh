@@ -425,7 +425,7 @@ startShell a = runShell a =<< startState
 runShell :: ShellT e ExitCode -> ShellState e -> IO ExitCode
 runShell (Shell s) e = do result <- evalStateT (runErrorT s) e
                           case result of
-                            Right ec  -> return ec
+                            Right ec -> return ec
                             Left err -> do announceError err
                                            return $ exitCode err
 
@@ -499,17 +499,15 @@ data ShellProcess = BuiltinProcess  (Shell ExitCode)
                   | ExternalProcess (Shell ExitCode)
 
 forkPipe :: ShellProcess -> Shell (WriteHandle,MVar ExitCode)
-forkPipe job = do mvh <- liftIO $ newEmptyMVar
-                  mve <- liftIO $ newEmptyMVar
-                  forkShell mvh $ do ec <- runShellProcess job
-                                     liftIO $ putMVar mve ec
-                                     return ExitSuccess -- not used...?
-                  h <- liftIO $ takeMVar mvh
-                  return (h,mve)
-
-fixInput :: Maybe (MVar WriteHandle) -> PipeState -> PipeState
-fixInput Nothing p = p
-fixInput (Just mv) p = p { p_in = RCreatePipe mv}
+forkPipe job = Shell $ do mvh <- catchIO $ newEmptyMVar
+                          mve <- catchIO $ newEmptyMVar
+                          s <- get
+                          let p = mempty { p_in = RCreatePipe mvh }
+                              job' = do ec <- withPipes p $ runShellProcess job
+                                        liftIO $ putMVar mve ec
+                          catchIO $ forkIO $ runShell_ job' s
+                          h <- catchIO $ takeMVar mvh
+                          return (h,mve)
 
 setExitCode :: ExitCode -> ShellT e ExitCode
 setExitCode ExitSuccess = setEnv "?" "0" >> return ExitSuccess
@@ -524,19 +522,16 @@ withShellProcess :: (Shell ExitCode -> Shell ExitCode)
 withShellProcess f (BuiltinProcess  s) = BuiltinProcess  $ f s
 withShellProcess f (ExternalProcess s) = ExternalProcess $ f s
 
-forkShell :: MVar WriteHandle -> ShellT e ExitCode -> ShellT e ()
-forkShell mvh job = Shell $ do s <- get
-                               let job' = do -- w <- liftIO $ takeMVar mvh
-                                             withPipes `flip` job $
-                                               mempty { p_in = RCreatePipe mvh }
-                               catchIO $ forkIO $ runShell job' s >> return ()
-                               return ()
-
 -- |This isolates a shell...  but we'll eventually need to do more...?
 subShell :: ShellT e ExitCode -> ShellT e ExitCode
 subShell job = Shell $ do s <- get
                           catchIO $ runShell job s
 
+-- any optimization here will need to depend on the associativity
+-- of how we're running the pipes.  Currently, it runs as
+--     p1 | (p2 | (p3 | ...))
+-- Thus, we should return the same type as source, since there's nothing
+-- after dest...
 pipeShells :: ShellProcess -> ShellProcess -> ShellProcess
 pipeShells source dest = BuiltinProcess $ do
   (h,e) <- forkPipe dest
