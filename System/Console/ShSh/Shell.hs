@@ -68,8 +68,6 @@ import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError, exit )
 import System.Console.ShSh.Compat ( on )
 
-import System.Console.ShSh.Debug ( traceForkIO )
-
 import Language.Sh.Syntax ( Word, CompoundStatement,
                             Redir(..), Assignment(..) )
 
@@ -465,9 +463,8 @@ maybeCloseIn = do h <- iHandle
 -- need to get at the /current/ pipe state.  But we don't want to allow it
 -- to be used to change the pipe state, so the effects need to be bounded...?
 withPipes :: PipeState -> ShellT e a -> ShellT e a
-withPipes p (Shell s) | trace ("withPipes "++show p) True
-             = Shell $ do
-                          ps <- gets pipeState
+withPipes p (Shell s) -- -- | trace ("withPipes "++show p) True
+             = Shell $ do ps <- gets pipeState
                           modify $ \st -> st { pipeState = ps `mappend` p }
                           ret <- s
                           modify $ \st -> st { pipeState = ps }
@@ -477,9 +474,6 @@ runInShell :: String -> [String] -> Shell ExitCode
 runInShell c args = Shell $ do ps <- gets pipeState
                                exp <- unshell getExports
                                catchIO $ catchIO $ launch c args exp ps
-
--- ps <- gets pipeState
--- ... $ fixInput ip ps
 
 pipes :: ShellT e PipeState
 pipes = Shell $ gets pipeState
@@ -509,8 +503,7 @@ forkTarget job = Shell $ do mvh <- catchIO $ newEmptyMVar
                             let p = mempty { p_in = RCreatePipe mvh }
                                 job' = do ec <- withPipes p job
                                           liftIO $ putMVar mve ec
-                            catchIO $ traceForkIO "forkTarget" $
-                                        runShell_ job' s
+                            catchIO $ forkIO $ runShell_ job' s
                             h <- catchIO $ takeMVar mvh
                             return (mempty { p_out = WUseHandle h },mve)
 
@@ -521,8 +514,7 @@ forkSource job = Shell $ do mvh <- catchIO $ newEmptyMVar
                             let p = mempty { p_out = WCreatePipe mvh }
                                 job' = do ec <- withPipes p job
                                           liftIO $ putMVar mve ec
-                            catchIO $ traceForkIO "forkSource" $
-                                        runShell_ job' s
+                            catchIO $ forkIO $ runShell_ job' s
                             h <- catchIO $ takeMVar mvh
                             return (mempty { p_in = RUseHandle h },mve)
 
@@ -530,9 +522,20 @@ setExitCode :: ExitCode -> ShellT e ExitCode
 setExitCode ExitSuccess = setEnv "?" "0" >> return ExitSuccess
 setExitCode (ExitFailure n) = setEnv "?" (show n) >> return (ExitFailure n)
 
+openHandles :: Shell ()
+openHandles = iHandle >> oHandle >> eHandle >> return ()
+
 runShellProcess :: ShellProcess -> Shell ExitCode
-runShellProcess (BuiltinProcess  s) = s
+runShellProcess (BuiltinProcess  s) = s -- openHandles >> s -- doesn't work?!
 runShellProcess (ExternalProcess s) = s
+
+-- |this optionally opens in/out handles
+runShellProcess' :: ShellProcess -> Bool -> Bool -> Shell ExitCode
+runShellProcess' (BuiltinProcess  s) openIn openOut
+    = do when openIn $ iHandle >> return ()
+         when openOut $ oHandle >> return ()
+         s -- openHandles >> s
+runShellProcess' (ExternalProcess s) _ _ = s
 
 carry :: Shell a -> b -> Shell b
 carry job ret = job >> return ret
@@ -558,15 +561,6 @@ subShell job = Shell $ do s <- get
 -- The forked process is the one that's asked to create the pipe, so we
 -- should try to fork the external one instead of the builtin one.
 pipeShells :: ShellProcess -> ShellProcess -> ShellProcess
--- pipeShells (ExternalProcess src) dst = ExternalProcess $ do
---   (p,e) <- forkTarget $ runShellProcess dst >>= carry closeFDs
---   withPipes p $ src >>= carry closeFDs
---   liftIO (takeMVar e) >>= setExitCode -- this should work....?
--- pipeShells src dst = BuiltinProcess $ do
---   (p,_) <- forkSource $ runShellProcess src >>= carry closeFDs
---   ec <- withPipes p $ runShellProcess dst >>= carry closeFDs
---   -- liftIO (takeMVar e)
---   setExitCode ec
 pipeShells (ExternalProcess src) dst = ExternalProcess $ do
   (p,e) <- forkSource $ src >>= carry maybeCloseOut
   ec <- withPipes p $ runShellProcess dst >>= carry maybeCloseIn
@@ -576,16 +570,6 @@ pipeShells src dst = BuiltinProcess $ do
   (p,e) <- forkTarget $ runShellProcess dst >>= carry maybeCloseIn
   withPipes p $ runShellProcess src >>= carry maybeCloseOut
   liftIO (takeMVar e) >>= setExitCode -- this should work....?
-
--- pipeShells :: ShellProcess -> ShellProcess -> ShellProcess
--- pipeShells source dest = BuiltinProcess $ do
---   (p,e) <- forkTarget $ runShellProcess dest
---   withPipes p $ runShellProcess source >> closeFDs
---   liftIO (takeMVar e) >>= setExitCode
-
---runShell :: Shell a -> IO a
---runShell (Shell s) = do e <- getEnvironment
---                        return $ evalState s e
 
 -- It seems like this has the nice property that it both threads the
 -- state properly, AND is atomic, so that state changes don't go through
@@ -611,34 +595,6 @@ withErrors f job = catchError job $ \e -> throwError $ f e
 
 withErrorsPrefixed :: String -> ShellT e a -> ShellT e a
 withErrorsPrefixed s = withErrors $ prefixError s
-
-{-
-withSubState' :: ShellT e a -> e -> Shell a
-withSubState' (Shell sub) e = Shell $ do
-  s <- get
-  let s' = ShellState (environment s) (aliases s) (functions s) e
-  sub' <- lift $ runErrorT sub
-  case sub' of
-    Left err -> fail err
-    Right a  -> return $ do -- now we're up to the StateT monad
-                  (result,s'') <- lift $ runStateT a
-                  put $ ShellState (environment s'') (aliases s'')
-                                   (functions s'') ()
-                  return result
-
-withSubStateCalled' :: String -> ShellT e a -> e -> Shell a
-withSubStateCalled' name (Shell sub) e = Shell $ do
-  s <- get
-  let s' = ShellState (environment s) (aliases s) (functions s) e
-  sub' <- lift $ runErrorT sub
-  case sub' of
-    Left err -> fail $ name++": "++err
-    Right a  -> return $ do -- now we're up to the StateT monad
-                  (result,s'') <- lift $ runStateT a
-                  put $ ShellState (environment s'') (aliases s'')
-                                   (functions s'') ()
-                  return result
--}
 
 -- No longer trying to preserve return type... maybe another function?
 -- I don't think we ever want to use this?????

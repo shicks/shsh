@@ -142,6 +142,9 @@ runCompound b (If cond thn els) =
 runCompound b (BraceGroup cs) = runCommands' b cs
 runCompound _ c = fail $ "Control structure "++show c++" not yet supported."
 
+openHandles :: Shell () -- this is weird -> these shouldn't have side effects
+openHandles = iHandle >> oHandle >> eHandle >> return ()
+
 runBuiltinOrExe :: String -> [String] -> Shell ShellProcess
 runBuiltinOrExe = run' where -- now this is just for layout...
   run' "." args = run' "source" args
@@ -153,8 +156,7 @@ runBuiltinOrExe = run' where -- now this is just for layout...
                          return $ case b of
                            Just b' -> BuiltinProcess $ withExitHandler $
                                       withErrorsPrefixed command $ do
-                                        oHandle >> eHandle >> iHandle
-                                        -- make sure they're open...?
+                                        openHandles
                                         ec <- b' args -- after builtins are run.
                                         oFlush -- to behave like external
                                         eFlush -- commands, need to flush

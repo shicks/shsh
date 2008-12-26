@@ -33,8 +33,6 @@ import System.Console.ShSh.Internal.IO ( WriteHandle, ReadHandle,
                                          fromWriteHandle, fromReadHandle,
                                          joinHandles, wClose )
 
-import System.Console.ShSh.Debug ( traceForkIO )
-
 import Debug.Trace ( trace )
 
 tr a b = trace (a ++ show b) b
@@ -197,14 +195,12 @@ launch c args env ps =
 
 outChanPipe :: Handle -> WriteHandle -> IO (IO ())
 outChanPipe r w = do mv <- newEmptyMVar
-                     traceForkIO "outChanPipe" $
-                              joinHandles (toReadHandle r) w $ do putMVar mv ()
+                     forkIO $ joinHandles (toReadHandle r) w $ do putMVar mv ()
                                                                   hClose r
                      return $ takeMVar mv
 
 inChanPipe :: ReadHandle -> Handle -> IO (IO ())
 inChanPipe r w = do mv <- newEmptyMVar
-                    traceForkIO "inChanPipe" $
-                             joinHandles r (toWriteHandle w) $ do putMVar mv ()
+                    forkIO $ joinHandles r (toWriteHandle w) $ do putMVar mv ()
                                                                   hClose w
                     return $ takeMVar mv
