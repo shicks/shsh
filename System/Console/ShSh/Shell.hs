@@ -498,16 +498,27 @@ pipes = Shell $ gets pipeState
 data ShellProcess = BuiltinProcess  (Shell ExitCode)
                   | ExternalProcess (Shell ExitCode)
 
-forkPipe :: ShellProcess -> Shell (WriteHandle,MVar ExitCode)
-forkPipe job = Shell $ do mvh <- catchIO $ newEmptyMVar
-                          mve <- catchIO $ newEmptyMVar
-                          s <- get
-                          let p = mempty { p_in = RCreatePipe mvh }
-                              job' = do ec <- withPipes p $ runShellProcess job
-                                        liftIO $ putMVar mve ec
-                          catchIO $ forkIO $ runShell_ job' s
-                          h <- catchIO $ takeMVar mvh
-                          return (h,mve)
+forkTarget :: Shell ExitCode -> Shell (PipeState,MVar ExitCode)
+forkTarget job = Shell $ do mvh <- catchIO $ newEmptyMVar
+                            mve <- catchIO $ newEmptyMVar
+                            s <- get
+                            let p = mempty { p_in = RCreatePipe mvh }
+                                job' = do ec <- withPipes p job
+                                          liftIO $ putMVar mve ec
+                            catchIO $ forkIO $ runShell_ job' s
+                            h <- catchIO $ takeMVar mvh
+                            return (mempty { p_out = WUseHandle h },mve)
+
+forkSource :: Shell ExitCode -> Shell (PipeState,MVar ExitCode)
+forkSource job = Shell $ do mvh <- catchIO $ newEmptyMVar
+                            mve <- catchIO $ newEmptyMVar
+                            s <- get
+                            let p = mempty { p_out = WCreatePipe mvh }
+                                job' = do ec <- withPipes p job
+                                          liftIO $ putMVar mve ec
+                            catchIO $ forkIO $ runShell_ job' s
+                            h <- catchIO $ takeMVar mvh
+                            return (mempty { p_in = RUseHandle h },mve)
 
 setExitCode :: ExitCode -> ShellT e ExitCode
 setExitCode ExitSuccess = setEnv "?" "0" >> return ExitSuccess
@@ -534,9 +545,8 @@ subShell job = Shell $ do s <- get
 -- after dest...
 pipeShells :: ShellProcess -> ShellProcess -> ShellProcess
 pipeShells source dest = BuiltinProcess $ do
-  (h,e) <- forkPipe dest
-  withPipes (mempty { p_out = WUseHandle h }) $
-            runShellProcess source >> maybeCloseOut
+  (p,e) <- forkTarget $ runShellProcess dest
+  withPipes p $ runShellProcess source >> maybeCloseOut
   liftIO (takeMVar e) >>= setExitCode -- this should work....?
 
 --runShell :: Shell a -> IO a
