@@ -5,7 +5,8 @@ module System.Console.ShSh.Command ( runCommands, source, eval ) where
 
 import System.Console.ShSh.Builtins ( builtin )
 import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
-import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush, iHandle )
+import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush,
+                                iHandle, oHandle, eHandle )
 import System.Console.ShSh.Internal.IO ( newPipe, rGetContents )
 import System.Console.ShSh.Internal.Process ( WriteStream(..),
                                               PipeState(..) )
@@ -65,10 +66,11 @@ runList b (l :||: p)    = do ec <- runList IgnoreE l
                                 then runShellProcess =<< pipeline b p
                                 else return ec
 
--- |Run a 'Pipeline'.  (or rather, return something that will)
+-- |Modifies a Shell ShellProcess to set the exit code.
 sec :: Shell ShellProcess -> Shell ShellProcess
 sec = fmap $ withShellProcess $ \job -> job >>= setExitCode
 
+-- |Run a 'Pipeline'.  (or rather, return something that will)
 pipeline :: OnErr -> Pipeline -> Shell ShellProcess
 pipeline b (Pipeline [s]) = sec $ runStatement b s
 pipeline b (Pipeline (s:ss)) = do s' <- runStatement IgnoreE s
@@ -151,13 +153,13 @@ runBuiltinOrExe = run' where -- now this is just for layout...
                          return $ case b of
                            Just b' -> BuiltinProcess $ withExitHandler $
                                       withErrorsPrefixed command $ do
+                                        oHandle >> eHandle >> iHandle
+                                        -- make sure they're open...?
+                                        ec <- b' args -- after builtins are run.
                                         oFlush -- to behave like external
                                         eFlush -- commands, need to flush
-                                        iHandle -- make sure it's open...?
-                                        b' args -- after builtins are run.
-                           Nothing -> ExternalProcess $ withExitHandler $ do
-                                        oFlush
-                                        eFlush
+                                        return ec
+                           Nothing -> ExternalProcess $ withExitHandler $
                                         runWithArgs command args
 
 -- at some point we need to use our own path here...

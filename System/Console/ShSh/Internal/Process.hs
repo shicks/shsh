@@ -33,6 +33,7 @@ import System.Console.ShSh.Internal.IO ( WriteHandle, ReadHandle,
                                          fromWriteHandle, fromReadHandle,
                                          joinHandles, wClose )
 
+import System.Console.ShSh.Debug ( traceForkIO )
 
 import Debug.Trace ( trace )
 
@@ -117,11 +118,11 @@ launch c args vars ps = do let is = rMkStream $ p_in  ps
                            sequence_ $ concat [ps1,ps2,ps3]
                            waitForProcess pid
     where rMkStream RInherit    = Inherit
-          rMkStream (RCreatePipe _) = CreatePipe
+          rMkStream (RCreatePipe _) = trace "rMkStream RCreatePipe" CreatePipe
           rMkStream (RUseHandle h) = fromMaybe CreatePipe $
                                      UseHandle `fmap` fromReadHandle h
           wMkStream WInherit    = Inherit
-          wMkStream (WCreatePipe _) = CreatePipe
+          wMkStream (WCreatePipe _) = trace "wMkStream WCreatePipe" CreatePipe
           wMkStream (WUseHandle h) = fromMaybe CreatePipe $
                                      UseHandle `fmap` fromWriteHandle h
           --wProcess :: Maybe Handle -> WriteStream -> PipeState
@@ -196,12 +197,14 @@ launch c args env ps =
 
 outChanPipe :: Handle -> WriteHandle -> IO (IO ())
 outChanPipe r w = do mv <- newEmptyMVar
-                     forkIO $ joinHandles (toReadHandle r) w $ do putMVar mv ()
+                     traceForkIO "outChanPipe" $
+                              joinHandles (toReadHandle r) w $ do putMVar mv ()
                                                                   hClose r
                      return $ takeMVar mv
 
 inChanPipe :: ReadHandle -> Handle -> IO (IO ())
 inChanPipe r w = do mv <- newEmptyMVar
-                    forkIO $ joinHandles r (toWriteHandle w) $ do putMVar mv ()
+                    traceForkIO "inChanPipe" $
+                             joinHandles r (toWriteHandle w) $ do putMVar mv ()
                                                                   hClose w
                     return $ takeMVar mv

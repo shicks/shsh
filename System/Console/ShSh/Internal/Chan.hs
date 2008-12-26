@@ -4,7 +4,7 @@
 module System.Console.ShSh.Internal.Chan ( Chan, newChan, closeChan,
                                            isEmptyChan, getChanContents,
                                            readChan, writeChan, unGetChan,
-                                           isEOFChan,
+                                           isEOFChan, isEOFChanNonBlocking,
                                            isOpenChan, requireOpenChan,
                                            notEOFChan
                                          ) where
@@ -84,11 +84,24 @@ isEOFChan (A c v) = do e <- C.isEmptyChan c
                                     C.unGetChan c b
                                     return $ B.null b
 
+-- |This used to be non-blocking, but then we switched to make it block,
+-- which messed us up when we wanted to do rIsOpen, since we don't expect
+-- that one to block...  We might also want a way to separate out EOF
+-- from closed?  Maybe to put a single EOF in the Chan but not close it?
+isEOFChanNonBlocking :: Chan -> IO Bool
+isEOFChanNonBlocking (A c v) = do e <- C.isEmptyChan c
+                                  if e then return False
+                                       else do b <- C.readChan c
+                                               C.unGetChan c b
+                                               return $ B.null b
+
 -- |This one is applicable only when writing... the read end stays
 -- open longer.
 isOpenChan :: Chan -> IO Bool
 isOpenChan = isEmptyMVar . mv
 
+-- |This also only applies to writing.  Maybe we should make this more
+-- explicit by defining WChan and RChan types?
 requireOpenChan :: String -> Chan -> IO ()
 requireOpenChan msg c = do open <- isOpenChan c
                            unless open $ fail $ msg ++ ": chan not open"

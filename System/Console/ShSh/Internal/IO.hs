@@ -14,7 +14,8 @@ module System.Console.ShSh.Internal.IO (
   toWriteHandle, toReadHandle, fromWriteHandle, fromReadHandle,
   rGetContents, rGetContentsBS,
   rGetChar, rGetLine, rWaitForInput, rGetNonBlocking,
-  rClose, rSafeClose, rIsOpen, rIsClosed, rIsEOF,
+  rClose, rSafeClose, rIsOpen, rIsOpenNonBlocking,
+  rIsClosed, rIsClosedNonBlocking, rIsEOF,
   wPut, wPutChar, wPutStr, wPutStrLn, wFlush,
   wClose, wSafeClose, wIsOpen, wIsClosed,
   joinHandles ) where
@@ -31,6 +32,7 @@ import System.IO ( Handle, hFlush, hClose,
                  )
 
 import System.Console.ShSh.Internal.Chan ( Chan, newChan, isEOFChan,
+                                           isEOFChanNonBlocking,
                                            closeChan, unGetChan, notEOFChan,
                                            isOpenChan, requireOpenChan,
                                            isEmptyChan, getChanContents,
@@ -161,9 +163,16 @@ rSafeClose (RChan c) = closeChan c
 rIsOpen :: ReadHandle -> IO Bool
 rIsOpen h = not `fmap` rIsClosed h
 
+rIsOpenNonBlocking :: ReadHandle -> IO Bool
+rIsOpenNonBlocking h = not `fmap` rIsClosedNonBlocking h
+
 rIsClosed :: ReadHandle -> IO Bool
 rIsClosed (RChan c) = isEOFChan c
 rIsClosed (RHandle h) = hIsClosed h
+
+rIsClosedNonBlocking :: ReadHandle -> IO Bool
+rIsClosedNonBlocking (RChan c) = isEOFChanNonBlocking c
+rIsClosedNonBlocking (RHandle h) = hIsClosed h
 
 rIsEOF :: ReadHandle -> IO Bool
 rIsEOF (RHandle h) = hIsEOF h
