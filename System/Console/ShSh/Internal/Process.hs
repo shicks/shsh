@@ -139,19 +139,19 @@ launch c args vars ps = do let is = rMkStream $ p_in  ps
 #else
 launch c args env ps =
     case p_in ps of
-    RCreatePipe ->
+    RCreatePipe mvi ->
         do (i,o,e,pid) <- runInteractiveProcess c args Nothing (Just env)
            case (p_out ps, p_err ps) of
              (WCreatePipe mvo, WCreatePipe mve) ->
-                 do putMVar mvi i
-                    putMVar mvo o
-                    putMVar mve e
-                    return $ waitForProcess pid
+                 do putMVar mvi $ toWriteHandle i
+                    putMVar mvo $ toReadHandle o
+                    putMVar mve $ toReadHandle e
+                    waitForProcess pid
              (WCreatePipe _, _) -> fail "launch bug 1"
              (_, WCreatePipe _) -> fail "launch bug 2"
-             _ -> do p1 <- openPipe (toReadHandle o) outs
-                     p2 <- openPipe (toReadHandle e) errs
-                     putMVar mvi i
+             _ -> do p1 <- outChanPipe o outs
+                     p2 <- outChanPipe e errs
+                     putMVar mvi $ toWriteHandle i
                      sequence_ [p1,p2,hClose o, hClose e]
                      waitForProcess pid
     RInherit -> case (p_out ps, p_err ps) of
@@ -176,7 +176,7 @@ launch c args env ps =
           _ -> case (fromReadHandle hin, fromWriteHandle outs, fromWriteHandle errs) of
                (Just i, Just o, Just e) ->
                    do pid <- runProcess c args Nothing (Just env) (Just i) (Just o) (Just e)
-                      waitForProcess pid)
+                      waitForProcess pid
                (Nothing, _, _) ->
                    do putStrLn "hello world!"
                       (ii, oo, ee, pid) <- runInteractiveProcess c args Nothing (Just env)

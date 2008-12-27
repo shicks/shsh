@@ -1,7 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving,
              FlexibleInstances, FlexibleContexts,
              MultiParamTypeClasses,
-             TypeSynonymInstances #-}
+             TypeSynonymInstances, CPP #-}
 {-# OPTIONS_GHC -Wall #-}
 
 -- |This is where we do stuff.
@@ -504,6 +504,7 @@ forkTarget job = Shell $ do mvh <- catchIO $ newEmptyMVar
                             h <- catchIO $ takeMVar mvh
                             return (mempty { p_out = WUseHandle h },mve)
 
+#ifdef HAVE_CREATEPROCESS
 forkSource :: Shell ExitCode -> Shell (PipeState,MVar ExitCode)
 forkSource job = Shell $ do mvh <- catchIO $ newEmptyMVar
                             mve <- catchIO $ newEmptyMVar
@@ -514,6 +515,7 @@ forkSource job = Shell $ do mvh <- catchIO $ newEmptyMVar
                             catchIO $ forkIO $ runShell_ job' s
                             h <- catchIO $ takeMVar mvh
                             return (mempty { p_in = RUseHandle h },mve)
+#endif
 
 setExitCode :: ExitCode -> ShellT e ExitCode
 setExitCode ExitSuccess = setEnv "?" "0" >> return ExitSuccess
@@ -558,11 +560,13 @@ subShell job = Shell $ do s <- get
 -- The forked process is the one that's asked to create the pipe, so we
 -- should try to fork the external one instead of the builtin one.
 pipeShells :: ShellProcess -> ShellProcess -> ShellProcess
+#ifdef HAVE_CREATEPROCESS
 pipeShells (ExternalProcess src) dst = ExternalProcess $ do
   (p,e) <- forkSource $ src >>= carry maybeCloseOut
   ec <- withPipes p $ runShellProcess dst >>= carry maybeCloseIn
   liftIO (takeMVar e)
   setExitCode ec
+#endif
 pipeShells src dst = BuiltinProcess $ do
   (p,e) <- forkTarget $ runShellProcess dst >>= carry maybeCloseIn
   withPipes p $ runShellProcess src >>= carry maybeCloseOut
