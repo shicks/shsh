@@ -2,13 +2,15 @@
              FlexibleInstances, FlexibleContexts,
              MultiParamTypeClasses,
              TypeSynonymInstances #-}
+{-# OPTIONS_GHC -Wall #-}
 
 -- |This is where we do stuff.
 
 module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
                                    tryEnv, withEnv, unsetEnv,
-                                   makeLocal, setExport, getExports,
+                                   makeLocal, withLocalScope,
+                                   setExport, getExports,
                                    getPositionals, modifyPositionals,
                                    setFunction, getFunction,
                                    setAlias, getAlias, getAliases,
@@ -29,17 +31,16 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                  )
     where
 
-import Debug.Trace ( trace )
+-- import Debug.Trace ( trace )
 
 import Control.Applicative ( (<|>) )
 import Control.Concurrent ( forkIO, MVar, newEmptyMVar, putMVar, takeMVar )
-import Control.Monad ( MonadPlus, mzero, mplus, when, foldM, join )
+import Control.Monad ( MonadPlus, mzero, when, foldM, join )
 import Control.Monad.Error ( ErrorT, runErrorT,
                              MonadError, throwError, catchError )
 import Control.Monad.State ( MonadState, get, put, runStateT,
                              StateT, evalStateT, gets, modify )
-import Control.Monad.Trans ( MonadIO, lift, liftIO )
-import Data.Bits ( Bits )
+import Control.Monad.Trans ( MonadIO, liftIO )
 import Data.Char ( isDigit )
 import Data.List ( lookup, union, unionBy, (\\) )
 import Data.Maybe ( fromMaybe, fromJust, isJust, listToMaybe )
@@ -49,13 +50,9 @@ import System.Directory ( getCurrentDirectory, setCurrentDirectory,
 import System.Exit ( ExitCode(..) )
 import System.Environment ( getEnvironment )
 import System.IO ( stdin, stdout, stderr, openFile, hClose, IOMode(..), Handle )
-import System.Process ( waitForProcess )
 
 import System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle )
-import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
-                                         rSafeClose, wSafeClose, newPipe,
-                                         fromReadHandle, fromWriteHandle,
-                                         toReadHandle, toWriteHandle,
+import System.Console.ShSh.Internal.IO ( rSafeClose, wSafeClose, newPipe,
                                          wIsOpen, rIsOpenNonBlocking,
                                          wPutStrLn )
 import System.Console.ShSh.Internal.Process ( launch,
@@ -258,7 +255,7 @@ setVarHelper n Nothing xs = alterM n f xs
           f _ = return $ Nothing
 setVarHelper n (Just v) xs = alterM n f xs
     where f Nothing = return $ Just (mempty,v)
-          f (Just (flags,x)) | readonly flags = fail $ n++": is read only"
+          f (Just (flags,_)) | readonly flags = fail $ n++": is read only"
                              | otherwise = return $ Just (flags,v)
 
 setFlagHelper :: String -> (VarFlags -> VarFlags)
@@ -277,10 +274,10 @@ setEnv s x = Shell $ do let mx = toMaybe x
                         l <- gets locals
                         e' <- case mx of -- can still unset...?  readonly?
                                 Nothing -> setVarHelper s Nothing e
-                                Just x' -> setVarHelper s (Just mx) e
+                                Just _  -> setVarHelper s (Just mx) e
                         l' <- setVarHelper s (Just mx) l
                         case lookup s l of
-                          Just v -> modify $ \st -> st { locals = l' }
+                          Just _  -> modify $ \st -> st { locals = l' }
                           Nothing -> modify $ \st -> st { environment = e' }
 
 alterVarFlags :: String -> (VarFlags -> VarFlags) -> ShellT e ()
@@ -289,7 +286,7 @@ alterVarFlags s f = Shell $ do e <- gets environment
                                let e' = setFlagHelper s f e
                                    l' = setFlagHelper s f l
                                case lookup s l of
-                                 Just v -> modify $ \st -> st { locals = l' }
+                                 Just _  -> modify $ \st -> st { locals = l' }
                                  Nothing -> modify $
                                                \st -> st { environment = e' }
 
@@ -334,21 +331,21 @@ withEnv :: (Stringy (InnerShell e) a,Maybeable String b) =>
 withEnv s f = do e <- getEnv s
                  setEnv s $ (toMaybe $ f e :: Maybe String)
 
-joinStringSet :: Eq a => [(a,b)] -> [(a,b)] -> [(a,b)]
-joinStringSet = unionBy ((==) `on` fst)
+-- joinStringSet :: Eq a => [(a,b)] -> [(a,b)] -> [(a,b)]
+-- joinStringSet = unionBy ((==) `on` fst)
 
 getAllEnv :: ShellT a [(String,String)]
 getAllEnv = Shell $ do l <- gets locals
                        e <- gets environment
                        return $ map (\(a,b)->(a,fromJust b)) $
                                 filter (isJust.snd) $
-                                map (\(a,(b,c))->(a,c)) $
+                                map (\(a,(_,c))->(a,c)) $
                                 unionBy ((==)`on`fst) l e
 
 getExports :: ShellT a [(String,String)]
 getExports = Shell $ do l <- gets locals
                         e <- gets environment
-                        return $ map (\(a,(b,c))->(a,fromJust c)) $
+                        return $ map (\(a,(_,c))->(a,fromJust c)) $
                                  filter (isJust.snd.snd) $
                                  filter (exported.fst.snd) $
                                  unionBy ((==)`on`fst) l e
@@ -399,8 +396,8 @@ parseFlags :: IO String
 parseFlags = return "" -- start with no flags set, for now...
                        -- Later we'll get these with getopt
 
-getShellState :: ShellT e (ShellState e)
-getShellState = Shell get
+-- getShellState :: ShellT e (ShellState e)
+-- getShellState = Shell get
 
 startState :: Monoid e => IO (ShellState e)
 startState = do e <- getEnvironment
@@ -472,11 +469,11 @@ withPipes p (Shell s) -- -- | trace ("withPipes "++show p) True
 
 runInShell :: String -> [String] -> Shell ExitCode
 runInShell c args = Shell $ do ps <- gets pipeState
-                               exp <- unshell getExports
-                               catchIO $ catchIO $ launch c args exp ps
+                               exports <- unshell getExports
+                               catchIO $ catchIO $ launch c args exports ps
 
-pipes :: ShellT e PipeState
-pipes = Shell $ gets pipeState
+-- pipes :: ShellT e PipeState
+-- pipes = Shell $ gets pipeState
 
 --------
 -------
@@ -522,26 +519,26 @@ setExitCode :: ExitCode -> ShellT e ExitCode
 setExitCode ExitSuccess = setEnv "?" "0" >> return ExitSuccess
 setExitCode (ExitFailure n) = setEnv "?" (show n) >> return (ExitFailure n)
 
-openHandles :: Shell ()
-openHandles = iHandle >> oHandle >> eHandle >> return ()
+-- openHandles :: Shell ()
+-- openHandles = iHandle >> oHandle >> eHandle >> return ()
 
 runShellProcess :: ShellProcess -> Shell ExitCode
 runShellProcess (BuiltinProcess  s) = s -- openHandles >> s -- doesn't work?!
 runShellProcess (ExternalProcess s) = s
 
 -- |this optionally opens in/out handles
-runShellProcess' :: ShellProcess -> Bool -> Bool -> Shell ExitCode
-runShellProcess' (BuiltinProcess  s) openIn openOut
-    = do when openIn $ iHandle >> return ()
-         when openOut $ oHandle >> return ()
-         s -- openHandles >> s
-runShellProcess' (ExternalProcess s) _ _ = s
+-- runShellProcess' :: ShellProcess -> Bool -> Bool -> Shell ExitCode
+-- runShellProcess' (BuiltinProcess  s) openIn openOut
+--     = do when openIn $ iHandle >> return ()
+--          when openOut $ oHandle >> return ()
+--          s -- openHandles >> s
+-- runShellProcess' (ExternalProcess s) _ _ = s
 
 carry :: Shell a -> b -> Shell b
 carry job ret = job >> return ret
 
-closeFDs :: Shell ()
-closeFDs = maybeCloseIn >> maybeCloseOut
+-- closeFDs :: Shell ()
+-- closeFDs = maybeCloseIn >> maybeCloseOut
 
 withShellProcess :: (Shell ExitCode -> Shell ExitCode)
                  -> ShellProcess -> ShellProcess
@@ -633,9 +630,9 @@ redir expand p (n:>w) = do f <- unshell $ expand w
 redir expand p (n:>|w) = do f <- unshell $ expand w
                             h <- catchIO $ openFile f WriteMode
                             return (toFile n h p, hClose h)
-redir expand p (2:>&1) = do oHandle
+redir _      p (2:>&1) = do oHandle
                             return (p { p_err = p_out p }, return ())
-redir expand p (1:>&2) = do eHandle -- this will mess stuff up sometimes?
+redir _      p (1:>&2) = do eHandle -- this will mess stuff up sometimes?
                             return (p { p_out = p_err p }, return ())
 redir expand p (n:>>w) = do f <- unshell $ expand w
                             h <- catchIO $ openFile f AppendMode
@@ -646,12 +643,12 @@ redir expand p (n:<w) = do f <- unshell $ expand w
 redir expand p (n:<>w) = do f <- unshell $ expand w -- probably doesn't work...?
                             h <- catchIO $ openFile f ReadWriteMode
                             return (fromFile n h p, hClose h)
-redir expand p (Heredoc n _ d) = do s <- unshell $ expand d
+redir expand p (Heredoc 0 _ d) = do s <- unshell $ expand d
                                     (r,w) <- catchIO newPipe
                                     catchIO $ wPutStrLn w s >> wSafeClose w
                                     return (p { p_in = RUseHandle r},return ())
-redir expand p (n:<<s) = do fail $ "Unexpanded heredoc: "++show n++"<<"++s
-redir expand p (n:<<-s) = do fail $ "Unexpanded heredoc: "++show n++"<<-"++s
+redir _ _ (n:<<s) = do fail $ "Unexpanded heredoc: "++show n++"<<"++s
+redir _ _ (n:<<-s) = do fail $ "Unexpanded heredoc: "++show n++"<<-"++s
 redir _ _ r = fail $ show r ++ " not yet supported"
 
 toFile :: Int -> Handle -> PipeState -> PipeState
@@ -671,13 +668,13 @@ fromFile _ _ _ = undefined
 -- could hold equally well for functions and aliases, etc.
 withEnvironment :: (Word -> Shell String) -> [Redir] -> [Assignment]
                 -> Shell a -> Shell a
-withEnvironment exp rs as (Shell sub) = Shell $ do
+withEnvironment expand rs as (Shell sub) = Shell $ do
   s <- get
   pipest <- gets pipeState
-  let redir' (xxx,yyy) zzz = do (xxx',yyy') <- redir exp xxx zzz
+  let redir' (xxx,yyy) zzz = do (xxx',yyy') <- redir expand xxx zzz
                                 return (xxx', yyy' >> yyy)
   (p,closehs) <- foldM redir' (pipest, return ()) rs
-  ls <- flip (foldM (assign exp)) as =<< gets locals
+  ls <- flip (foldM (assign expand)) as =<< gets locals
   (result,s') <- catchIO $ runStateT (runErrorT sub) $
                  s { pipeState = p, locals = ls }
   catchIO closehs
