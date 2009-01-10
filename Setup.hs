@@ -21,6 +21,12 @@ main = build [] $
                cfiles <- whenC (isDefined "HAVE_PWD") $ return ["hspwd.c"]
                let cfiles' = map ("System/Console/ShSh/Foreign/"++) cfiles
                buildDoc
+               package "language-sh" ["Language.Sh.Arithmetic",
+                                      "Language.Sh.Expansion",
+                                      "Language.Sh.Glob",
+                                      "Language.Sh.Map",
+                                      "Language.Sh.Parser",
+                                      "Language.Sh.Syntax"] []
                executable "testlex" "testlex.hs" cfiles'
                executable "shsh" "shsh.hs" cfiles'
 
