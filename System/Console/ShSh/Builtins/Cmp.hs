@@ -1,17 +1,17 @@
 module System.Console.ShSh.Builtins.Cmp ( cmp ) where
 
-import System.Console.ShSh.IO ( iGetContents, oPutStrLn, ePutStrLn )
+import System.Console.ShSh.Builtins.Util ( readFileOrStdin )
+import System.Console.ShSh.IO ( oPutStrLn )
 import System.Console.ShSh.Shell ( Shell, ShellT, withSubState )
 import System.Console.ShSh.ShellError ( exit )
 
-import Control.Monad ( when, unless )
-import Control.Monad.State ( gets, modify )
-import Control.Monad.Trans ( liftIO )
+import Control.Monad ( when )
+import Control.Monad.State ( modify )
 import System.Console.GetOpt
-import System.Directory ( copyFile, doesFileExist )
 import System.Exit ( ExitCode(..) )
 
 data Opts = Opts { verbose :: Bool }
+noOpts :: Opts
 noOpts = Opts { verbose = False }
 
 optSpec = [Option "v" ["verbose"]
@@ -24,7 +24,9 @@ optSpec = [Option "v" ["verbose"]
           ]
 
 -- make this into bversion :: String -> ..., defined elsewhere
+version :: ShellT e ()
 version = oPutStrLn $ "cmp (ShSh builtin)" -- version number?
+usage :: ShellT e ()
 usage = oPutStrLn $ usageInfo header optSpec
     where header = "Usage: cmp FILE1 FILE2\n"++
                    "Compare two files byte by byte."
@@ -40,16 +42,12 @@ cmp args = do withSubState (sequence_ opts>>run) noOpts
                      [] -> fail "missing operand"
                      [s] -> fail $ "missing operand after `"++s++"'"
                      [a,b] -> do --oPutStrLn $ unwords ["running cmp",a,b]
-                                 aa <- readF a
-                                 bb <- readF b
+                                 aa <- filter (/='\r') `fmap` readFileOrStdin a
+                                 bb <- filter (/='\r') `fmap` readFileOrStdin b
                                  if length aa == length bb && aa == bb
                                     then return ()
                                     else fail $ unwords ["files",a,"and",b,
                                                          "differ.",
                                                          show $ length aa,
                                                          show $ length bb]
-                     args -> fail $ "too many arguments:  "++ show (length args)
-          readF "-" = filter (/='\r') `fmap` iGetContents
-          readF f = do exists <- liftIO $ doesFileExist f
-                       unless exists $ fail $ unwords [f,"does not exist"]
-                       filter (/='\r') `fmap` liftIO (readFile f)
+                     as -> fail $ "too many arguments:  "++ show (length as)

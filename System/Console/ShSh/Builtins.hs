@@ -5,6 +5,8 @@ module System.Console.ShSh.Builtins ( builtin ) where
 
 import System.Console.ShSh.Builtins.Args ( withArgs, -- opt, optSet,
                                            flag, flagOn, flagOff )
+import System.Console.ShSh.Builtins.Util ( readFilesOrStdin )
+
 import System.Console.ShSh.Builtins.Cd ( chDir )
 import System.Console.ShSh.Builtins.Cmp ( cmp )
 import System.Console.ShSh.Builtins.Cp ( cp )
@@ -19,14 +21,13 @@ import System.Console.ShSh.Builtins.Sort ( runSort )
 import System.Console.ShSh.Builtins.Touch ( touch )
 import System.Console.ShSh.Builtins.Wc ( runWc )
 
-import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn, iGetContents )
+import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn )
 import System.Console.ShSh.Options ( setOpts )
 import System.Console.ShSh.Shell ( ShellT, Shell,
                                    getPositionals, modifyPositionals,
                                    getAlias, getAliases, setAlias,
                                    unsetAlias, unsetAllAliases,
                                    getAllEnv, getEnv, unsetEnv )
-import System.Console.ShSh.ShellError ( withPrefix )
 import System.Console.ShSh.Util ( split )
 
 import Control.Monad ( forM_, unless )
@@ -43,6 +44,10 @@ import System.Exit ( ExitCode(..) )
   rm
   env
 -}
+
+(<=<) :: Monad m => (b -> m c) -> (a -> m b) -> (a -> m c)
+f <=< g = \a -> g a >>= f -- compatibility
+infixr 1 <=<
 
 successfully :: ([String] -> ShellT e ()) -> [String] -> ShellT e ExitCode
 successfully job args = job args >> return ExitSuccess
@@ -82,11 +87,7 @@ unalias as = mapM_ unsetAlias as >> return ExitSuccess
 set [] = showEnv >> return ExitSuccess
 set foo = setOpts foo
 
-cat [] = withPrefix "cat" $ do x <- iGetContents
-                               oPutStr x
-                               return ExitSuccess
-cat fs = do mapM_ (\f -> liftIO (readFile f) >>= oPutStr) fs
-            return ExitSuccess
+cat = successfully $ mapM_ oPutStr <=< readFilesOrStdin
 
 -- |This is nice and all, but apparently -- is NOT supposed to be
 -- recognized...
