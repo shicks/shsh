@@ -12,7 +12,8 @@ module System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle,
                                 oPutChar, ePutChar, oPutStr, ePutStr,
                                 oPutStrLn, ePutStrLn, oFlush, eFlush,
                                 iUnsafeClose, oUnsafeClose, eUnsafeClose,
-                                iClose, oClose, eClose ) where
+                                iClose, oClose, eClose,
+                                iIsOpen, oIsOpen, eIsOpen ) where
 
 import Control.Monad.Trans ( MonadIO, liftIO )
 import qualified Data.ByteString.Lazy as B
@@ -24,7 +25,8 @@ import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
                                          rGetChar, rGetLine, rIsEOF,
                                          wPutChar, wPutStr, wPutStrLn,
                                          wPut, rClose, wFlush, wClose,
-                                         wSafeClose, rSafeClose )
+                                         wSafeClose, rSafeClose,
+                                         rIsOpen, wIsOpen )
 
 -- |A MonadSIO is basically something that defines the three handles
 -- we want.  This abstraction allows us to decouple from Shell and
@@ -106,3 +108,12 @@ oUnsafeClose = oHandle >>>= wClose
 
 eUnsafeClose :: MonadSIO m => m ()
 eUnsafeClose = eHandle >>>= wClose
+
+iIsOpen :: MonadSIO m => m Bool
+iIsOpen = iHandle >>>= rIsOpen
+
+oIsOpen :: MonadSIO m => m Bool
+oIsOpen = oHandle >>>= wIsOpen
+
+eIsOpen :: MonadSIO m => m Bool
+eIsOpen = eHandle >>>= wIsOpen

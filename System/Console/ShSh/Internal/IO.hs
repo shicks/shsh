@@ -30,6 +30,7 @@ import System.IO ( Handle, hFlush, hClose,
                    hWaitForInput,
                    stdin, stdout, stderr
                  )
+import System.IO.Unsafe ( unsafeInterleaveIO )
 
 import System.Console.ShSh.Internal.Chan ( Chan, newChan, isEOFChan,
                                            isEOFChanNonBlocking,
@@ -79,7 +80,14 @@ newPipe = do c <- newChan
 rGetContents :: ReadHandle -> IO String
 rGetContents (RChan c) = B.unpack `fmap` getChanContents c -- what about EOF?
                             -- forkIO $ seq (length bs) $ put c Nothing ????
-rGetContents (RHandle h) = hGetContents h
+rGetContents (RHandle h) | h==stdin = unsafeInterleaveIO $
+                                      do eof <- hIsEOF stdin
+                                         if eof then return ""
+                                                else do l <- getLine
+                                                        a <- again
+                                                        return $ l++"\n"++a
+                         | otherwise = hGetContents h
+    where again = rGetContents $ RHandle h
 
 rGetContentsBS :: ReadHandle -> IO B.ByteString
 rGetContentsBS (RChan c) = getChanContents c -- what about EOF?

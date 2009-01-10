@@ -11,8 +11,9 @@ module System.Console.ShSh.Internal.Chan ( Chan, newChan, closeChan,
 
 import Control.Concurrent ( MVar, newEmptyMVar, isEmptyMVar,
                             takeMVar, putMVar, yield )
-import qualified Control.Concurrent.Chan as C
+import System.IO.Unsafe ( unsafeInterleaveIO )
 
+import qualified Control.Concurrent.Chan as C
 import qualified Data.ByteString.Lazy as B
 
 import Control.Monad ( unless )
@@ -55,8 +56,13 @@ isEmptyChan = C.isEmptyChan . ch
 -- length and then calling close): what happens if we hGetContents and then
 -- read the same handle from elsewhere before the pipe is closed???
 getChanContents :: Chan -> IO B.ByteString
-getChanContents (A c _) = do bs <- C.getChanContents c
-                             return $ B.concat $ takeWhile (not . B.null) bs
+getChanContents (A c v) = unsafeInterleaveIO $
+                          do bs <- C.readChan c
+                             if B.null bs then do C.unGetChan c bs
+                                                  return bs
+                                          else do rest <- again
+                                                  return $ B.append bs rest
+    where again = getChanContents $ A c v
 
 -- |Note that we're okay /reading/ from a closed channel, as long as we're
 -- not at empty.
