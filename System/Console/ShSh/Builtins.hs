@@ -11,6 +11,7 @@ import System.Console.ShSh.Builtins.Cp ( cp )
 import System.Console.ShSh.Builtins.Date ( date )
 import System.Console.ShSh.Builtins.Exit ( exit )
 import System.Console.ShSh.Builtins.Grep ( grep )
+import System.Console.ShSh.Builtins.Ls ( ls )
 import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Mv ( mv )
 import System.Console.ShSh.Builtins.Rm ( rm )
@@ -32,10 +33,10 @@ import Control.Monad ( forM_, unless )
 import Control.Monad.State ( put )
 import Control.Monad.Trans ( liftIO )
 import Data.Char ( chr, ord, isDigit )
-import Data.List ( sort, sortBy )
+import Data.List ( sortBy )
 import Data.Ord ( comparing )
 import System.Console.GetOpt ( ArgOrder(..) )
-import System.Directory ( getCurrentDirectory, getDirectoryContents )
+import System.Directory ( getCurrentDirectory )
 import System.Exit ( ExitCode(..) )
 
 {- What else do we want...? list here:
@@ -69,7 +70,7 @@ builtin b = do noBuiltin <- getEnv "NOBUILTIN"
                return $ if r then Nothing
                              else lookup b builtins
 
-alias, cat, echo, ls, pwd, set, shift, unalias, unset
+alias, cat, echo, pwd, set, shift, unalias, unset
     :: [String] -> Shell ExitCode
 
 alias [] = showAliases
@@ -127,15 +128,6 @@ shift (s:_) | all isDigit s = do let n = read s
                                     else do modifyPositionals $ drop n
                                             return ExitSuccess
             | otherwise     = fail $ s++": numeric argument required"
-
-ls []  = do let unboring ('.':_) = False
-                unboring _ = True
-            fs <- liftIO (getDirectoryContents ".")
-            oPutStr $ unlines $ sort $
-                    filter unboring fs
-            return ExitSuccess
-ls _ = do oPutStrLn "TODO"
-          return ExitSuccess
 
 unset [] = return ExitSuccess
 unset (a:as) = unsetEnv a >> unset as
