@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeSynonymInstances #-}
+
 -- |This is the new version of what I called PipeIO before.  This
 -- module does \emph{not} depend on Shell, and therefore Shell can
 -- depend on it.
@@ -10,9 +12,9 @@
 -- The basic idea is that if we're reimplementing this stuff anyway,
 -- we might as well do it right.
 module System.Console.ShSh.Internal.IO (
-  ReadHandle, WriteHandle, ShellHandle, newPipe,
+  StringOrByteString, ReadHandle, WriteHandle, ShellHandle, newPipe,
   toWriteHandle, toReadHandle, fromWriteHandle, fromReadHandle,
-  rGetContents, rGetContentsBS,
+  rGetContents,
   rGetChar, rGetLine, rWaitForInput, rGetNonBlocking,
   rClose, rSafeClose, rIsOpen, rIsOpenNonBlocking,
   rIsClosed, rIsClosedNonBlocking, rIsEOF,
@@ -23,6 +25,7 @@ module System.Console.ShSh.Internal.IO (
 import Control.Concurrent ( MVar, newEmptyMVar, takeMVar, putMVar, yield )
 import Control.Monad ( when, unless, ap )
 import qualified Data.ByteString.Lazy.Char8 as B
+import Data.Monoid ( Monoid, mempty )
 import System.IO ( Handle, hFlush, hClose,
                    hIsEOF, hIsOpen, hIsClosed,
                    hGetContents, hGetChar, hGetLine,
@@ -64,7 +67,6 @@ fromWriteHandle :: WriteHandle -> Maybe Handle
 fromWriteHandle (WHandle h) = Just h
 fromWriteHandle _ = Nothing
 
-
 -- |I'm not sure how useful this is as an exported type, but it might be.
 -- We might also make it into a class, and then generalize operations like
 -- hFlush, hIsOpen, hClose, etc, in the class instances.
@@ -77,22 +79,38 @@ newPipe = do c <- newChan
 
 -- * Operations
 -- ** 'ReadHandle' operations
-rGetContents :: ReadHandle -> IO String
-rGetContents (RChan c) = B.unpack `fmap` getChanContents c -- what about EOF?
-                            -- forkIO $ seq (length bs) $ put c Nothing ????
-rGetContents (RHandle h) | h==stdin = unsafeInterleaveIO $
-                                      do eof <- hIsEOF stdin
-                                         if eof then return ""
-                                                else do l <- getLine
-                                                        a <- again
-                                                        return $ l++"\n"++a
-                         | otherwise = hGetContents h
-    where again = rGetContents $ RHandle h
 
-rGetContentsBS :: ReadHandle -> IO B.ByteString
-rGetContentsBS (RChan c) = getChanContents c -- what about EOF?
-                            -- forkIO $ seq (length bs) $ put c Nothing ????
-rGetContentsBS (RHandle h) = B.hGetContents h
+-- |This is a silly thing for using the same code for reading both
+-- 'String's and 'ByteString's.  It's a bit gratuitous.
+class Monoid s => StringOrByteString s where
+    pickM :: IO String -> IO B.ByteString -> IO s
+    pickM' :: (a -> IO String)
+           -> (a -> IO B.ByteString)
+           -> a -> IO s
+    unpack :: B.ByteString -> s
+    pack :: String -> s
+    
+instance StringOrByteString String where
+    pickM = const
+    pickM' = const
+    unpack = B.unpack
+    pack = id
+instance StringOrByteString B.ByteString where
+    pickM = const id
+    pickM' = const id
+    unpack = id
+    pack = B.pack
+
+rGetContents :: StringOrByteString s => ReadHandle -> IO s
+rGetContents (RChan c) = unpack `fmap` getChanContents c
+rGetContents (RHandle h) | h==stdin = pack `fmap` gc
+                         | otherwise = pickM' hGetContents B.hGetContents h
+    where gc = unsafeInterleaveIO $
+               do eof <- hIsEOF stdin
+                  if eof then return mempty
+                         else do l <- getLine
+                                 a <- gc
+                                 return $ l++"\n"++a
 
 -- |In case it's not obvious already that @getChar@ needs a read handle...
 rGetChar :: ReadHandle -> IO Char
@@ -106,26 +124,28 @@ rGetChar (RChan c) = do eof <- isEOFChan c
                                    return $ head $ B.unpack x
 rGetChar (RHandle h) = hGetChar h
 
-rGetLine :: ReadHandle -> IO String
-rGetLine (RHandle h) = hGetLine h
-rGetLine (RChan c) = notEOFChan "rGetLine" c gl'
-gl' c = do -- getLine helper...
-  eof <- isEOFChan c
-  empty <- isEmptyChan c
-  if eof || empty
-     then return ""
-     else do b <- readChan c
-             if B.null b
-                then rGetLine $ RChan c
-                else let l    = head $ B.lines b
-                         len  = B.length l
-                         rest = B.drop len b
-                         s    = B.unpack l
-                         r'   = B.drop 1 rest
-                     in if B.null rest
-                        then fmap (s++) $ gl' c
-                        else do unless (B.null r') $ unGetChan c r'
-                                return s
+rGetLine :: StringOrByteString s => ReadHandle -> IO s
+rGetLine = pickM' glS glBS
+    where glS (RHandle h) = hGetLine h
+          glS (RChan c) = B.unpack `fmap` notEOFChan "rGetLine" c gl'
+          glBS (RHandle h) = B.pack `fmap` hGetLine h
+          glBS (RChan c) = notEOFChan "rGetLine" c gl'
+          gl' c = do -- helper...
+            eof <- isEOFChan c
+            empty <- isEmptyChan c
+            if eof || empty
+              then return B.empty
+              else do b <- readChan c
+                      if B.null b
+                        then rGetLine $ RChan c
+                        else let line = head $ B.lines b
+                                 len  = B.length line
+                                 rest = B.drop len b
+                                 r'   = B.drop 1 rest
+                             in if B.null rest
+                                then fmap (B.append line) $ gl' c
+                                else do unless (B.null r') $ unGetChan c r'
+                                        return line
 
 rWaitForInput :: ReadHandle -> IO () -- simulates hWaitForInput h -1
 rWaitForInput (RHandle h) = hWaitForInput h (-1) >> return ()
@@ -133,23 +153,24 @@ rWaitForInput (RChan c) = notEOFChan "rWaitForInput" c $ \c ->
                             do empty <- isEmptyChan c
                                when empty $ yield >> rWaitForInput (RChan c)
 
-rGetNonBlocking :: ReadHandle -> Int -> IO B.ByteString
-rGetNonBlocking (RHandle h) s = B.hGetNonBlocking h s
-rGetNonBlocking (RChan c) s = notEOFChan "rGetNonBlocking" c $ gnb' s
-gnb' s c = do -- getNonBlocking helper...
-  eof <- isEOFChan c
-  empty <- isEmptyChan c
-  if eof || empty || s<=0
-     then return B.empty
-     else do bs <- readChan c
-             let l = fromIntegral $ B.length bs
-             case compare l s of
-               LT -> do rest <- gnb' (s-l) c
-                        return $ B.append bs rest
-               EQ -> return bs
-               GT -> do let (ret,rest) = B.splitAt (fromIntegral s) bs
-                        unGetChan c rest
-                        return ret
+rGetNonBlocking :: StringOrByteString s => ReadHandle -> Int -> IO s
+rGetNonBlocking (RHandle h) s = unpack `fmap` B.hGetNonBlocking h s
+rGetNonBlocking (RChan c) s = fmap unpack $
+                              notEOFChan "rGetNonBlocking" c $ gnb' s
+    where gnb' s c = do -- getNonBlocking helper...
+            eof <- isEOFChan c
+            empty <- isEmptyChan c
+            if eof || empty || s<=0
+              then return B.empty
+              else do bs <- readChan c
+                      let l = fromIntegral $ B.length bs
+                      case compare l s of
+                        LT -> do rest <- gnb' (s-l) c
+                                 return $ B.append bs rest
+                        EQ -> return bs
+                        GT -> do let (ret,rest) = B.splitAt (fromIntegral s) bs
+                                 unGetChan c rest
+                                 return ret
 
 -- This is apparently allowed...
 rClose :: ReadHandle -> IO ()

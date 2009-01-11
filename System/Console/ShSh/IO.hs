@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeSynonymInstances #-}
+
 -- |These are the public bindings to the @Internal.IO@ module.
 
 -- |We'll also deal with things like waiting for pipes here, probably.
@@ -7,7 +9,7 @@
 -- how to get at the handles?
 
 module System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle,
-                                iGetContents, iGetContentsBS, oPut, ePut,
+                                iGetContents, oPut, ePut,
                                 iGetChar, iGetLine, iIsEOF,
                                 oPutChar, ePutChar, oPutStr, ePutStr,
                                 oPutStrLn, ePutStrLn, oFlush, eFlush,
@@ -19,9 +21,10 @@ import Control.Monad.Trans ( MonadIO, liftIO )
 import qualified Data.ByteString.Lazy as B
 
 import System.IO ( stdin, stdout, stderr )
-import System.Console.ShSh.Internal.IO ( ReadHandle, WriteHandle,
+import System.Console.ShSh.Internal.IO ( StringOrByteString,
+                                         ReadHandle, WriteHandle,
                                          toReadHandle, toWriteHandle,
-                                         rGetContents, rGetContentsBS,
+                                         rGetContents,
                                          rGetChar, rGetLine, rIsEOF,
                                          wPutChar, wPutStr, wPutStrLn,
                                          wPut, rClose, wFlush, wClose,
@@ -46,16 +49,13 @@ infixr 7 >>>=
 f >>>= g = f >>= \a -> liftIO $ g a
 -- f >>>= g = f >>= \a -> liftIO $ putStrLn ("IO: "++show a) >> g a
 
-iGetContentsBS :: MonadSIO m => m B.ByteString
-iGetContentsBS = iHandle >>>= rGetContentsBS
-
-iGetContents :: MonadSIO m => m String
+iGetContents :: (MonadSIO m,StringOrByteString s) => m s
 iGetContents = iHandle >>>= rGetContents
 
 iGetChar :: MonadSIO m => m Char
 iGetChar = iHandle >>>= rGetChar
 
-iGetLine :: MonadSIO m => m String
+iGetLine :: (MonadSIO m,StringOrByteString s) => m s
 iGetLine = iHandle >>>= rGetLine
 
 iIsEOF :: MonadSIO m => m Bool
