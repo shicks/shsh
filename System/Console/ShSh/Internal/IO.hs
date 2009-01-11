@@ -125,12 +125,9 @@ rGetChar (RChan c) = do eof <- isEOFChan c
 rGetChar (RHandle h) = hGetChar h
 
 rGetLine :: StringOrByteString s => ReadHandle -> IO s
-rGetLine = pickM' glS glBS
-    where glS (RHandle h) = hGetLine h
-          glS (RChan c) = B.unpack `fmap` notEOFChan "rGetLine" c gl'
-          glBS (RHandle h) = B.pack `fmap` hGetLine h
-          glBS (RChan c) = notEOFChan "rGetLine" c gl'
-          gl' c = do -- helper...
+rGetLine (RHandle h) = pack `fmap` hGetLine h
+rGetLine (RChan c) = unpack `fmap` notEOFChan "rGetLine" c gl'
+    where gl' c = do -- helper...
             eof <- isEOFChan c
             empty <- isEmptyChan c
             if eof || empty
