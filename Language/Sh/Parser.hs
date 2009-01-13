@@ -38,7 +38,7 @@ data WordContext = NormalContext | ParameterContext | HereEndContext
 delimiters :: WordContext -> String
 delimiters NormalContext = "&|;<>()# \t\r\n"
 delimiters ParameterContext = "}" -- don't delimit spaces yet
-delimiters HereEndContext = "&|;<>()# \t\r\n"
+delimiters HereEndContext = delimiters NormalContext -- "&|;<>()# \t\r\n"
 
 lookaheadNormalDelimiter :: P ()
 lookaheadNormalDelimiter = lookAhead $
@@ -49,6 +49,11 @@ cnewline = do newline <|> (do char '#'
                               skipMany (noneOf "\n\r")
                               newline <|> eof)         <?> ""
               spaces
+
+eatNewlines :: P a -> P a
+eatNewlines a = do a' <- a
+                   newlines
+                   return a'
 
 statement :: P Statement
 statement = do aliasOn
@@ -148,8 +153,8 @@ reservedWord_ :: String -> P ()
 reservedWord_ s = reservedWord s >> return ()
 
 isOperator :: String -> Bool
-isOperator x = x`elem`[">",">>",">|","<","<>","<<","<<-",">&","<&",
-                       "|","||","&","&&",";",";;","(",")"]
+isOperator x = x `elem` [">",">>",">|","<","<>","<<","<<-",">&","<&",
+                         "|","||","&","&&",";",";;","(",")"]
 
 operator :: String -> P String
 operator s = try $ do string s
@@ -157,6 +162,9 @@ operator s = try $ do string s
                                   guard $ not $ isOperator $ s++[c])
                       spaces
                       return s
+
+operator_ :: String -> P ()
+operator_ s = operator s >> return ()
 
 inClause :: P [Word]
 inClause = choice [try $ do optional sequentialSep
@@ -170,6 +178,35 @@ inClause = choice [try $ do optional sequentialSep
                       return ws]
     where defaultIn = [[Quoted $ Expand $ SimpleExpansion "@"]]
 
+cases :: P [([Word],[Command])]
+cases = manyTill line $ reservedWord "esac"
+    where line = do ip <- insideParens
+                    if ip then operator_ "(" <|> unexpected
+                          else optional $ operator_ "("
+                    pats <- word NormalContext `sepBy1` operator "|"
+                    operator ")" <|> unexpectedNoEOF
+                    cmds <- caseCommands
+                    return (pats,cmds)
+
+dsemi :: P ()
+dsemi = operator_ ";;" <|> lookAhead (reservedWord_ "esac") <?> "`;;' or `esac'"
+
+-- |This is a version of @commandsTill dsemi@ but we need to change the
+-- terminator...  We might be able to build this into the normal
+-- commandTerminator - just using lookAhead - we'll still not be able
+-- to parse the ;; that gets left after the case statement...
+caseCommands :: P [Command]
+caseCommands = do newlines
+                  cs <- manyTill (eatNewlines cmd) dsemi
+                  newlines
+                  expandHereDocs cs -- why is this here at all?
+    where cmd = do c <- andorlist <?> "list"
+                   t <- commandTerminator <|> do lookAhead (operator ";;")
+                                                 return False
+                        <?> "terminator or `;;'"
+                   return $ if t then Asynchronous c
+                                 else Synchronous  c
+
 -- |Parse any of the compound statements: @if@, @for@, subshells,
 -- brace groups, ...
 compoundStatement :: P CompoundStatement
@@ -178,8 +215,23 @@ compoundStatement = choice [do reservedWord "for"
                                vallist <- inClause
                                (cs,_) <- commandsTill (reservedWord "done")
                                return $ For name vallist cs
+                           ,do reservedWord "while"
+                               (cond,_) <- commandsTill $ reservedWord "do"
+                               (code,_) <- commandsTill $ reservedWord "done"
+                               return $ While cond code
+                           ,do reservedWord "until"
+                               (cond,_) <- commandsTill $ reservedWord "do"
+                               (code,_) <- commandsTill $ reservedWord "done"
+                               return $ Until cond code
                            ,do reservedWord "if"
                                parseIf           -- recursive b/c of elif
+                           ,do reservedWord "case"
+                               expr <- word NormalContext <|> unexpectedNoEOF
+                               newlines
+                               reservedWord "in"      <|> unexpected
+                               newlines
+                               what <- cases
+                               return $ Case expr what
                            ,do operator "("
                                openParen
                                cs <- many command
@@ -209,14 +261,12 @@ parseIf = do (cond,_) <- commandsTill $ reservedWord "then"
 
 -- |Also, we can use 'commandTerminator' to substitute heredocs safely because
 -- @<<@ are not allowed in non-command arguments to control structures anyway.
+-- Note that this code is duplicated in the code for @case@ statements!
 command :: P Command
 command = do c <- andorlist <?> "list"
              t <- commandTerminator <?> "terminator"
              return $ if t then Asynchronous c
                            else Synchronous  c
---              trace ("got command: "++show c) $
---                  return $ if t then Asynchronous c
---                                else Synchronous  c
 
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM cond job = cond >>= (unless `flip` job)
@@ -235,7 +285,7 @@ sequentialSep = choice [operator ";" >> return ()
                            lookAhead $ operator ")"
                            return ()
                        ]
-                >> newlines >> spaces
+                >> newlines
 
 commandTerminator :: P Bool
 commandTerminator = (operator "&" >> newlines >> return True)

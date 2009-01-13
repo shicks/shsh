@@ -24,7 +24,10 @@ data Statement = Statement [Word] [Redir] [Assignment]
                | OrderedStatement [Term] -- internal only
                deriving ( Show )
 data CompoundStatement = For String [Word] [Command]
+                       | While [Command] [Command]
+                       | Until [Command] [Command]
                        | If [Command] [Command] [Command] -- etc...
+                       | Case Word [([Word],[Command])]
                        | Subshell [Command]
                        | BraceGroup [Command]
                        deriving ( Show )

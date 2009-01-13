@@ -9,6 +9,26 @@ import Control.Monad ( ap )
 concatMapM :: (Monad m,Functor m) => (a -> m [b]) -> [a] -> m [b]
 concatMapM f = fmap concat . mapM f
 
+-- |I'm lazy and think these look a lot nicer than all the @`fmap`@s and
+-- @`ap`@s and @mapM@s all over the place.  I've stolen these more or
+-- less from 'Control.Applicative' and 'Control.Arrow'.
+(<$>) :: Functor m => (a -> b) -> m a -> m b
+(<$>) = fmap
+(<*>) :: Monad m => m (a -> b) -> m a -> m b
+(<*>) = ap
+(<>) :: Monad m => (a -> m b) -> [a] -> m [b]
+(<>) = mapM
+(><>) :: (Monad m,Functor m) => (a -> m [b]) -> [a] -> m [b]
+(><>) = concatMapM
+(<***>) :: Monad m => (a -> m c) -> (b -> m d) -> (a,b) -> m (c,d)
+(<***>) f g (a,b) = do a' <- f a
+                       b' <- g b
+                       return (a',b')
+infixl 4 <$>,<*>
+infixl 7 <>,><>
+infixr 3 <***>
+
+
 -- |The idea here is to prevent duplicating code needlessly.
 -- We could go even more extreme and make a third parameter, but
 -- then we have WAY too many instances, and they all depend on
@@ -25,64 +45,68 @@ class (Monad m,Functor m) => ExpressionMapperM m f | f -> m where
     mapCommandM :: f -> Command -> m Command
     mapCommandM = defaultMapCommandM
     defaultMapCommandM :: f -> Command -> m Command
-    defaultMapCommandM f (Synchronous l) = Synchronous `fmap` mapListM f l
-    defaultMapCommandM f (Asynchronous l) = Asynchronous `fmap` mapListM f l
+    defaultMapCommandM f (Synchronous l) = Synchronous <$> mapListM f l
+    defaultMapCommandM f (Asynchronous l) = Asynchronous <$> mapListM f l
 
     mapListM :: f -> AndOrList -> m AndOrList
     mapListM = defaultMapListM
     defaultMapListM :: f -> AndOrList -> m AndOrList
-    defaultMapListM f (Singleton p) = Singleton `fmap` mapPipelineM f p
-    defaultMapListM f (l :&&: p) = (:&&:) `fmap` mapListM f l
-                                          `ap` mapPipelineM f p
-    defaultMapListM f (l :||: p) = (:||:) `fmap` mapListM f l
-                                          `ap` mapPipelineM f p
+    defaultMapListM f (Singleton p) = Singleton <$> mapPipelineM f p
+    defaultMapListM f (l :&&: p) = (:&&:) <$> mapListM f l
+                                          <*> mapPipelineM f p
+    defaultMapListM f (l :||: p) = (:||:) <$> mapListM f l
+                                          <*> mapPipelineM f p
     
     mapPipelineM :: f -> Pipeline -> m Pipeline
     mapPipelineM = defaultMapPipelineM
     defaultMapPipelineM :: f -> Pipeline -> m Pipeline
-    defaultMapPipelineM f (Pipeline ps) = Pipeline `fmap`
-                                          mapM (mapStatementM f) ps
-    defaultMapPipelineM f (BangPipeline ps) = BangPipeline `fmap`
-                                              mapM (mapStatementM f) ps
+    defaultMapPipelineM f (Pipeline ps) = Pipeline <$> mapStatementM f <> ps
+    defaultMapPipelineM f (BangPipeline ps) = BangPipeline <$>
+                                              mapStatementM f <> ps
 
     -- do we want mapStatementsM?
     mapStatementM :: f -> Statement -> m Statement
     mapStatementM = defaultMapStatementM
     defaultMapStatementM :: f -> Statement -> m Statement
     defaultMapStatementM f (Statement ws rs as)
-        = Statement `fmap` mapM (mapWordM f) ws -- plural?
-                    `ap` mapM (mapRedirM f) rs
-                    `ap` mapM (mapAssignmentM f) as
+        = Statement <$> mapWordM f <> ws -- plural?
+                    <*> mapRedirM f <> rs <*> mapAssignmentM f <> as
     defaultMapStatementM f (OrderedStatement ts)
-        = OrderedStatement `fmap` concatMapM (mapTermsM f) ts
+        = OrderedStatement <$> mapTermsM f ><> ts
     defaultMapStatementM f (Compound c rs)
-        = Compound `fmap` mapCompoundM f c `ap` mapM (mapRedirM f) rs
+        = Compound <$> mapCompoundM f c <*> mapRedirM f <> rs
     defaultMapStatementM f (FunctionDefinition s c rs)
-        = FunctionDefinition s `fmap` (mapCompoundM f) c
-                               `ap` mapM (mapRedirM f) rs
+        = FunctionDefinition s <$> mapCompoundM f c <*> mapRedirM f <> rs
     
     mapCompoundM :: f -> CompoundStatement -> m CompoundStatement
     mapCompoundM = defaultMapCompoundM
     defaultMapCompoundM :: f -> CompoundStatement -> m CompoundStatement
-    defaultMapCompoundM f (For s ss cs') = For s `fmap` mapM (mapWordM f) ss
-                                                 `ap` mapCommandsM f cs'
+    defaultMapCompoundM f (For s ss cs') = For s <$> mapWordM f <> ss
+                                                 <*> mapCommandsM f cs'
+    defaultMapCompoundM f (While cond code) = While <$> mapCommandsM f cond
+                                                    <*> mapCommandsM f code
+    defaultMapCompoundM f (Until cond code) = Until <$> mapCommandsM f cond
+                                                    <*> mapCommandsM f code
     defaultMapCompoundM f (If cond thn els)
-        = If `fmap` mapCommandsM f cond `ap` mapCommandsM f thn
-                                        `ap` mapCommandsM f els
-    defaultMapCompoundM f (Subshell cs) = Subshell `fmap` mapCommandsM f cs
-    defaultMapCompoundM f (BraceGroup cs) = BraceGroup `fmap` mapCommandsM f cs
+        = If <$> mapCommandsM f cond <*> mapCommandsM f thn
+                                     <*> mapCommandsM f els
+    defaultMapCompoundM f (Case expr cases)
+        = Case <$> mapWordM f expr
+               <*> ((mapWordM f <>) <***> mapCommandsM f) <> cases
+    defaultMapCompoundM f (Subshell cs) = Subshell <$> mapCommandsM f cs
+    defaultMapCompoundM f (BraceGroup cs) = BraceGroup <$> mapCommandsM f cs
 
     mapTermsM :: f -> Term -> m [Term]
     mapTermsM = defaultMapTermsM
     defaultMapTermsM :: f -> Term -> m [Term]
-    defaultMapTermsM f t = replicate 1 `fmap` mapTermM f t
+    defaultMapTermsM f t = replicate 1 <$> mapTermM f t
 
     mapTermM :: f -> Term -> m Term
     mapTermM = defaultMapTermM
     defaultMapTermM :: f -> Term -> m Term
-    defaultMapTermM f (TWord w) = TWord `fmap` mapWordM f w
-    defaultMapTermM f (TRedir r) = TRedir `fmap` mapRedirM f r
-    defaultMapTermM f (TAssignment a) = TAssignment `fmap` mapAssignmentM f a
+    defaultMapTermM f (TWord w) = TWord <$> mapWordM f w
+    defaultMapTermM f (TRedir r) = TRedir <$> mapRedirM f r
+    defaultMapTermM f (TAssignment a) = TAssignment <$> mapAssignmentM f a
 
     mapWordM :: f -> Word -> m Word
     mapWordM = defaultMapWordM
@@ -92,39 +116,38 @@ class (Monad m,Functor m) => ExpressionMapperM m f | f -> m where
     mapLexemesM :: f -> Lexeme -> m [Lexeme]
     mapLexemesM = defaultMapLexemesM
     defaultMapLexemesM :: f -> Lexeme -> m [Lexeme]
-    defaultMapLexemesM f l = replicate 1 `fmap` mapLexemeM f l
+    defaultMapLexemesM f l = replicate 1 <$> mapLexemeM f l
 
     mapLexemeM :: f -> Lexeme -> m Lexeme
     mapLexemeM = defaultMapLexemeM
     defaultMapLexemeM :: f -> Lexeme -> m Lexeme
-    defaultMapLexemeM f (Quoted lexeme) = Quoted `fmap` mapLexemeM f lexeme
-    defaultMapLexemeM f (Expand xp) = Expand `fmap` mapExpansionM f xp
+    defaultMapLexemeM f (Quoted lexeme) = Quoted <$> mapLexemeM f lexeme
+    defaultMapLexemeM f (Expand xp) = Expand <$> mapExpansionM f xp
     defaultMapLexemeM _ lexeme = return lexeme
 
     mapExpansionM :: f -> Expansion -> m Expansion
     mapExpansionM = defaultMapExpansionM
     defaultMapExpansionM :: f -> Expansion -> m Expansion
     defaultMapExpansionM f (FancyExpansion s c b w)
-        = FancyExpansion s c b `fmap` mapWordM f w
-    defaultMapExpansionM f (CommandSub cs) = CommandSub `fmap`
-                                             mapCommandsM f cs
-    defaultMapExpansionM f (Arithmetic w) = Arithmetic `fmap` mapWordM f w
+        = FancyExpansion s c b <$> mapWordM f w
+    defaultMapExpansionM f (CommandSub cs) = CommandSub <$> mapCommandsM f cs
+    defaultMapExpansionM f (Arithmetic w) = Arithmetic <$> mapWordM f w
     defaultMapExpansionM _ expansion = return expansion
 
     mapAssignmentM :: f -> Assignment -> m Assignment
     mapAssignmentM = defaultMapAssignmentM
     defaultMapAssignmentM :: f -> Assignment -> m Assignment
-    defaultMapAssignmentM f (s:=w) = (s:=) `fmap` mapWordM f w
+    defaultMapAssignmentM f (s:=w) = (s:=) <$> mapWordM f w
 
     mapRedirM :: f -> Redir -> m Redir
     mapRedirM = defaultMapRedirM
     defaultMapRedirM :: f -> Redir -> m Redir
-    defaultMapRedirM f (n:>w) = (n:>) `fmap` mapWordM f w
-    defaultMapRedirM f (n:>|w) = (n:>|) `fmap` mapWordM f w
-    defaultMapRedirM f (n:>>w) = (n:>>) `fmap` mapWordM f w
-    defaultMapRedirM f (n:<>w) = (n:<>) `fmap` mapWordM f w
-    defaultMapRedirM f (n:<w) = (n:<) `fmap` mapWordM f w
-    defaultMapRedirM f (Heredoc n c w) = (Heredoc n c) `fmap` mapWordM f w
+    defaultMapRedirM f (n:>w) = (n:>) <$> mapWordM f w
+    defaultMapRedirM f (n:>|w) = (n:>|) <$> mapWordM f w
+    defaultMapRedirM f (n:>>w) = (n:>>) <$> mapWordM f w
+    defaultMapRedirM f (n:<>w) = (n:<>) <$> mapWordM f w
+    defaultMapRedirM f (n:<w) = (n:<) <$> mapWordM f w
+    defaultMapRedirM f (Heredoc n c w) = (Heredoc n c) <$> mapWordM f w
     defaultMapRedirM _ redir = return redir
 
 instance (Monad m,Functor m) => ExpressionMapperM m (Command -> m Command)
@@ -161,8 +184,13 @@ instance (Monad m,Functor m) => ExpressionMapperM m (Assignment -> m Assignment)
 instance (Monad m,Functor m) => ExpressionMapperM m (Redir -> m Redir)
     where mapRedirM f r = defaultMapRedirM f =<< f r
 
-infixl 0 $$
 ($$) = ($)
+(!) = map
+(>!) = concatMap
+(***) f g (a,b) = (f a,g b)
+infixl 0 $$
+infixl 7 !, >!
+infixr 3 ***
 
 class ExpressionMapper f where
     mapCommands :: f -> [Command] -> [Command]
@@ -186,33 +214,37 @@ class ExpressionMapper f where
     mapPipeline :: f -> Pipeline -> Pipeline
     mapPipeline = defaultMapPipeline
     defaultMapPipeline :: f -> Pipeline -> Pipeline
-    defaultMapPipeline f (Pipeline ps) = Pipeline $ map (mapStatement f) ps
+    defaultMapPipeline f (Pipeline ps) = Pipeline $ mapStatement f ! ps
     defaultMapPipeline f (BangPipeline ps) = BangPipeline $
-                                             map (mapStatement f) ps
+                                             mapStatement f ! ps
 
     -- do we want mapStatementsM?
     mapStatement :: f -> Statement -> Statement
     mapStatement = defaultMapStatement
     defaultMapStatement :: f -> Statement -> Statement
     defaultMapStatement f (Statement ws rs as)
-        = Statement $$ map (mapWord f) ws -- plural?
-                    $$ map (mapRedir f) rs $$ map (mapAssignment f) as
+        = Statement $$ mapWord f ! ws -- plural?
+                    $$ mapRedir f ! rs $$ mapAssignment f ! as
     defaultMapStatement f (OrderedStatement ts)
-        = OrderedStatement $ concatMap (mapTerms f) ts
+        = OrderedStatement $ mapTerms f >! ts
     defaultMapStatement f (Compound c rs)
-        = Compound $$ mapCompound f c $$ map (mapRedir f) rs
+        = Compound $$ mapCompound f c $$ mapRedir f ! rs
     defaultMapStatement f (FunctionDefinition s c rs)
-        = FunctionDefinition s $$ (mapCompound f) c
-                               $$ map (mapRedir f) rs
+        = FunctionDefinition s $$ mapCompound f c $$ mapRedir f ! rs
     
     mapCompound :: f -> CompoundStatement -> CompoundStatement
     mapCompound = defaultMapCompound
     defaultMapCompound :: f -> CompoundStatement -> CompoundStatement
-    defaultMapCompound f (For s ss cs') = For s $$ map (mapWord f) ss
+    defaultMapCompound f (For s ss cs') = For s $$ mapWord f ! ss
                                                 $$ mapCommands f cs'
+    defaultMapCompound f (While cond code) = While $$ mapCommands f cond
+                                                   $$ mapCommands f code
+    defaultMapCompound f (Until cond code) = Until $$ mapCommands f cond
+                                                   $$ mapCommands f code
     defaultMapCompound f (If cond thn els)
-        = If $$ mapCommands f cond $$ mapCommands f thn
-                                   $$ mapCommands f els
+        = If $$ mapCommands f cond $$ mapCommands f thn $$ mapCommands f els
+    defaultMapCompound f (Case expr cases)
+        = Case $$ mapWord f expr $$ ((mapWord f !) *** mapCommands f) ! cases
     defaultMapCompound f (Subshell cs) = Subshell $ mapCommands f cs
     defaultMapCompound f (BraceGroup cs) = BraceGroup $ mapCommands f cs
 
