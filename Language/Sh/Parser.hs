@@ -60,8 +60,7 @@ statement = do aliasOn
                choice [try $ do name <- basicName
                                 char '(' >> spaces
                                 char ')' <|> unexpectedNoEOF
-                                spaces
-                                newlines -- optional
+                                spaces >> newlines -- optional
                                 FunctionDefinition name
                                         `fmap` compoundStatement
                                         `ap` many redirection
@@ -185,27 +184,11 @@ cases = manyTill line $ reservedWord "esac"
                           else optional $ operator_ "("
                     pats <- word NormalContext `sepBy1` operator "|"
                     operator ")" <|> unexpectedNoEOF
-                    cmds <- caseCommands
+                    (cmds,_) <- commandsTill dsemi
                     return (pats,cmds)
 
-dsemi :: P ()
-dsemi = operator_ ";;" <|> lookAhead (reservedWord_ "esac") <?> "`;;' or `esac'"
-
--- |This is a version of @commandsTill dsemi@ but we need to change the
--- terminator...  We might be able to build this into the normal
--- commandTerminator - just using lookAhead - we'll still not be able
--- to parse the ;; that gets left after the case statement...
-caseCommands :: P [Command]
-caseCommands = do newlines
-                  cs <- manyTill (eatNewlines cmd) dsemi
-                  newlines
-                  expandHereDocs cs -- why is this here at all?
-    where cmd = do c <- andorlist <?> "list"
-                   t <- commandTerminator <|> do lookAhead (operator ";;")
-                                                 return False
-                        <?> "terminator or `;;'"
-                   return $ if t then Asynchronous c
-                                 else Synchronous  c
+dsemi :: P String
+dsemi = operator ";;" <|> lookAhead (reservedWord "esac") <?> "`;;' or `esac'"
 
 -- |Parse any of the compound statements: @if@, @for@, subshells,
 -- brace groups, ...
@@ -290,6 +273,7 @@ sequentialSep = choice [operator ";" >> return ()
 commandTerminator :: P Bool
 commandTerminator = (operator "&" >> newlines >> return True)
                     <|> (sequentialSep >> return False)
+                    <|> (lookAhead (operator_ ";;") >> return False)
                             <?> "terminator"
 
 manyTill' :: P a -> P end -> P ([a],end)
@@ -527,13 +511,11 @@ hereEnd = token $ fromLit `fmap` word HereEndContext
 
 commands :: P [Command]
 commands = do newlines
-              many $ newlines >> command -- maybe get rid of newlines?
+              many command
 
 commandsTill :: P String -> P ([Command],String)
-commandsTill delim = do --newlines       -- we need a way to put an <|> unexp.
-                        rest <- getInput
-                        (c,e) <- manyTill' (newlines >> command) $
-                                 try (newlines >> delim)
+commandsTill delim = do rest <- getInput
+                        (c,e) <- manyTill' (eatNewlines command) delim
                         c' <- expandHereDocs c -- may not be exhaustive...?
                         return (c',e)
 
