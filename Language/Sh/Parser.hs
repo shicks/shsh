@@ -58,7 +58,7 @@ eatNewlines a = do a' <- a
 statement :: P Statement
 statement = do aliasOn
                choice [try $ do name <- basicName
-                                char '(' >> spaces
+                                spaces >> char '(' >> spaces
                                 char ')' <|> unexpectedNoEOF
                                 spaces >> newlines -- optional
                                 FunctionDefinition name
@@ -363,6 +363,7 @@ dqWord = fmap concat $ many $
                 ,map ql `fmap` one (noneOf "\"")
                 ]
 
+-- This needs to reject, e.g. "a " but for some reason "${a }" doesn't fail
 isName :: String -> Bool
 isName s = case parse' [] (try (only name) <|> only (many1 digit)) s of
              Right _ -> True
@@ -472,9 +473,9 @@ escape s = char '\\' >> choice [newline >> return Nothing
                                ,return $ Just '\\']
 
 name :: P String
-name = token (count 1 (oneOf "@*#?-$!" <|> digit) <|>
-              alphaUnder <:> many alphaUnderNum)
-                             <?> "name"
+name = count 1 (oneOf "@*#?-$!" <|> digit) <|>
+       alphaUnder <:> many alphaUnderNum
+                      <?> "name"
 
 basicName :: P String
 basicName = token (alphaUnder <:> many alphaUnderNum) <?> "name"

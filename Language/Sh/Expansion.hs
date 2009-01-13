@@ -3,7 +3,8 @@
 
 module Language.Sh.Expansion ( ExpansionFunctions(..),
                                noGlobExpansion,
-                               expand, expandWord ) where
+                               expand, expandWord,
+                               expandPattern ) where
 
 import Control.Monad ( forM_, forM )
 import Control.Monad.Reader ( ReaderT, runReaderT, asks )
@@ -86,6 +87,11 @@ expand fs ws = runReaderT (expandE ws) fs
 -- Tricky: A="3$B*"; echo $A --> looks silly, but echo "$A"...
 expandWord :: (Monad m,Functor m) => ExpansionFunctions m -> Word -> m String
 expandWord fs w = runReaderT (expandWordE w) fs
+
+-- |This is a version of expandWord that doesn't deal with globs or remove
+-- quotes!  It's currently only used in case statements.
+expandPattern :: (Monad m,Functor m) => ExpansionFunctions m -> Word -> m Word
+expandPattern fs w = runReaderT (expand' w) fs
 
 --
 
