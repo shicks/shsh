@@ -10,6 +10,7 @@ import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush,
 import System.Console.ShSh.Internal.IO ( newPipe, rGetContents )
 import System.Console.ShSh.Internal.Process ( WriteStream(..),
                                               PipeState(..) )
+import System.Console.ShSh.Pattern ( matchPattern )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess(..),
                                    withShellProcess, maybeCloseIn,
@@ -127,6 +128,7 @@ runStatement b (Statement ws rs as) = checkE b `fmap`
                                                   withShellProcess `flip` job $
                                                     \j -> withEnv rs as j
 
+runCompound :: OnErr -> CompoundStatement -> Shell ExitCode
 runCompound b (For var list cs) =
     do ws <- expandWords list
        ecs <- forM ws $ \w -> do setEnv var w
@@ -136,9 +138,28 @@ runCompound b (For var list cs) =
                 else head $ reverse $ ecs
 runCompound b (If cond thn els) =
     do ec <- runCommands' IgnoreE cond
-       case ec of
-         ExitSuccess -> runCommands' b thn
-         _           -> runCommands' b els
+       case ec of ExitSuccess -> runCommands' b thn
+                  _           -> runCommands' b els
+runCompound b (Case expr cases) = do e <- expandWord expr
+                                     run b e cases
+    where run _ _ [] = return ExitSuccess
+          run b s ((ps,cs):xs) = do match <- check s ps
+                                    if match then runCommands' b cs
+                                             else run b s xs
+          check s [] = return False
+          check s (p:ps) = do p' <- expandPattern p
+                              if matchPattern p' s then return True
+                                                   else check s ps
+runCompound b (While cond code) =
+    do ec <- runCommands' IgnoreE cond
+       case ec of ExitSuccess -> do runCommands' b code
+                                    runCompound b $ While cond code
+                  _           -> return ExitSuccess
+runCompound b (Until cond code) =
+    do ec <- runCommands' IgnoreE cond
+       case ec of ExitSuccess -> return ExitSuccess
+                  _           -> do runCommands' b code
+                                    runCompound b $ Until cond code
 runCompound b (BraceGroup cs) = runCommands' b cs
 runCompound _ c = fail $ "Control structure "++show c++" not yet supported."
 
@@ -261,6 +282,10 @@ ef = E.ExpansionFunctions { E.getAllEnv = getAllEnv,
 -- |Expand a single word into a single string; no field splitting
 expandWord :: Word -> Shell String
 expandWord = E.expandWord ef
+
+-- |Expand a single word into a single string; no field splitting
+expandPattern :: Word -> Shell Word
+expandPattern = E.expandPattern ef
 
 -- |Expand a list of words into a list of strings; fields will be split.
 expandWords :: [Word] -> Shell [String]
