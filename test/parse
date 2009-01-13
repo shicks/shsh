@@ -1,0 +1,13 @@
+Parsing Tests
+=============
+
+This tests against a silly regression we got somehow where the space gets
+eaten and not saved...?
+~~~~ check-output/parse-expansion.sh
+a=a
+echo $a a
+~~~~
+
+~~~~ known-output/parse-expansion.sh
+a a
+~~~~
