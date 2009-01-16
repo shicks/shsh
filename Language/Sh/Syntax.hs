@@ -47,6 +47,19 @@ data Lexeme = Literal Char | Quote Char
 --                | Arithmetic Word
 --                deriving ( Show )
 
+-- |An expansion.  The first three are all variable expansions.  The
+-- 'ModifiedExpansion' in particular also keeps track of which operation
+-- it is to perform.  The 'Char' can be any of @"-+=?#%"@ and the 'Bool'
+-- says whether it was paired with a @':'@ in the case of the first four
+-- or doubled in the case of the latter two.  This isn't a very good
+-- data structure, but I hesitate to add 12 more algebraic types, one for
+-- each type of expansion.  It would be elegant to use a function
+-- parameter here, but then we lose our data-ness and it makes it difficult
+-- to be @Show@.  We could use a data class that has functions and is
+-- also @Show@ and can be pretty-printed, and this would allow arbitrary
+-- generalizability, but do we really want this?  It needs to be parsed
+-- anyway.  The other question is the @bash@ extensions: do we parse for
+-- @/@ or should it be an error?  Is there a way to prevent it optionally?
 data Expansion = SimpleExpansion String
                | ModifiedExpansion String Char Bool Word
                | LengthExpansion String
