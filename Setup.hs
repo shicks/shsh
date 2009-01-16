@@ -3,10 +3,24 @@ import Distribution.Franchise
 import Data.List ( isSuffixOf )
 
 main = build [] $
-            do ghcFlags ["-threaded","-O2"]
+            do copyright "Copyright 2008 Stephen Hicks"
+               license "BSD3"
+               addExtraData "category" "Language"
+               addExtraData "maintainer" "Stephen Hicks <sdh33@cornell.edu>"
+               addExtraData "synopsis"
+                   "A package for parsing shell scripts"
+               addExtraData "description" $ unlines
+                   ["",
+                    "        Language.Sh is a collection of modules for parsing and",
+                    "        manipulating expressions in shell grammar.",
+                    "",
+                    "        Note: the API is still rather unstable, at the moment."]
+               ghcFlags ["-threaded","-O2"]
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
-               withModule "System.FilePath.Glob" $ define "HAVE_GLOB"
+               withModuleExporting "System.FilePath.Glob"
+                   "factorPath" "factorPath" $
+                   define "HAVE_GLOB" -- cannot be satisfied w/ released glob!
                withModuleExporting "Text.ParserCombinators.Parsec.Expr"
                    "Operator(..)" "Postfix" $
                    define "HAVE_PARSEC_POSTFIX"
@@ -27,7 +41,7 @@ main = build [] $
                                       "Language.Sh.Map",
                                       "Language.Sh.Parser",
                                       "Language.Sh.Syntax"] []
-               executable "testlex" "testlex.hs" cfiles'
+               privateExecutable "testlex" "testlex.hs" cfiles'
                executable "shsh" "shsh.hs" cfiles'
 
 tryHeader h job warn = requireWithFeedback ("for header "++h)

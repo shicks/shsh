@@ -1,0 +1,11 @@
+#!/bin/sh
+
+NAME=language-sh-0.0.3
+
+rm -rf $NAME/
+mkdir -p $NAME/Language/Sh/Parser
+cp Language/Sh/*.hs $NAME/Language/Sh/
+cp Language/Sh/Parser/*.hs $NAME/Language/Sh/Parser/
+cp SetupC.hs $NAME/Setup.hs
+cp language-sh.cabal LICENSE $NAME/
+tar zcvf $NAME.tar.gz $NAME/

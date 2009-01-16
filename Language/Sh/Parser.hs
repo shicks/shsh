@@ -124,7 +124,7 @@ injectAlias a s as ip = do i <- getInput
                            setAliasInfo (True,as\\[(a,s)],False)
                            unless True $
                                 do l <- getInput
-                                   setInput l -- $ trace ("input: "++show l) l
+                                   setInput l --   $ trace ("input: "++show l) l
                            spaces
 
 pipeline :: P Pipeline
