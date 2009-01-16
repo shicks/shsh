@@ -487,7 +487,7 @@ basicName = token (alphaUnder <:> many alphaUnderNum) <?> "name"
 assignment :: P Assignment
 assignment = do var <- basicName <?> "name"
                 char '='
-                val <- word NormalContext
+                val <- fmap concat $ zeroOne $ word NormalContext
                 return $ var := val
              <?> "assignment"
 

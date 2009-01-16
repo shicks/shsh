@@ -150,7 +150,7 @@ isBlank = (`elem` " \t")
 one :: P a -> P [a]
 one = sequence . replicate 1
 
-zeroOne :: P Char -> P [Char]
+zeroOne :: P a -> P [a]
 zeroOne p = one p <|> return []
 
 newline :: P () -- how does this affect SourcePos?
