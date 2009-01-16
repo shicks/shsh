@@ -13,3 +13,132 @@ echo $(echo $(( 1+2 ) ))
 The moral of the story so far: we need to be smartly lexing inside
 command substitutions, and not just scooping up strings until we
 balance the unescaped parens.
+
+~~~~ check-output/expansions.sh
+set -e
+a=abaabaaabaabac
+b=
+
+echo SIMPLE EXPANSIONS
+echo 01: $a
+echo 02: $a $a
+echo 03: $a$b$a
+echo 04: ${a}a
+echo 05: ${a} a
+echo 06: $a $b $a
+echo 07: "$a $b $a"
+
+echo LENGTHS
+echo 08: ${#a}
+echo 09: ${#b}
+echo 10: ${#c}
+
+echo DEFAULTS
+echo 11: ${a:-X}
+echo 12: ${a-X}
+echo 13: ${b:-X}
+echo 14: ${b-X}
+echo 15: ${c:-X}
+echo 16: ${c-X}
+echo 17: ${a:+X}
+echo 18: ${a+X}
+echo 19: ${b:+X}
+echo 20: ${b+X}
+echo 21: ${c:+X}
+echo 22: ${c+X}
+
+echo SUBSTITUTIONS
+echo 23: ${a#a}
+echo 24: ${a##a}
+echo 25: ${a#*}
+echo 26: ${a##*}
+echo 27: ${a#a*aa}
+echo 28: ${a##a*aa}
+echo 29: ${a#a*aaa*a}
+echo 30: ${a##a*aaa*a}
+echo 31: ${a%a}
+echo 32: ${a%%a}
+echo 33: ${a%*}
+echo 34: ${a%%*}
+echo 35: ${a%a*aa}
+echo 36: ${a%%a*aa}
+echo 37: ${a%a*aaa*a}
+echo 38: ${a%%a*aaa*a}
+
+echo ASSIGNMENTS
+echo 39: ${a=X}
+echo 40: $a
+echo 41: ${a:=X}
+echo 42: $a
+echo 43: ${b=X}
+echo 44: $b
+echo 45: ${b:=X}
+echo 46: $b
+echo 47: ${c=X}
+echo 48: $c
+unset c
+echo 49: ${c:=X}
+echo 50: $c
+~~~~
+
+Note that there's a sticky parsing point in parsing "b=" on a line to itself.
+Specifically, we need to allow such /incomplete/ assignments, with no word
+on the RHS.
+
+~~~~ known-output/expansions.sh
+SIMPLE EXPANSIONS
+01: abaabaaabaabac
+02: abaabaaabaabac abaabaaabaabac
+03: abaabaaabaabacabaabaaabaabac
+04: abaabaaabaabaca
+05: abaabaaabaabac a
+06: abaabaaabaabac abaabaaabaabac
+07: abaabaaabaabac  abaabaaabaabac
+LENGTHS
+08: 14
+09: 0
+10: 0
+DEFAULTS
+11: abaabaaabaabac
+12: abaabaaabaabac
+13: X
+14:
+15: X
+16: X
+17: X
+18: X
+19:
+20: X
+21:
+22:
+SUBSTITUTIONS
+23: baabaaabaabac
+24: baabaaabaabac
+25: abaabaaabaabac
+26:
+27: baaabaabac
+28: bac
+29: abac
+30: c
+31: abaabaaabaabac
+32: abaabaaabaabac
+33: abaabaaabaabac
+34:
+35: abaabaaabaabac
+36: abaabaaabaabac
+37: abaabaaabaabac
+38: abaabaaabaabac
+ASSIGNMENTS
+39: abaabaaabaabac
+40: abaabaaabaabac
+41: abaabaaabaabac
+42: abaabaaabaabac
+43:
+44:
+45: X
+46: X
+47: X
+48: X
+49: X
+50: X
+~~~~
