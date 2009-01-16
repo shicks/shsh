@@ -48,8 +48,7 @@ data Lexeme = Literal Char | Quote Char
 --                deriving ( Show )
 
 data Expansion = SimpleExpansion String
-               | FancyExpansion String Char Bool Word
-               | SubsExpansion String
+               | ModifiedExpansion String Char Bool Word
                | LengthExpansion String
                | CommandSub [Command]
                | Arithmetic Word

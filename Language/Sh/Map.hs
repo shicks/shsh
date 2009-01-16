@@ -128,8 +128,8 @@ class (Monad m,Functor m) => ExpressionMapperM m f | f -> m where
     mapExpansionM :: f -> Expansion -> m Expansion
     mapExpansionM = defaultMapExpansionM
     defaultMapExpansionM :: f -> Expansion -> m Expansion
-    defaultMapExpansionM f (FancyExpansion s c b w)
-        = FancyExpansion s c b <$> mapWordM f w
+    defaultMapExpansionM f (ModifiedExpansion s c b w)
+        = ModifiedExpansion s c b <$> mapWordM f w
     defaultMapExpansionM f (CommandSub cs) = CommandSub <$> mapCommandsM f cs
     defaultMapExpansionM f (Arithmetic w) = Arithmetic <$> mapWordM f w
     defaultMapExpansionM _ expansion = return expansion
@@ -280,8 +280,8 @@ class ExpressionMapper f where
     mapExpansion :: f -> Expansion -> Expansion
     mapExpansion = defaultMapExpansion
     defaultMapExpansion :: f -> Expansion -> Expansion
-    defaultMapExpansion f (FancyExpansion s c b w)
-        = FancyExpansion s c b $ mapWord f w
+    defaultMapExpansion f (ModifiedExpansion s c b w)
+        = ModifiedExpansion s c b $ mapWord f w
     defaultMapExpansion f (CommandSub cs) = CommandSub $ mapCommands f cs
     defaultMapExpansion f (Arithmetic w) = Arithmetic $ mapWord f w
     defaultMapExpansion _ expansion = expansion

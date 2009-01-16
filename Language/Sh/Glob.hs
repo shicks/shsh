@@ -1,19 +1,37 @@
 {-# LANGUAGE CPP #-}
-module Language.Sh.Glob where
+module Language.Sh.Glob ( expandGlob, matchPattern,
+                          removePrefix, removeSuffix ) where
 
 import Control.Monad.Trans ( MonadIO, liftIO )
 import Control.Monad.State ( runState, put )
 import Data.Char ( ord, chr )
 import Data.List ( isPrefixOf, partition )
+import Data.Maybe ( isJust )
 import System.Directory ( getCurrentDirectory )
 import System.FilePath ( pathSeparator, isPathSeparator, isExtSeparator )
+import Text.Regex.PCRE.Light.Char8 ( compile, match, ungreedy )
 
-import Language.Sh.Syntax ( Word, Lexeme(..) )
+import Language.Sh.Syntax ( Lexeme(..), Word )
 
 -- we might get a bit fancier if older glob libraries will support
 -- a subset of what we want to do...?
 #ifdef HAVE_GLOB
 import System.FilePath.Glob ( tryCompile, globDir, factorPath )
+#endif
+
+expandGlob :: MonadIO m => Word -> m [FilePath]
+#ifdef HAVE_GLOB
+expandGlob w = case mkGlob w of
+                 Nothing -> return []
+                 Just g  -> case tryCompile g of
+                              Right g' -> liftIO $
+                                do let (dir,g'') = factorPath g'
+                                   liftIO $ putStrLn $ show (dir,g'')
+                                   hits <- globDir [g''] dir
+                                   return $ head $ fst $ hits
+                              _ -> return []
+#else
+expandGlob = const $ return []
 #endif
 
 -- By the time this is called, we should only have quotes and quoted
@@ -82,21 +100,6 @@ expandGlob w = case mkGlob w of
                              | otherwise = s
 -}
 
-expandGlob :: MonadIO m => Word -> m [FilePath]
-#ifdef HAVE_GLOB
-expandGlob w = case mkGlob w of
-                 Nothing -> return []
-                 Just g  -> case tryCompile g of
-                              Right g' -> liftIO $
-                                do let (dir,g'') = factorPath g'
-                                   liftIO $ putStrLn $ show (dir,g'')
-                                   hits <- globDir [g''] dir
-                                   return $ head $ fst $ hits
-                              _ -> return []
-#else
-expandGlob = const $ return []
-#endif
-
 -- Two issues: we can deal with them here...
 --  1. if glob starts with a dirsep then we need to go relative to root...
 --     (what about in windows?)
@@ -114,3 +117,85 @@ matchGlob g = matchG' [] $ splitDir return $ do -- now we're in the list monad..
                         groupBy ((==) on ips) xs
           ips x = case x of { Lit c -> isPathSeparator c; _ -> False }
 -}
+
+
+
+----------------------------------------------------------------------
+-- This is copied from above, but it's used separately for non-glob --
+-- pattern matching.  Maybe we'll combine them someday.             --
+----------------------------------------------------------------------
+
+match' :: Bool -> String -> String -> Maybe String
+match' g s r = join $ match (compile r opts) s []
+    where opts = if g then [] else [ungreedy]
+          join Nothing = Nothing
+          join (Just []) = Nothing
+          join (Just (x:xs)) = Just x
+
+matchPattern :: Word -> String -> Bool
+matchPattern w s = case mkRegex False w of
+                     Just r  -> isJust $ match' True s ("^"++r++"$")
+                     Nothing -> fromLit w == s
+
+removePrefix :: Bool -- ^greediness
+             -> Word -- ^pattern
+             -> String -- ^haystack
+             -> String
+removePrefix g n h = case mkRegex False n of
+                       Just r -> case match' g h ('^':r) of
+                                   Just m -> drop (length m) h
+                                   Nothing -> h
+                       Nothing -> if l `isPrefixOf` h
+                                  then drop (length l) h
+                                  else h
+    where l = fromLit n
+
+removeSuffix :: Bool -- ^greediness
+             -> Word -- ^pattern
+             -> String -- ^haystack
+             -> String
+removeSuffix g n h = case mkRegex True n of
+                       Just r -> case match' g hr ('^':r) of
+                                   Just m -> reverse $ drop (length m) hr
+                                   Nothing -> h
+                       Nothing -> if l `isPrefixOf` hr
+                                  then reverse $ drop (length l) hr
+                                  else h
+    where l = reverse $ fromLit n
+          hr = reverse h
+
+mkRegex :: Bool -> Word -> Maybe String -- bool = do we reverse?
+mkRegex r w = case runState (mkG w) False of
+               (s,True) -> Just $ concat $ (if r then reverse else id) s
+               _  -> Nothing
+    where mkG [] = return []
+          mkG (Literal '[':xs) = case mkClass xs of
+                                   Just (g,xs') -> fmap (g:) $ mkG xs'
+                                   Nothing -> fmap ((mkLit '['):) $ mkG xs
+          mkG (Literal '*':Literal '*':xs) = mkG $ Literal '*':xs
+          mkG (Literal '*':xs) = put True >> fmap (".*":) (mkG xs)
+          mkG (Literal '?':xs) = put True >> fmap (".":) (mkG xs)
+          mkG (Literal c:xs) = fmap (mkLit c:) $ mkG xs
+          mkG (Quoted (Literal c):xs) = fmap (mkLit c:) $ mkG xs
+          mkG (Quoted q:xs) = mkG $ q:xs
+          mkG (Quote _:xs) = mkG xs
+          mkLit '[' = "\\["
+          mkLit ']' = "\\]"
+          mkLit '(' = "\\("
+          mkLit ')' = "\\)"
+          mkLit '{' = "\\{"
+          mkLit '}' = "\\}"
+          mkLit '|' = "\\|"
+          mkLit '^' = "\\^"
+          mkLit '$' = "\\$"
+          mkLit '.' = "\\."
+          mkLit '*' = "\\*"
+          mkLit '+' = "\\+"
+          mkLit '?' = "\\?"
+          mkLit '\\' = "\\\\"
+          mkLit  c  = [  c]
+
+fromLit :: Word -> String
+fromLit = concatMap $ \l -> case l of Literal c -> [c]
+                                      Quoted q  -> fromLit [q]
+                                      _         -> []

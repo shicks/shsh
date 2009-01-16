@@ -15,6 +15,7 @@ import Data.Maybe ( fromMaybe )
 import Data.Monoid ( Monoid, mappend, mempty )
 
 import Language.Sh.Compat ( on )
+import Language.Sh.Glob ( removePrefix, removeSuffix )
 import Language.Sh.Syntax ( Command, Word, Lexeme(..),
                             Expansion(..) ) -- , Glob, GlobChar(..) )
 
@@ -147,7 +148,7 @@ expandParams = expandWith e
           e q (LengthExpansion n) = do v <- getEnvQ q n
                                        return $ quoteLiteral q $
                                               show $ length v
-          e q (FancyExpansion n o c w)
+          e q (ModifiedExpansion n o c w)
               = do v <- getEnvQC q c n
                    case o of
                      '-' -> return $ fromMaybe w v
@@ -159,11 +160,17 @@ expandParams = expandWith e
                               Nothing -> fail $ n++": undefined or null"
                               Just v' -> return v'
                      '+' -> return $ maybe mempty (const w) v
+                     '#' -> do r <- expand' w -- expandPatternE
+                               return $ fromStr q $ removePrefix c r $ toStr v
+                     '%' -> do r <- expand' w -- expandPatternE
+                               return $ fromStr q $ removeSuffix c r $ toStr v
           e q (CommandSub cs) = (quoteLiteral q . removeNewlines) `fmap` run cs
           e q (Arithmetic w) = fmap (quoteLiteral q) $
                                  arithExpand =<< expandWordE w
           --e _ x = fail $ "Expansion "++show x++" not yet implemented"
           removeNewlines = reverse . dropWhile (`elem`"\r\n") . reverse
+          toStr = removeQuotes . fromMaybe [] -- ${@#...} should map over words
+          fromStr = quoteLiteral  -- but it's technically undefined so no worry
 
 -- crap - need to fully expand all letters...?
 

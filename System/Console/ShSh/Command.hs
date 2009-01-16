@@ -10,7 +10,6 @@ import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush,
 import System.Console.ShSh.Internal.IO ( newPipe, rGetContents )
 import System.Console.ShSh.Internal.Process ( WriteStream(..),
                                               PipeState(..) )
-import System.Console.ShSh.Pattern ( matchPattern )
 import System.Console.ShSh.ShellError ( announceError )
 import System.Console.ShSh.Shell ( Shell, ShellProcess(..),
                                    withShellProcess, maybeCloseIn,
@@ -23,7 +22,7 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess(..),
                                    getFlag, getAliases, withPositionals,
                                    withErrorsPrefixed, withPipes )
 
-import Language.Sh.Glob ( expandGlob )
+import Language.Sh.Glob ( expandGlob, matchPattern )
 import Language.Sh.Parser ( parse, hereDocsComplete )
 import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Pipeline(..), Statement(..),

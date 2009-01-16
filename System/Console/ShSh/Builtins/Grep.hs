@@ -6,11 +6,10 @@ import System.Console.ShSh.Shell ( Shell )
 import System.Console.ShSh.Builtins.Args ( withArgs, flag, flagOn )
 import System.Console.ShSh.Builtins.Util ( readFilesOrStdinWithFilename )
 
-import Data.Bits ( (.|.) )
+import Data.Maybe ( isJust )
 import System.Console.GetOpt
 import System.Exit ( ExitCode(..) )
-import Text.Regex.Posix ( Regex, compNewline, compIgnoreCase )
-import Text.Regex.Base ( match, makeRegexOpts, defaultExecOpt )
+import Text.Regex.PCRE.Light.Char8 ( match, compile, caseless )
 
 grep :: [String] -> Shell ExitCode
 grep = withArgs "grep" header args RequireOrder grep'
@@ -21,8 +20,7 @@ grep = withArgs "grep" header args RequireOrder grep'
                  amw <- flag 'w'
                  amn <- flag 'n'
                  amH <- (|| length fs > 1) `fmap` flag 'H'
-                 let matchIt r = match (makeRegexOpts compOpt
-                                        defaultExecOpt r :: Regex)
+                 let matchIt r l = isJust $ match (compile r compOpt) l []
                      nonword = "[^0-9a-zA-Z]"
                      grepIt l = xor amv $
                                 if not amw
@@ -30,8 +28,7 @@ grep = withArgs "grep" header args RequireOrder grep'
                                 else or $ map (matchIt `flip` l)
                                           [b++reg++e | b <- ["^",nonword]
                                                      , e <- ["$",nonword]]
-                     compOpt = if ami then compNewline .|. compIgnoreCase
-                                      else compNewline
+                     compOpt = if ami then [caseless] else []
                      xor a = if a then not else id
                      readStuff = do xs <- readFilesOrStdinWithFilename fs
                                     return $ concatMap cleanup xs

@@ -397,15 +397,13 @@ expansion =
                                        then return $ Expand $ LengthExpansion n
                                        else fatal $
                                                 "${#"++n++"}: bad substitution"
-                                 ,try $ do n <- many $ noneOf ":-=?+"
-                                           -- check isName again...
-                                           c <- zeroOne $ char ':'
-                                           op <- oneOf "-=?+"
+                                 ,try $ do n <- name -- many $ noneOf ":-=?+#%"
+                                           -- check isName again...?
+                                           (c,op) <- modifier
                                            rest <- word ParameterContext
                                            char '}' <|> (char ')' >> unexEOF)
                                            return $ Expand $
-                                             FancyExpansion n op (not $ null c)
-                                                            rest
+                                             ModifiedExpansion n op c rest
                                  ,do ip <- insideParens
                                      let p = if ip then (')':) else id
                                      n <- many $ noneOf $ p "}"
@@ -437,6 +435,12 @@ expansion =
                  Right cs -> return $ Expand $ CommandSub cs
            ]
     where unexEOF = fatal "unexpected EOF while looking for matching `}'"
+          modifier = choice [do c <- zeroOne $ char ':'
+                                op <- oneOf "-=?+"
+                                return (not $ null c,op)
+                            ,do op <- oneOf "#%"
+                                c <- zeroOne $ char op
+                                return (not $ null c,op)]
 
 arithmetic :: P Expansion
 arithmetic = do w <- arithWord =<< getParenDepth
