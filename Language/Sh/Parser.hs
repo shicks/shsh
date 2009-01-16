@@ -28,9 +28,9 @@ import Debug.Trace ( trace )
 
 -- We don't actually really need Parsec3 - could adapt that Parsec2 source...
 -- Also, this should maybe be a debug switch...?
--- #ifdef HAVE_PARSEC3
--- #include "Language/Sh/Parser/safemany.h"
--- #endif
+-- ifdef HAVE_PARSEC3
+-- include "Language/Sh/Parser/safemany.h"
+-- endif
 
 data WordContext = NormalContext | ParameterContext | HereEndContext
      deriving ( Enum, Ord, Eq )

@@ -38,8 +38,18 @@ data Lexeme = Literal Char | Quote Char
             | Expand Expansion | Quoted Lexeme
             | SplitField -- this one should never come from parsing
             deriving ( Show )
+
+-- data ExpansionType = SimpleExpansion | LengthExpansion
+--                    | OneParameterExpansion String Word
+--                    | TwoParameterExpansion String Word Word
+-- data Expansion = ParameterExpansion ExpansionType String
+--                | CommandSub [Command]
+--                | Arithmetic Word
+--                deriving ( Show )
+
 data Expansion = SimpleExpansion String
                | FancyExpansion String Char Bool Word
+               | SubsExpansion String
                | LengthExpansion String
                | CommandSub [Command]
                | Arithmetic Word
