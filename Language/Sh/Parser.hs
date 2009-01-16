@@ -298,7 +298,7 @@ readHD delim = popHereDoc =<< manyTill' (dqLex "\\$`")
                                                   return True
                                         ,eof >> return False])
 
-dqLex :: String -> P Lexeme -- input: chars to escape with \
+dqLex :: String -> P Lexeme -- input: chars to escape with '\\'
 dqLex escape = choice [do char '\\'
                           choice [newline >> dqLex escape
                                  ,ql `fmap` oneOf escape
