@@ -6,10 +6,10 @@ import Control.Monad.Trans ( MonadIO, liftIO )
 import Control.Monad.State ( runState, put )
 import Data.Char ( ord, chr )
 import Data.List ( isPrefixOf, partition )
-import Data.Maybe ( isJust )
+import Data.Maybe ( isJust, listToMaybe )
 import System.Directory ( getCurrentDirectory )
 import System.FilePath ( pathSeparator, isPathSeparator, isExtSeparator )
-import Text.Regex.PCRE.Light.Char8 ( compile, match, ungreedy )
+import Text.Regex.PCRE.Light.Char8 ( Regex, compileM, match, ungreedy )
 
 import Language.Sh.Syntax ( Lexeme(..), Word )
 
@@ -53,11 +53,8 @@ mkGlob w = case runState (mkG w) False of
           mkG (Quoted (Literal c):xs) = fmap (mkLit c++) $ mkG xs
           mkG (Quoted q:xs) = mkG $ q:xs
           mkG (Quote _:xs) = mkG xs
-          mkLit '[' = "[[]"
-          mkLit '*' = "[*]"
-          mkLit '?' = "[?]"
-          mkLit '<' = "[<]"
-          mkLit  c  =  [c]
+          mkLit c | c `elem` "[*?<" = ['[',c,']']
+                  | otherwise       = [c]
 
 -- This is basically gratuitously copied from Glob's internals.
 mkClass :: Word -> Maybe (String,Word)
@@ -125,24 +122,20 @@ matchGlob g = matchG' [] $ splitDir return $ do -- now we're in the list monad..
 -- pattern matching.  Maybe we'll combine them someday.             --
 ----------------------------------------------------------------------
 
-match' :: Bool -> String -> String -> Maybe String
-match' g s r = join $ match (compile r opts) s []
-    where opts = if g then [] else [ungreedy]
-          join Nothing = Nothing
-          join (Just []) = Nothing
-          join (Just (x:xs)) = Just x
+match' :: Regex -> String -> Maybe String
+match' regex s = listToMaybe =<< match regex s []
 
 matchPattern :: Word -> String -> Bool
-matchPattern w s = case mkRegex False w of
-                     Just r  -> isJust $ match' True s ("^"++r++"$")
+matchPattern w s = case mkRegex False False "^" "$" w of
+                     Just r  -> isJust $ match r s []
                      Nothing -> fromLit w == s
 
-removePrefix :: Bool -- ^greediness
-             -> Word -- ^pattern
+removePrefix :: Bool   -- ^greediness
+             -> Word   -- ^pattern
              -> String -- ^haystack
              -> String
-removePrefix g n h = case mkRegex False n of
-                       Just r -> case match' g h ('^':r) of
+removePrefix g n h = case mkRegex g False "^" "" n of
+                       Just r -> case match' r h of
                                    Just m -> drop (length m) h
                                    Nothing -> h
                        Nothing -> if l `isPrefixOf` h
@@ -150,12 +143,12 @@ removePrefix g n h = case mkRegex False n of
                                   else h
     where l = fromLit n
 
-removeSuffix :: Bool -- ^greediness
-             -> Word -- ^pattern
+removeSuffix :: Bool   -- ^greediness
+             -> Word   -- ^pattern
              -> String -- ^haystack
              -> String
-removeSuffix g n h = case mkRegex True n of
-                       Just r -> case match' g hr ('^':r) of
+removeSuffix g n h = case mkRegex g True "^" "" n of
+                       Just r -> case match' r hr of
                                    Just m -> reverse $ drop (length m) hr
                                    Nothing -> h
                        Nothing -> if l `isPrefixOf` hr
@@ -164,10 +157,16 @@ removeSuffix g n h = case mkRegex True n of
     where l = reverse $ fromLit n
           hr = reverse h
 
-mkRegex :: Bool -> Word -> Maybe String -- bool = do we reverse?
-mkRegex r w = case runState (mkG w) False of
-               (s,True) -> Just $ concat $ (if r then reverse else id) s
-               _  -> Nothing
+mkRegex :: Bool   -- ^greedy?
+        -> Bool   -- ^reverse? (before adding pre/suff)
+        -> String -- ^prefix
+        -> String -- ^suffix
+        -> Word   -- ^pattern
+        -> Maybe Regex
+mkRegex g r pre suf w
+    = case runState (mkG w) False of
+        (s,True) -> mk' $ concat $ affix $ (if r then reverse else id) s
+        _        -> Nothing
     where mkG [] = return []
           mkG (Literal '[':xs) = case mkClass xs of
                                    Just (g,xs') -> fmap (g:) $ mkG xs'
@@ -179,21 +178,12 @@ mkRegex r w = case runState (mkG w) False of
           mkG (Quoted (Literal c):xs) = fmap (mkLit c:) $ mkG xs
           mkG (Quoted q:xs) = mkG $ q:xs
           mkG (Quote _:xs) = mkG xs
-          mkLit '[' = "\\["
-          mkLit ']' = "\\]"
-          mkLit '(' = "\\("
-          mkLit ')' = "\\)"
-          mkLit '{' = "\\{"
-          mkLit '}' = "\\}"
-          mkLit '|' = "\\|"
-          mkLit '^' = "\\^"
-          mkLit '$' = "\\$"
-          mkLit '.' = "\\."
-          mkLit '*' = "\\*"
-          mkLit '+' = "\\+"
-          mkLit '?' = "\\?"
-          mkLit '\\' = "\\\\"
-          mkLit  c  = [  c]
+          mkLit c | c `elem` "[](){}|^$.*+?\\" = ['\\',c]
+                  | otherwise                  = [c]
+          affix s = pre:s++[suf]
+          mk' s = case compileM s (if g then [] else [ungreedy]) of
+                    Left _      -> Nothing
+                    Right regex -> Just regex
 
 fromLit :: Word -> String
 fromLit = concatMap $ \l -> case l of Literal c -> [c]
