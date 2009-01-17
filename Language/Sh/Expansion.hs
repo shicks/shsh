@@ -169,7 +169,7 @@ expandParams = expandWith e
                                  arithExpand =<< expandWordE w
           --e _ x = fail $ "Expansion "++show x++" not yet implemented"
           removeNewlines = reverse . dropWhile (`elem`"\r\n") . reverse
-          toStr = removeQuotes . fromMaybe [] -- ${@#...} should map over words
+          toStr = removeQuotes . fromMaybe [] --  ${@#...} should map over words
           fromStr = quoteLiteral  -- but it's technically undefined so no worry
 
 -- crap - need to fully expand all letters...?
