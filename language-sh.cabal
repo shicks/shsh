@@ -31,7 +31,8 @@ library
                      directory >= 1.0 && < 1.1,
                      filepath >= 1.1 && < 1.2,
                      mtl >= 1.1 && < 1.2,
-                     parsec >= 2.1 && < 3
+                     parsec >= 2.1 && < 3,
+                     pcre-light >= 0.2 && < 0.4
     extensions:      CPP
     ghc-options:     -threaded
     cpp-options:     -DHAVE_PARSEC_POSTFIX
