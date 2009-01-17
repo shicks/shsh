@@ -2,6 +2,7 @@ import Control.Monad ( when )
 import System.Exit ( exitWith, ExitCode(..) )
 import System.IO ( hIsEOF, stdin, hFlush, stdout )
 import Language.Sh.Parser ( parse, hereDocsComplete )
+import Language.Sh.Pretty ( pretty )
 -- import System.Console.ShSh.Expansions ( expansions )
 
 loop pre = do let prompt = if null pre then "$ " else "> "
@@ -25,6 +26,7 @@ loop pre = do let prompt = if null pre then "$ " else "> "
                                                      loop $ ""
 
 process ts = do putStrLn $ "After Parsing: "++show ts
+                putStrLn $ "Pretty:\n" ++ pretty ts
 
 --                startShell $ do ts' <- expansions ts
 --                                oPutStrLn $ "After Expand: "++show ts'

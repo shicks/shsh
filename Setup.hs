@@ -40,6 +40,7 @@ main = build [] $
                                       "Language.Sh.Glob",
                                       "Language.Sh.Map",
                                       "Language.Sh.Parser",
+                                      "Language.Sh.Pretty",
                                       "Language.Sh.Syntax"] []
                privateExecutable "testlex" "testlex.hs" cfiles'
                executable "shsh" "shsh.hs" cfiles'

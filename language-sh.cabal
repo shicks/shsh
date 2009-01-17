@@ -23,6 +23,7 @@ library
                      Language.Sh.Glob
                      Language.Sh.Map
                      Language.Sh.Parser
+		     Language.Sh.Pretty
                      Language.Sh.Syntax
     other-modules:   Language.Sh.Parser.Internal
                      Language.Sh.Parser.Parsec
