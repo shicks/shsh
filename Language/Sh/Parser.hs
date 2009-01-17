@@ -55,6 +55,8 @@ eatNewlines a = do a' <- a
                    newlines
                    return a'
 
+-- Need to work on error parsing for the function def...
+-- at least, in the case of heredocs inside (illegal?) it seems to fail
 statement :: P Statement
 statement = do aliasOn
                choice [try $ do name <- basicName
@@ -62,8 +64,8 @@ statement = do aliasOn
                                 char ')' <|> unexpectedNoEOF
                                 spaces >> newlines -- optional
                                 FunctionDefinition name
-                                        `fmap` compoundStatement
-                                        `ap` many redirection
+                                    `fmap` compoundStatement
+                                    `ap` many redirection
                    ,Compound `fmap` compoundStatement `ap` many redirection
                    ,do s <- statementNoSS
                        case s of -- needed to prevent errors w/ 'many'

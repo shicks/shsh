@@ -6,6 +6,11 @@ rm -rf $NAME/
 mkdir -p $NAME/Language/Sh/Parser
 cp Language/Sh/*.hs $NAME/Language/Sh/
 cp Language/Sh/Parser/*.hs $NAME/Language/Sh/Parser/
-cp SetupC.hs $NAME/Setup.hs
+cat >$NAME/Setup.hs <<-EOF
+	#!/usr/bin/env runghc
+	import Distribution.Simple
+	main = defaultMain
+EOF
+chmod +x $NAME/Setup.hs
 cp language-sh.cabal LICENSE $NAME/
 tar zcvf $NAME.tar.gz $NAME/
