@@ -7,6 +7,7 @@ module Language.Sh.Pretty ( Pretty, pretty,
 import Control.Monad.State ( State, runState, evalState,
                              get, gets, put, modify )
 import Data.Char ( isAlphaNum )
+import Data.Maybe ( listToMaybe, isNothing, fromJust )
 
 import Language.Sh.Syntax
 
@@ -50,17 +51,20 @@ sub a = do s <- get
            modify $ \s' -> s { heredocs = heredocs s++heredocs s' }
            return a'
 
-runLater :: Pretty p => p -> PrettyP (String,PState)
-runLater a = do s <- get
-                return $ runState (prettyC a) $ s { heredocs = [] }
-
-runNow :: Pretty p => PState -> p -> PrettyP String
-runNow s a = do a' <- prettyC a
-                laterState s
-                return a'
-
-laterState :: PState -> PrettyP ()
-laterState s = modify $ \s' -> s { heredocs = heredocs s'++heredocs s }
+-- This just gives us the next char, and a token to restore the state
+-- afterwards... (the names aren't quite appropriate, but I find them
+-- to be a nice pair that naturally go together).  This also isn't
+-- entirely typesafe - Ideally, we'd be in a different monad or something
+-- that would enforce this safety...
+peek :: Pretty p => p -> PrettyP (Maybe Char,(String,PState))
+peek a = do s <- get
+            let token = runState (prettyC a) $ s { heredocs = [] }
+            return $ (listToMaybe $ fst token,token)
+-- This restores the states and combines the results...
+poke :: Pretty p => p -> (String,PState) -> PrettyP String
+poke a (s,st) = do a' <- prettyC a
+                   modify $ \st' -> st { heredocs = heredocs st'++heredocs st }
+                   return $ a'++s
 
 normalDelimiters :: String
 normalDelimiters = "&|;<>()# \t\r\n"
@@ -134,6 +138,9 @@ intercM _ [] = return []
 intercM _ [x] = prettyC x
 intercM s (x:xs) = prettyC x +++ prettyC s +++ intercM s xs
 
+maybeSpace :: [a] -> [b] -> String
+maybeSpace as bs = if null as || null bs then "" else " "
+
 indented :: Pretty p => Int -> p -> PrettyP String
 indented i p = do s <- get
                   put $ s { indent = indent s + i }
@@ -166,32 +173,43 @@ instance Pretty [Lexeme] where
                    return s
      where
       pc [] = return ""
+      pc (Quote '\\':Quoted (Literal c):ls) = do q <- gets quotes
+                                                 d <- gets delims
+                                                 specialQuote q d c ls
       pc (Quote '\'':ls) = toggleQuote SingleQ +++ pc ls
       pc (Quote '"':ls) = toggleQuote DoubleQ +++ pc ls
       pc (Quote _:ls) = pc ls
       pc (Quoted l:ls) = quoteOn +++ pc' (l:ls)
       pc (l:ls) = quote None +++ pc' (l:ls)
+      -- Special cases for backslashes
+      specialQuote None d c ls | c `elem` (d++"\\$\"'") = ('\\':[c]) +++ ls
+      specialQuote _ _ c ls = pc $ Quoted (Literal c):ls
       -- Once we've got the quotes right...
       pc' (Quoted l:ls) = pc' $ l:ls
       pc' (Quote _:ls) = pc ls
       -- Now we've only got Expand, Literal, or SplitField
       pc' (Expand (SimpleExpansion x):ls) | (c:cs) <- x
-          = do (rest,st) <- runLater $ pc ls
+          = do (next,tok) <- peek ls
                if (null cs && c `elem` "@*#?-$!0123456789")
-                  || null rest || not (isAlphaUnderNum (head rest))
-                  then (runNow st $ '$':x) +++ rest
-                  else (runNow st $ SimpleExpansion x) +++ rest
+                  || isNothing next || not (isAlphaUnderNum (fromJust next))
+                  then poke ('$':x) tok
+                  else poke (SimpleExpansion x) tok
       pc' (Expand x:ls) = prettyC x +++ pc ls
       pc' (Literal c:ls) = do q <- gets quotes
                               d <- gets delims
-                              lit q d c +++ pc ls
+                              (next,st) <- peek ls
+                              poke (lit q d next c) st
       pc' (SplitField:ls) = do q <- gets quotes
                                quote None +++ " " +++ quote q
-      lit q d c = case q of -- backslash-quote anything we need to
+      lit q d n c = case q of -- backslash-quote anything we need to
                     None     | c `elem` (d++"$`\"'\\") -> ['\\',c]
                     SingleQ  | c == '\''               -> "'\"'\"'"
-                    DoubleQ  | c `elem` "$`\"\\"       -> ['\\',c]
-                    HeredocQ | c `elem` "$`\\"         -> ['\\',c]
+                    DoubleQ  | c `elem` "$`\""         -> ['\\',c]
+                    DoubleQ  | c == '\\' && n `elem` map Just "$`\"\\"
+                                                       -> ['\\',c]
+                    HeredocQ | c `elem` "$`"           -> ['\\',c]
+                    HeredocQ | c == '\\' && n `elem` map Just "$`\\"
+                                                       -> ['\\',c]
                     _ -> [c]
       isAlphaUnderNum c = isAlphaNum c || c=='_'
 
@@ -205,7 +223,7 @@ instance Pretty Expansion where
                    | otherwise = [c] -- error?
     prettyC (LengthExpansion s) = return $ "${#" ++ s ++ "}"
     prettyC (CommandSub cs) = sub $ "$( " +++ compacted cs +++ " )"
-    prettyC (Arithmetic w) = sub $ do noDelims
+    prettyC (Arithmetic w) = sub $ do noDelims >> quote DoubleQ -- discard
                                       "$(( " +++ compacted w +++ " ))"
 
 instance Pretty Redir where
@@ -219,12 +237,12 @@ instance Pretty Redir where
         p (n:<&m) = pn 0 n "<&" +++ show m
         p (n:<<s) = pn 0 n "<<" +++ s
         p (n:<<-s) = pn 0 n "<<-" +++ s
-        p (Heredoc n _ w) -- we're losing info here... but only a little
+        p (Heredoc n eot _ w) -- we're losing info here... but only a little
             = do modify $ \s -> s { heredocs = heredocs s ++ [(w,eot)] }
                  pn 0 n "<<" +++ eot
-            where eot = "EOF"++show (length w) -- "random"?
-        pn def n s | n == def  = s++" "
-                   | otherwise = show n++" "++s++" "
+            -- where eot = "EOF"++show (length w) -- "random"?
+        pn def n s | n == def  = s ++" "
+                   | otherwise = show n++s ++" "
 
 instance Pretty Assignment where
     prettyC (s:=w) = (s++"=") +++ prettyC w
@@ -266,16 +284,16 @@ instance Pretty Term where
     prettyC (TAssignment a) = prettyC a
 
 instance Pretty Statement where
-    prettyC (Statement ws rs as) = intercM " " as +++ space as ws
-                                   +++ intercM " " ws +++ space ws rs
+    prettyC (Statement ws rs as) = intercM " " as +++ maybeSpace as ws
+                                   +++ intercM " " ws +++ maybeSpace ws rs
                                    +++ intercM " " rs
-        where space as bs = if null as || null bs then "" else " "
     prettyC (OrderedStatement ts) = intercM " " ts
-    prettyC (Compound c rs) = c +++ " " +++ intercM " " rs
+    prettyC (Compound c rs) = c +++ maybeSpace rs [()] +++ intercM " " rs
     prettyC (FunctionDefinition f d rs)
         = case d of -- specialize in the case of { }
             BraceGroup b -> f +++ " () {" +++ indented 2 (newline " " +++ b)
-                            +++ newline "; " +++ "} " +++ intercM " " rs
+                            +++ newline "; " +++ "}"
+                            +++ maybeSpace rs [()] +++ intercM " " rs
             _ -> f +++ " ()" +++ newline " " +++ d +++ intercM " " rs
 
 instance Pretty Pipeline where

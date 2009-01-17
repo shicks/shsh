@@ -50,6 +50,12 @@ cnewline = do newline <|> (do char '#'
                               newline <|> eof)         <?> ""
               spaces
 
+-- no-spaces version of cnewline
+cnewlineNS :: P ()
+cnewlineNS = newline <|> (do char '#'
+                             skipMany (noneOf "\n\r")
+                             newline <|> eof)         <?> ""
+
 eatNewlines :: P a -> P a
 eatNewlines a = do a' <- a
                    newlines
@@ -131,17 +137,12 @@ injectAlias a s as ip = do i <- getInput
 
 pipeline :: P Pipeline
 pipeline = (try $ do reservedWord "!"
-                     fmap BangPipeline $ statement `sepBy1` pipe
-           ) <|> (fmap Pipeline $ statement `sepBy1` pipe)
-
-pipe :: P ()
-pipe = try $ do char '|'
-                notFollowedBy $ fmap Chr $ char '|'
-                spaces
+                     fmap BangPipeline $ statement `sepBy1` operatorNL "|"
+           ) <|> (fmap Pipeline $ statement `sepBy1` operatorNL "|")
 
 andorlist :: P AndOrList
-andorlist = assocL pipeline (try $ (operator "||" >> return (:||:))
-                               <|> (operator "&&" >> return (:&&:)))
+andorlist = assocL pipeline (try $ (operatorNL "||" >> return (:||:))
+                               <|> (operatorNL "&&" >> return (:&&:)))
                    Singleton
 
 reservedWord :: String -> P String
@@ -149,6 +150,9 @@ reservedWord s = try $ do s' <- string s <?> show s
                           lookaheadNormalDelimiter <|> eof
                           spaces
                           return s'
+
+reservedWordNL :: String -> P String
+reservedWordNL = eatNewlines . reservedWord
 
 reservedWord_ :: String -> P ()
 reservedWord_ s = reservedWord s >> return ()
@@ -164,6 +168,9 @@ operator s = try $ do string s
                       spaces
                       return s
 
+operatorNL :: String -> P String
+operatorNL = eatNewlines . operator
+
 operator_ :: String -> P ()
 operator_ s = operator s >> return ()
 
@@ -176,6 +183,7 @@ inClause = choice [try $ do optional sequentialSep
                       ws <- many (word NormalContext)
                       sequentialSep                   <|> unexpected
                       reservedWord "do"               <|> unexpected
+                      newlines           -- allowed here...
                       return ws]
     where defaultIn = [[Quoted $ Expand $ SimpleExpansion "@"]]
 
@@ -196,16 +204,18 @@ dsemi = operator ";;" <|> lookAhead (reservedWord "esac") <?> "`;;' or `esac'"
 -- brace groups, ...
 compoundStatement :: P CompoundStatement
 compoundStatement = choice [do reservedWord "for"
-                               name <- basicName      <|> unexpectedNoEOF
+                               name <- token basicName <|> unexpectedNoEOF
                                vallist <- inClause
                                (cs,_) <- commandsTill (reservedWord "done")
                                return $ For name vallist cs
                            ,do reservedWord "while"
                                (cond,_) <- commandsTill $ reservedWord "do"
+                               newlines
                                (code,_) <- commandsTill $ reservedWord "done"
                                return $ While cond code
                            ,do reservedWord "until"
                                (cond,_) <- commandsTill $ reservedWord "do"
+                               newlines
                                (code,_) <- commandsTill $ reservedWord "done"
                                return $ Until cond code
                            ,do reservedWord "if"
@@ -218,25 +228,30 @@ compoundStatement = choice [do reservedWord "for"
                                what <- cases
                                return $ Case expr what
                            ,do operator "("
+                               newlines
                                openParen
                                cs <- many command
                                operator ")"              <|> unexpected
                                closeParen
                                return $ Subshell cs
                            ,do reservedWord "{"
+                               newlines
                                (cs,_) <- commandsTill $ reservedWord "}"
                                return $ BraceGroup cs
                            ]
 
 parseIf :: P CompoundStatement
-parseIf = do (cond,_) <- commandsTill $ reservedWord "then"
+parseIf = do newlines
+             (cond,_) <- commandsTill $ reservedWordNL "then"
              (thn,next) <- commandsTill $ choice [reservedWord "elif"
                                                  ,reservedWord "else"
                                                  ,reservedWord "fi"]
              case next of
-               "else" -> do (els,_) <- commandsTill $ reservedWord "fi"
+               "else" -> do newlines
+                            (els,_) <- commandsTill $ reservedWord "fi"
                             return $ If cond thn els
-               "elif" -> do elif <- parseIf
+               "elif" -> do newlines
+                            elif <- parseIf
                             return $ If cond thn $ compound elif
                "fi" -> return $ If cond thn []
     where compound x = [Synchronous $ Singleton $ Pipeline [Compound x []]]
@@ -264,7 +279,7 @@ readHDs = do hd <- nextHereDoc
 
 sequentialSep :: P ()
 sequentialSep = choice [operator ";" >> return ()
-                       ,cnewline >> readHDs
+                       ,cnewlineNS >> readHDs >> spaces
                        ,eof >> closeHereDocs -- ?
                        ,do unlessM insideParens $ fail ""
                            lookAhead $ operator ")"
@@ -446,7 +461,10 @@ expansion =
 
 arithmetic :: P Expansion
 arithmetic = do w <- arithWord =<< getParenDepth
-                return $ Arithmetic $ ql '(':w 
+                return $ Arithmetic $ trim w
+    where trim cs = reverse $ trim' $ drop 1 $ reverse $ trim' cs
+          trim' (Quoted (Literal ' '):cs) = trim' cs
+          trim' cs = cs -- get rid of spaces and trailing ')' (drop 1)
 
 arithWord :: Int -> P Word
 arithWord d0 = aw -- now we can forget about d0
@@ -484,7 +502,7 @@ name = count 1 (oneOf "@*#?-$!" <|> digit) <|>
                       <?> "name"
 
 basicName :: P String
-basicName = token (alphaUnder <:> many alphaUnderNum) <?> "name"
+basicName = alphaUnder <:> many alphaUnderNum     <?> "name"
 
 assignment :: P Assignment
 assignment = do var <- basicName <?> "name"
@@ -521,8 +539,7 @@ commands = do newlines
               many command
 
 commandsTill :: P String -> P ([Command],String)
-commandsTill delim = do rest <- getInput
-                        (c,e) <- manyTill' (eatNewlines command) delim
+commandsTill delim = do (c,e) <- manyTill' (eatNewlines command) delim
                         c' <- expandHereDocs c -- may not be exhaustive...?
                         return (c',e)
 
@@ -544,17 +561,17 @@ unorderStatements = mapCommands f
 
 expandHereDocs :: [Command] -> P [Command]
 expandHereDocs c = unorderStatements `fmap` mapCommandsM f c
-    where f (i :<< s) = mk i id
-          f (i :<<- s) = mk i stripTabs
+    where f (i :<< s) = mk i s id
+          f (i :<<- s) = mk i s stripTabs
           f r = return r
           stripTabs [] = []
           stripTabs (Literal n:Literal '\t':rest)
               | n `elem` "\n\r" = stripTabs (Literal n:rest)
           stripTabs (x:xs) = x:stripTabs xs
-          mk i f = do mwb <- nextHDReplacement
-                      case mwb of -- do we need the Nothing case? (impossible?)
-                        Just (w,b) -> return $ Heredoc i b (f w)
-                        Nothing    -> return $ Heredoc i False []
+          mk i s f = do mwb <- nextHDReplacement
+                        case mwb of -- (Nothing case is impossible?)
+                          Just (w,b) -> return $ Heredoc i s b (f w)
+                          Nothing    -> return $ Heredoc i s False []
 
 -- here's a smart use of the Monad class...! :-)
 hereDocsComplete :: [Command] -> Bool
@@ -562,7 +579,7 @@ hereDocsComplete = isJust . mapCommandsM complete
     where complete r = case r of
                          (_:<<_)  -> Nothing
                          (_:<<-_) -> Nothing
-                         Heredoc _ False _ -> Nothing
+                         Heredoc _ _ False _ -> Nothing
                          r        -> Just r
 
 -- |Ensures there's an 'eof' after whatever we parse.

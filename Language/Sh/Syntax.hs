@@ -75,7 +75,7 @@ data Redir = Int :> Word  -- tests show that expansions don't lose spaces
            | Int :<& Int
            | Int :<< String
            | Int :<<- String
-           | Heredoc Int Bool Word -- ^filled in version...?
+           | Heredoc Int String Bool Word -- ^filled in version...?
            deriving ( Show )
 data Assignment = String := Word
                   deriving ( Show )

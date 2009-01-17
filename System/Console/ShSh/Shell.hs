@@ -647,10 +647,11 @@ redir expand p (n:<w) = do f <- unshell $ expand w
 redir expand p (n:<>w) = do f <- unshell $ expand w -- probably doesn't work...?
                             h <- catchIO $ openFile f ReadWriteMode
                             return (fromFile n h p, hClose h)
-redir expand p (Heredoc 0 _ d) = do s <- unshell $ expand d
-                                    (r,w) <- catchIO newPipe
-                                    catchIO $ wPutStrLn w s >> wSafeClose w
-                                    return (p { p_in = RUseHandle r},return ())
+redir expand p (Heredoc 0 _ _ d) = do s <- unshell $ expand d
+                                      (r,w) <- catchIO newPipe
+                                      catchIO $ wPutStrLn w s >> wSafeClose w
+                                      return (p { p_in = RUseHandle r},
+                                              return ())
 redir _ _ (n:<<s) = do fail $ "Unexpanded heredoc: "++show n++"<<"++s
 redir _ _ (n:<<-s) = do fail $ "Unexpanded heredoc: "++show n++"<<-"++s
 redir _ _ r = fail $ show r ++ " not yet supported"

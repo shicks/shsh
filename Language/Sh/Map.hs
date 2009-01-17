@@ -147,7 +147,7 @@ class (Monad m,Functor m) => ExpressionMapperM m f | f -> m where
     defaultMapRedirM f (n:>>w) = (n:>>) <$> mapWordM f w
     defaultMapRedirM f (n:<>w) = (n:<>) <$> mapWordM f w
     defaultMapRedirM f (n:<w) = (n:<) <$> mapWordM f w
-    defaultMapRedirM f (Heredoc n c w) = (Heredoc n c) <$> mapWordM f w
+    defaultMapRedirM f (Heredoc n s c w) = (Heredoc n s c) <$> mapWordM f w
     defaultMapRedirM _ redir = return redir
 
 instance (Monad m,Functor m) => ExpressionMapperM m (Command -> m Command)
@@ -299,7 +299,7 @@ class ExpressionMapper f where
     defaultMapRedir f (n:>>w) = n :>> mapWord f w
     defaultMapRedir f (n:<>w) = n :<> mapWord f w
     defaultMapRedir f (n:<w) =  n :<  mapWord f w
-    defaultMapRedir f (Heredoc n c w) = Heredoc n c $ mapWord f w
+    defaultMapRedir f (Heredoc n s c w) = Heredoc n s c $ mapWord f w
     defaultMapRedir _ redir = redir
 
 instance ExpressionMapper (Command -> Command)

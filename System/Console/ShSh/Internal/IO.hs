@@ -151,7 +151,7 @@ rWaitForInput (RChan c) = notEOFChan "rWaitForInput" c $ \c ->
                                when empty $ yield >> rWaitForInput (RChan c)
 
 rGetNonBlocking :: StringOrByteString s => ReadHandle -> Int -> IO s
-rGetNonBlocking (RHandle h) s = unpack `fmap` B.hGetNonBlocking h s
+rGetNonBlocking (RHandle h) s = fmap unpack $ B.hGetNonBlocking h s
 rGetNonBlocking (RChan c) s = fmap unpack $
                               notEOFChan "rGetNonBlocking" c $ gnb' s
     where gnb' s c = do -- getNonBlocking helper...

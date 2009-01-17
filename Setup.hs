@@ -43,6 +43,7 @@ main = build [] $
                                       "Language.Sh.Pretty",
                                       "Language.Sh.Syntax"] []
                privateExecutable "testlex" "testlex.hs" cfiles'
+               privateExecutable "pretty-sh" "pretty-sh.hs" cfiles'
                executable "shsh" "shsh.hs" cfiles'
 
 tryHeader h job warn = requireWithFeedback ("for header "++h)
