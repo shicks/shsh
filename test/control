@@ -5,12 +5,19 @@ So far, we've implemented 'for' and 'if'
 
 ~~~~ check-output/for.sh
 for a in 1 2 3; do echo $a; done
+for i in 1 2 3 4; do
+  echo $i
+done
 ~~~~
 
 ~~~~ known-output/for.sh
 1
 2
 3
+1
+2
+3
+4
 ~~~~
 
 ~~~~ check-output/if.sh
@@ -21,6 +28,9 @@ if false; then echo FAIL; else echo CORRECT; echo foo; fi
 if false; then echo FAIL; elif false; then echo FAIL2; else echo CORRECT; fi
 if true
   then echo newline ok
+fi
+if echo foobar | grep foo; then
+  echo CORRECT
 fi
 ~~~~
 
@@ -33,4 +43,6 @@ CORRECT
 foo
 CORRECT
 newline ok
+foobar
+CORRECT
 ~~~~
