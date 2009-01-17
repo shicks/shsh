@@ -1,5 +1,5 @@
 name:               language-sh
-version:            0.0.3
+version:            0.0.3.1
 synopsis:           A package for parsing shell scripts
 description:
     Language.Sh is a collection of modules for parsing and
