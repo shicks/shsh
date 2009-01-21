@@ -32,18 +32,20 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
     where
 
 -- import Debug.Trace ( trace )
+import Prelude hiding ( lookup )
 
 import Control.Applicative ( (<|>) )
+import Control.Arrow ( first, second, (***) )
 import Control.Concurrent ( forkIO, MVar, newEmptyMVar, putMVar, takeMVar )
-import Control.Monad ( MonadPlus, mzero, when, foldM, join )
+import Control.Monad ( MonadPlus, when, foldM, join )
 import Control.Monad.Error ( ErrorT, runErrorT,
                              MonadError, throwError, catchError )
 import Control.Monad.State ( MonadState, get, put, runStateT,
                              StateT, evalStateT, gets, modify )
 import Control.Monad.Trans ( MonadIO, liftIO )
 import Data.Char ( isDigit )
-import Data.List ( lookup, union, unionBy, (\\) )
-import Data.Maybe ( fromMaybe, fromJust, isJust, listToMaybe )
+import Data.List ( union, unionBy, (\\) )
+import Data.Maybe ( fromMaybe, fromJust, isJust )
 import Data.Monoid ( Monoid, mempty, mappend )
 import System.Directory ( getCurrentDirectory, setCurrentDirectory,
                           getHomeDirectory, doesFileExist )
@@ -64,25 +66,20 @@ import System.Console.ShSh.Internal.Process ( launch,
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
                                         exitCode, prefixError, exit )
 import System.Console.ShSh.Compat ( on )
+import System.Console.ShSh.Var ( Equiv, (===),
+                                 Var(..), VarFlags(..),
+                                 lookup, update, alter,
+                                 Stringy, maybeToStringy, Maybeable, toMaybe,
+                                 setVarHelper, setFlagHelper,
+                                 setExportedFlag, exportedVar
+                               )
 
 import Language.Sh.Syntax ( Word, CompoundStatement,
                             Redir(..), Assignment(..) )
 
-data VarFlags = VarFlags { exported :: Bool, readonly :: Bool }
-
-exportedVar :: VarFlags
-exportedVar = VarFlags True False
-
-setExportedFlag :: Bool -> VarFlags -> VarFlags
-setExportedFlag x f = f { exported = x }
-
-instance Monoid VarFlags where
-    mempty = VarFlags False False
-    VarFlags a b `mappend` VarFlags a' b' = VarFlags (a||a') (b||b')
-
 data ShellState e = ShellState {
-      environment :: [(String,(VarFlags,Maybe String))],
-      locals      :: [(String,(VarFlags,Maybe String))], -- undefined vars too
+      environment :: [(Var,(VarFlags,Maybe String))],
+      locals      :: [(Var,(VarFlags,Maybe String))], -- undefined vars too
       positionals :: [String],
       aliases     :: [(String,String)],
       functions   :: [(String,(CompoundStatement,[Redir]))],
@@ -96,8 +93,8 @@ convertState :: ShellState e -> e' -> ShellState e'
 convertState (ShellState e l pp a f p _) x = ShellState e l pp a f p x
 
 type InnerShell e = ErrorT ShellError (StateT (ShellState e) IO)
-newtype ShellT e a = Shell ((InnerShell e) a)
-    deriving ( Functor, Monad, MonadSIO, MonadError ShellError )
+newtype ShellT e a = Shell { unShell :: ((InnerShell e) a) }
+    deriving ( Functor, Monad, MonadSIO, MonadError ShellError, MonadPlus )
 
 catchIO :: MonadIO m => IO a -> m a
 catchIO j = do me <- liftIO (fmap Right j `catch` \e -> return $ Left e)
@@ -107,9 +104,6 @@ catchIO j = do me <- liftIO (fmap Right j `catch` \e -> return $ Left e)
 
 instance MonadIO (ShellT e) where
     liftIO j = Shell $ catchIO j
-
-unshell :: ShellT e a -> InnerShell e a
-unshell (Shell s) = s
 
 -- |In this new instance, we make the pipes lazily.  We don't actually
 -- gain anything by doing this, except convenience, because we'll
@@ -150,52 +144,6 @@ instance MonadState e (ShellT e) where
 
 type Shell = ShellT ()
 
--- Simple routines to update associative list elements.
-update :: Eq a => a -> b -> [(a,b)] -> [(a,b)]
-update x y [] = [(x,y)]
-update x y ((x',y'):xs) | x'==x     = (x',y):xs
-                        | otherwise = (x',y'):update x y xs
-
-alter :: Eq a => a -> (Maybe b -> Maybe b) -> [(a,b)] -> [(a,b)]
-alter x f [] = case f Nothing of
-                 Just y  -> [(x,y)]
-                 Nothing -> []
-alter x f ((x0,y0):xs) | x0==x     = case f $ Just y0 of
-                                       Just y' -> (x,y'):alter x f xs
-                                       Nothing -> alter x f xs
-                       | otherwise = (x0,y0):alter x f xs
-
--- More elaborate updateWith...
-alterM :: (Monad m,Functor m,Eq a)
-       => a -> (Maybe b -> m (Maybe b)) -> [(a,b)] -> m [(a,b)]
-alterM x f [] = do y <- f Nothing
-                   return $ case y of Nothing -> []
-                                      Just y' -> [(x,y')]
-alterM x f ((x0,y0):xs) | x0==x = do y <- f $ Just y0
-                                     xs' <- alterM x f xs
-                                     return $ case y of
-                                       Nothing -> xs'
-                                       Just y' -> (x,y'):xs'
-                        | otherwise = ((x0,y0):) `fmap` alterM x f xs
-
-class Maybeable a m where
-    toMaybe :: m -> Maybe a
-instance Maybeable a (Maybe a) where
-    toMaybe = id
-instance Maybeable a [a] where
-    toMaybe = listToMaybe
-instance Maybeable a a where
-    toMaybe = Just
-
-class Stringy m s where
-    maybeToStringy :: Maybe String -> String -> m s
-instance (Monad m,MonadPlus n) => Stringy m (n String) where
-    maybeToStringy (Just x) _ = return $ return x
-    maybeToStringy Nothing  _ = return $ mzero
-instance Monad m => Stringy m String where
-    maybeToStringy (Just x) _ = return x
-    maybeToStringy Nothing  s = fail $ s ++ " not set"
-
 -- |I've gone a bit overboard on the flexibility here.  If we just want
 -- a string, we'll get a fail.  If we put it in a MonadPlus then we
 -- guarantee no failure.
@@ -203,20 +151,20 @@ getEnv :: Stringy (InnerShell e) s => String -> ShellT e s
 getEnv "#" = Shell $ do p <- gets positionals
                         maybeToStringy (Just $ show $ length p) "#"
 getEnv "0" = Shell $ maybeToStringy Nothing "0"
-getEnv s | all isDigit s = Shell $ do p <- gets positionals
-                                      let n = read s - 1 -- starts at 1
+getEnv v | all isDigit v = Shell $ do p <- gets positionals
+                                      let n = read v - 1 -- starts at 1
                                       if n>length p
-                                         then maybeToStringy Nothing s
-                                         else maybeToStringy (Just $ p!!n) s
+                                         then maybeToStringy Nothing v
+                                         else maybeToStringy (Just $ p!!n) v
          | otherwise = Shell $ do e <- gets environment
                                   l <- gets locals
-                                  let x = join $ snd `fmap` lookup s l
-                                             <|> snd `fmap` lookup s e
-                                  maybeToStringy x s
+                                  let x = join $ snd `fmap` lookup v l
+                                             <|> snd `fmap` lookup v e
+                                  maybeToStringy x v
 
 -- |This is a simpler version because we also give a default.
 tryEnv :: String -> String -> ShellT e String
-tryEnv d s = fromMaybe d `fmap` getEnv s
+tryEnv d v = fromMaybe d `fmap` getEnv v
 
 -- |Not much here - we don't care if the thing is currently defined or not:
 -- we just set it either way.
@@ -238,54 +186,28 @@ $ echo $B  # nothing
 $ . sourcable >/dev/null
 $ echo $B  # now it's 50...
 -}
--- We could be a bit smarter, but we might as well just try to emulate
--- bash's behavior... (i.e. we could set the global version also no 
--- matter what)
-
--- |This has gotten a bit trickier... typically we pass this a
--- Maybe (Maybe String).  The first Maybe tells whether to eliminate
--- the record entirely, the second whether to simply mask it.  This
--- is tricky semantics, with export, readonly, locals, etc...
-setVarHelper :: (Monad m, Functor m)
-             => String -> Maybe (Maybe String)
-             -> [(String,(VarFlags,Maybe String))]
-             -> m [(String,(VarFlags,Maybe String))]
-setVarHelper n Nothing xs = alterM n f xs
-    where f (Just (flags,_)) | readonly flags = fail $ n++": is read only"
-          f _ = return $ Nothing
-setVarHelper n (Just v) xs = alterM n f xs
-    where f Nothing = return $ Just (mempty,v)
-          f (Just (flags,_)) | readonly flags = fail $ n++": is read only"
-                             | otherwise = return $ Just (flags,v)
-
-setFlagHelper :: String -> (VarFlags -> VarFlags)
-              -> [(String,(VarFlags,Maybe String))]
-              -> [(String,(VarFlags,Maybe String))]
-setFlagHelper n f xs = alter n ff xs
-    where ff Nothing = Just (f mempty,Nothing)
-          ff (Just (flags,x)) = Just (f flags,x)
 
 -- |Now this is more general - we can unset vars with it!  It also treats
 -- locals correctly.  Unfortunately, because of the flags, we can't ever
 -- remove anything from the list...  
 setEnv :: Maybeable String a => String -> a -> ShellT e ()
-setEnv s x = Shell $ do let mx = toMaybe x
+setEnv v x = Shell $ do let mx = toMaybe x
                         e <- gets environment
                         l <- gets locals
                         e' <- case mx of -- can still unset...?  readonly?
-                                Nothing -> setVarHelper s Nothing e
-                                Just _  -> setVarHelper s (Just mx) e
-                        l' <- setVarHelper s (Just mx) l
-                        case lookup s l of
+                                Nothing -> setVarHelper v Nothing e
+                                Just _  -> setVarHelper v (Just mx) e
+                        l' <- setVarHelper v (Just mx) l
+                        case lookup v l of
                           Just _  -> modify $ \st -> st { locals = l' }
                           Nothing -> modify $ \st -> st { environment = e' }
 
 alterVarFlags :: String -> (VarFlags -> VarFlags) -> ShellT e ()
-alterVarFlags s f = Shell $ do e <- gets environment
+alterVarFlags v f = Shell $ do e <- gets environment
                                l <- gets locals
-                               let e' = setFlagHelper s f e
-                                   l' = setFlagHelper s f l
-                               case lookup s l of
+                               let e' = setFlagHelper v f e
+                                   l' = setFlagHelper v f l
+                               case lookup v l of
                                  Just _  -> modify $ \st -> st { locals = l' }
                                  Nothing -> modify $
                                                \st -> st { environment = e' }
@@ -308,7 +230,7 @@ getExitCode = do e <- getEnv "?"
                    Nothing -> return ExitSuccess
 
 makeLocal :: String -> ShellT e ()
-makeLocal var = Shell $ do x <- unshell $ getEnv var
+makeLocal var = Shell $ do x <- unShell $ getEnv var
                            l <- setVarHelper var (Just $ Just x) =<< gets locals
                            modify $ \st -> st { locals = l }
 
@@ -337,18 +259,20 @@ withEnv s f = do e <- getEnv s
 getAllEnv :: ShellT a [(String,String)]
 getAllEnv = Shell $ do l <- gets locals
                        e <- gets environment
-                       return $ map (\(a,b)->(a,fromJust b)) $
+                       p <- zip (map show [1::Int ..]) `fmap` gets positionals
+                       return $ unionBy ((===)`on`fst) p $ -- do we add these?
+                                map (unVar *** fromJust) $
                                 filter (isJust.snd) $
-                                map (\(a,(_,c))->(a,c)) $
-                                unionBy ((==)`on`fst) l e
+                                map (second snd) $
+                                unionBy ((===)`on`fst) l e
 
 getExports :: ShellT a [(String,String)]
 getExports = Shell $ do l <- gets locals
                         e <- gets environment
-                        return $ map (\(a,(_,c))->(a,fromJust c)) $
+                        return $ map (unVar *** (fromJust . snd)) $
                                  filter (isJust.snd.snd) $
                                  filter (exported.fst.snd) $
-                                 unionBy ((==)`on`fst) l e
+                                 unionBy ((===)`on`fst) l e
 
 
 -- *Positional parameters
@@ -407,15 +331,34 @@ startState = do e <- getEnvironment
                           Nothing -> return cwd
                           Just v -> do setCurrentDirectory v
                                        v' <- getCurrentDirectory
-                                       if v' == cwd then return v else return cwd
+                                       if v' == cwd then return v
+                                                    else return cwd
                                     `catch` \_ -> return cwd
                 setCurrentDirectory cwd
                 home <- getHomeDirectory
-                let e' = update "-" (mempty,Just f) $
+                let e' = map (first Var) $
+                         update "-" (mempty,Just f) $
                          map (\(a,b)->(a,(exportedVar,Just b))) $
                          update "SHELL" "shsh" $ update "PWD" pwdval $
-                         alter "HOME" (<|> Just home) e
+                         alter "HOME" (<|> Just home) $ winVars e
                 return $ emptyState { environment = e' }
+
+winVars :: [(String,String)] -> [(String,String)]
+#ifndef WINDOWS
+winVars = update "PATHSEP" ":" -- cooperate...
+#else
+winVars = (foldr copyVar `flip` [("UserName","USER")
+                                ,("ComputerName","HOSTNAME")
+                                ,("CD","PWD")]) .
+           update "PATHSEP" ";" -- can make this ";:" if desired...
+copyVar :: Equiv a' a => (a,a) -> [(a',b)] -> [(a',b)]
+copyVar (a,b) e = case lookup a e of
+                    Just u  -> update b u e
+                    Nothing -> e
+#endif
+
+-- would be still nicer to actually dynamically *autolink* the variables
+
 
 startShell :: Monoid e => ShellT e ExitCode -> IO ExitCode
 startShell a = runShell a =<< startState
@@ -469,7 +412,7 @@ withPipes p (Shell s) -- -- | trace ("withPipes "++show p) True
 
 runInShell :: String -> [String] -> Shell ExitCode
 runInShell c args = Shell $ do ps <- gets pipeState
-                               exports <- unshell getExports
+                               exports <- unShell getExports
                                catchIO $ catchIO $ launch c args exports ps
 
 -- pipes :: ShellT e PipeState
@@ -536,8 +479,8 @@ runShellProcess (ExternalProcess s) = s
 --          s -- openHandles >> s
 -- runShellProcess' (ExternalProcess s) _ _ = s
 
-carry :: Shell a -> b -> Shell b
-carry job ret = job >> return ret
+finally :: Shell a -> Shell b -> Shell a
+finally a b = do { a' <- a; b; return a' }
 
 -- closeFDs :: Shell ()
 -- closeFDs = maybeCloseIn >> maybeCloseOut
@@ -562,14 +505,14 @@ subShell job = Shell $ do s <- get
 pipeShells :: ShellProcess -> ShellProcess -> ShellProcess
 #ifdef HAVE_CREATEPROCESS
 pipeShells (ExternalProcess src) dst = ExternalProcess $ do
-  (p,e) <- forkSource $ src >>= carry maybeCloseOut
-  ec <- withPipes p $ runShellProcess dst >>= carry maybeCloseIn
+  (p,e) <- forkSource $ src `finally` maybeCloseOut
+  ec <- withPipes p $ runShellProcess dst `finally` maybeCloseIn
   liftIO (takeMVar e)
   setExitCode ec
 #endif
 pipeShells src dst = BuiltinProcess $ do
-  (p,e) <- forkTarget $ runShellProcess dst >>= carry maybeCloseIn
-  withPipes p $ runShellProcess src >>= carry maybeCloseOut
+  (p,e) <- forkTarget $ runShellProcess dst `finally` maybeCloseIn
+  withPipes p $ runShellProcess src `finally` maybeCloseOut
   liftIO (takeMVar e) >>= setExitCode -- this should work....?
 
 -- It seems like this has the nice property that it both threads the
@@ -616,38 +559,38 @@ withExitHandler s = catchError (catchS s $ \_ -> return ExitSuccess)
                     $ \e -> do announceError e
                                return $ exitCode e
 
-assign :: (Word -> Shell String) -> [(String,(VarFlags,Maybe String))]
-       -> Assignment -> InnerShell () [(String,(VarFlags,Maybe String))]
-assign expand e (n:=w) = do v <- unshell $ expand w
+assign :: (Word -> Shell String) -> [(Var,(VarFlags,Maybe String))]
+       -> Assignment -> InnerShell () [(Var,(VarFlags,Maybe String))]
+assign expand e (n:=w) = do v <- unShell $ expand w
                             e' <- setVarHelper n (Just $ Just v) e
                             return $ setFlagHelper n (setExportedFlag True) e'
 
 redir :: (Word -> Shell String) -> PipeState -> Redir
       -> InnerShell () (PipeState, IO ())
-redir expand p (n:>w) = do f <- unshell $ expand w
+redir expand p (n:>w) = do f <- unShell $ expand w
                            exists <- catchIO $ doesFileExist f
-                           noclobber <- unshell $ getFlag 'C'
+                           noclobber <- unShell $ getFlag 'C'
                            when (exists && noclobber) $
                                 fail $ f++": cannot overwrite existing file"
                            h <- catchIO $ openFile f WriteMode
                            return (toFile n h p, hClose h)
-redir expand p (n:>|w) = do f <- unshell $ expand w
+redir expand p (n:>|w) = do f <- unShell $ expand w
                             h <- catchIO $ openFile f WriteMode
                             return (toFile n h p, hClose h)
 redir _      p (2:>&1) = do oHandle
                             return (p { p_err = p_out p }, return ())
 redir _      p (1:>&2) = do eHandle -- this will mess stuff up sometimes?
                             return (p { p_out = p_err p }, return ())
-redir expand p (n:>>w) = do f <- unshell $ expand w
+redir expand p (n:>>w) = do f <- unShell $ expand w
                             h <- catchIO $ openFile f AppendMode
                             return (toFile n h p, hClose h)
-redir expand p (n:<w) = do f <- unshell $ expand w
+redir expand p (n:<w) = do f <- unShell $ expand w
                            h <- catchIO $ openFile f ReadMode
                            return (fromFile n h p, hClose h)
-redir expand p (n:<>w) = do f <- unshell $ expand w -- probably doesn't work...?
+redir expand p (n:<>w) = do f <- unShell $ expand w -- probably doesn't work...?
                             h <- catchIO $ openFile f ReadWriteMode
                             return (fromFile n h p, hClose h)
-redir expand p (Heredoc 0 _ _ d) = do s <- unshell $ expand d
+redir expand p (Heredoc 0 _ _ d) = do s <- unShell $ expand d
                                       (r,w) <- catchIO newPipe
                                       catchIO $ wPutStrLn w s >> wSafeClose w
                                       return (p { p_in = RUseHandle r},
