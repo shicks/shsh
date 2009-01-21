@@ -19,7 +19,7 @@ main = build [] $
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
                withModuleExporting "System.FilePath.Glob"
-                   "factorPath" "factorPath" $
+                   "compPosix, commonPrefix" "(compPosix,commonPrefix)" $
                    define "HAVE_GLOB" -- cannot be satisfied w/ released glob!
                withModuleExporting "Text.ParserCombinators.Parsec.Expr"
                    "Operator(..)" "Postfix" $

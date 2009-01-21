@@ -16,20 +16,20 @@ import Language.Sh.Syntax ( Lexeme(..), Word )
 -- we might get a bit fancier if older glob libraries will support
 -- a subset of what we want to do...?
 #ifdef HAVE_GLOB
-import System.FilePath.Glob ( tryCompile, globDir, factorPath )
+import System.FilePath.Glob ( compileWithOptions, compPosix,
+                              globDir, commonPrefix )
 #endif
 
 expandGlob :: MonadIO m => Word -> m [FilePath]
 #ifdef HAVE_GLOB
 expandGlob w = case mkGlob w of
                  Nothing -> return []
-                 Just g  -> case tryCompile g of
-                              Right g' -> liftIO $
-                                do let (dir,g'') = factorPath g'
+                 Just g  -> let g' = compileWithOptions compPosix g
+                            in liftIO $
+                                do let (dir,g'') = commonPrefix g'
                                    liftIO $ putStrLn $ show (dir,g'')
                                    hits <- globDir [g''] dir
                                    return $ head $ fst $ hits
-                              _ -> return []
 #else
 expandGlob = const $ return []
 #endif
