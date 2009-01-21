@@ -4,6 +4,7 @@
 
 module System.Console.ShSh.ShellError ( ShellError, isFailure,
                                         throw, exit, exitCode,
+                                        putExitCode,
                                         rethrow, catchS,
                                         announceError,
                                         prefixError, withPrefix
@@ -58,3 +59,6 @@ announceError e = ePutStrLn $ show $ prefixError "shsh" e
 -- |This is a bit silly - we just rethrow the errors with a prefix...
 withPrefix :: MonadError ShellError m => String -> m a -> m a
 withPrefix h s = catchError s (\e -> throwError $ prefixError h e)
+
+putExitCode :: ExitCode -> ShellError -> ShellError
+putExitCode e (ShellError _ s) = ShellError e s

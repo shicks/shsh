@@ -1,7 +1,7 @@
 -- |This is a simple module where we define generally useful functions.
 
-module System.Console.ShSh.Util ( equating, split, whenM,
-                                  update, updateWith ) where
+module System.Console.ShSh.Util ( equating, split, splitBy,
+                                  whenM, update, updateWith ) where
 
 import Control.Monad ( when )
 
@@ -13,8 +13,15 @@ split :: Eq a => a -> [a] -> [[a]]
 split c [] = [[]]
 split c (c':cs) | c==c'     = []:split c cs
                 | otherwise = case split c cs of
-                                [] -> [[c]]
-                                (s:ss) -> (c:s):ss
+                                [] -> [[c']]
+                                (s:ss) -> (c':s):ss
+
+splitBy :: (a -> Bool) -> [a] -> [[a]]
+splitBy f [] = [[]]
+splitBy f (c:cs) | f c       = []:splitBy f cs
+                 | otherwise = case splitBy f cs of
+                                  [] -> [[c]]
+                                  (s:ss) -> (c:s):ss
 
 -- *Simple routines to update associative list elements.
 update :: Eq a => a -> b -> [(a,b)] -> [(a,b)]

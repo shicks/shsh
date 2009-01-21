@@ -10,7 +10,8 @@ import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush,
 import System.Console.ShSh.Internal.IO ( newPipe, rGetContents )
 import System.Console.ShSh.Internal.Process ( WriteStream(..),
                                               PipeState(..) )
-import System.Console.ShSh.ShellError ( announceError )
+import System.Console.ShSh.Path ( findExecutable )
+import System.Console.ShSh.ShellError ( announceError, putExitCode )
 import System.Console.ShSh.Shell ( Shell, ShellProcess(..),
                                    withShellProcess, maybeCloseIn,
                                    maybeCloseOut, subShell, makeLocal,
@@ -30,11 +31,12 @@ import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Word, Lexeme(..), Assignment(..) )
 import qualified Language.Sh.Expansion as E
 
-import System.Directory ( findExecutable, doesFileExist, getCurrentDirectory )
+import System.Directory ( getCurrentDirectory )
 import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( Handle, IOMode(..), openFile, hGetLine, hIsEOF )
 
 import Control.Monad.Trans ( liftIO )
+import Control.Monad.Error ( catchError, throwError )
 import Control.Monad ( when, unless, forM )
 import Data.Monoid ( mempty )
 
@@ -184,29 +186,10 @@ runBuiltinOrExe = run' where -- now this is just for layout...
                            Nothing -> ExternalProcess $ withExitHandler $
                                         runWithArgs command args
 
--- at some point we need to use our own path here...
 runWithArgs :: String -> [String] -> Shell ExitCode
-runWithArgs cmd args
-    = do exists <- liftIO $ doesFileExist cmd
-         notWindows <- elem '/' `fmap` liftIO getCurrentDirectory
-         exists_exe <- if notWindows
-                       then return False
-                       else liftIO $ doesFileExist (cmd++".exe")
-         let path = if notWindows
-                    then '/' `elem` cmd
-                    else '/' `elem` cmd || '\\' `elem` cmd
-         exe <- liftIO $ if path
-                         then return $ if exists || exists_exe
-                                       then Just cmd
-                                       else Nothing
-                         else findExecutable cmd
-         case exe of
-           Just fp -> runInShell fp args
-           Nothing -> do if path && (exists || exists_exe)
-                            then ePutStrLn $ cmd++": Permission denied"
-                            else ePutStrLn $ cmd++": No such file or directory"
-                         return $ ExitFailure 127
-
+runWithArgs cmd args = do exe <- findExecutable cmd `catchError`
+                                 (throwError . putExitCode (ExitFailure 127))
+                          runInShell exe args
 
 setVars [] = return ExitSuccess
 setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
