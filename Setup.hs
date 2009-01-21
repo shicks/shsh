@@ -15,7 +15,8 @@ main = build [] $
                     "        manipulating expressions in shell grammar.",
                     "",
                     "        Note: the API is still rather unstable, at the moment."]
-               ghcFlags ["-threaded","-O2"]
+               ghcFlags ["-threaded","-O2","-I."]
+               -- Tests
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
                withModuleExporting "System.FilePath.Glob"
@@ -28,10 +29,12 @@ main = build [] $
                    "createProcess (shell \"echo 1\") >> return ()" $
                    define "HAVE_CREATEPROCESS"
                tryHeader "pwd.h" (define "HAVE_PWD") -- test function?!
-                         "tilde expansion will not work fully."
+                   "tilde expansion will not work fully."
+               whenC amInWindows $ define "WINDOWS"
+               -- Constants.hs
                autoVersion NumberedPreRc >>= replace "@VERSION@"
-               ghcFlags ["-I."]
                createFile "System/Console/ShSh/Constants.hs"
+               -- cfiles
                cfiles <- whenC (isDefined "HAVE_PWD") $ return ["hspwd.c"]
                let cfiles' = map ("System/Console/ShSh/Foreign/"++) cfiles
                buildDoc
