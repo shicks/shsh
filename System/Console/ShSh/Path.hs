@@ -1,4 +1,5 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE PatternGuards, CPP #-}
+{-# OPTIONS_GHC -Wall #-}
 
 module System.Console.ShSh.Path ( findExecutable, fixExports ) where
 
@@ -6,15 +7,17 @@ module System.Console.ShSh.Path ( findExecutable, fixExports ) where
 -- the messy platform-independence issues.
 
 import Control.Applicative ( (<|>) )
-import Control.Monad ( join, msum, mplus, guard, (=<<) )
+import Control.Monad ( msum, mplus, guard, (=<<) )
 import Control.Monad.State ( get, modify )
 import Control.Monad.Trans ( liftIO )
-import Data.Maybe ( fromMaybe, listToMaybe )
+import Data.Maybe ( fromMaybe )
 import System.Directory ( doesFileExist, getPermissions, Permissions(..) )
-import System.FilePath ( isDrive, (</>), (<.>) )
+import System.FilePath ( (</>) )
+#ifdef WINDOWS
+import System.FilePath ( isDrive, (<.>) )
+#endif
 
-import System.Console.ShSh.Shell ( Shell, ShellT, getEnv, withSubState )
-import System.Console.ShSh.Util ( splitBy )
+import System.Console.ShSh.Shell ( ShellT, getEnv, withSubState )
 
 -- |Find an executable in the path.  We'll also check here whether the
 -- input is a full-qualified path, and if so, we'll short circuit to simply
@@ -50,7 +53,7 @@ findExecutable e = withSubState `flip` (Nothing::Maybe String) $
 #endif
 
 splitBy' :: (a -> Bool) -> [a] -> ([a],[[a]]) -> [[a]]
-splitBy' f [] (s,ss) = ss++[s]
+splitBy' _ [] (s,ss) = ss++[s]
 splitBy' f (c:cs) (s,ss)
 #ifdef WINDOWS
        | isDrive $ s++[c] = splitBy' f cs (s++[c],ss) -- special dispensation
