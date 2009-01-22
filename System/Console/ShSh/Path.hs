@@ -11,7 +11,7 @@ import Control.Monad.State ( get, modify )
 import Control.Monad.Trans ( liftIO )
 import Data.Maybe ( fromMaybe, listToMaybe )
 import System.Directory ( doesFileExist, getPermissions, Permissions(..) )
-import System.FilePath ( isAbsolute, (</>), (<.>) )
+import System.FilePath ( isDrive, (</>), (<.>) )
 
 import System.Console.ShSh.Shell ( Shell, ShellT, getEnv, withSubState )
 import System.Console.ShSh.Util ( splitBy )
@@ -49,17 +49,19 @@ findExecutable e = withSubState `flip` (Nothing::Maybe String) $
           hasDirs f = '/' `elem` f || '\\' `elem` f
 #endif
 
--- Maybe redefine so that "c:" in windows is special?  clean up [] from "::"?
--- splitBy' :: (a -> Bool) -> [a] -> [[a]]
--- splitBy' f [] = [[]]
--- splitBy' f (c:cs) | f c       = []:splitBy f cs
---                   | otherwise = case splitBy f cs of
---                                        [] -> [[c]]
---                                        (s:ss) -> (c:s):ss
+splitBy' :: (a -> Bool) -> [a] -> ([a],[[a]]) -> [[a]]
+splitBy' f [] (s,ss) = ss++[s]
+splitBy' f (c:cs) (s,ss)
+#ifdef WINDOWS
+       | isDrive $ s++[c] = splitBy' f cs (s++[c],ss) -- special dispensation
+#endif
+       | f c, null s      = splitBy' f cs ([],ss) -- clean up :: (dangerous)
+       | f c, otherwise   = splitBy' f cs ([],ss++[s])
+       | otherwise        = splitBy' f cs (s++[c],ss)
 
 splitPath :: String -> ShellT e [String]
 splitPath s = do pathsep <- fromMaybe ":" `fmap` getEnv "PATHSEP"
-                 return $ splitBy (`elem` pathsep) s
+                 return $ splitBy' (`elem` pathsep) s ([],[])
 
 -- |This function does something with the exports so that it's compatible
 -- with what windows programs expect...?  Maybe it'll go somewhere else?
