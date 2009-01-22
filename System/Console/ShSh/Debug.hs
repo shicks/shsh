@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 module System.Console.ShSh.Debug where
 
 import Control.Concurrent ( MVar, newMVar, takeMVar, putMVar )

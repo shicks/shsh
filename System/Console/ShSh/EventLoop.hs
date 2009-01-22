@@ -1,10 +1,11 @@
-{-# OPTIONS_GHC -cpp #-}
+{-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE CPP #-}
 module System.Console.ShSh.EventLoop ( eventLoop, sourceProfile )
     where
 
 import System.Console.ShSh.Command ( runCommands, source )
 -- import System.Console.ShSh.Expansions ( shellExpansions )
-import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oPutStr,
+import System.Console.ShSh.IO ( ePutStrLn,
 #ifndef HAVE_HASKELINE
                                 ePutStr, eFlush, oFlush,
                                 iIsEOF, iGetLine
@@ -16,14 +17,13 @@ import System.Console.ShSh.Prompt ( prompt )
 
 import Language.Sh.Parser ( parse, hereDocsComplete )
 
-import System.IO ( hFlush, hIsEOF, openFile, IOMode(..),
-                   stdin, stdout, stderr, hGetLine, Handle )
+import System.IO ( hIsEOF, hGetLine, Handle )
 import System.Directory ( doesFileExist )
 import System.FilePath ( (</>) )
 import System.Exit ( ExitCode(..) )
 import Control.Monad ( when )
 import Control.Monad.Trans ( liftIO )
-import Data.Maybe ( fromJust, isJust, fromMaybe, isNothing )
+import Data.Maybe ( fromMaybe, isNothing )
 
 #ifdef HAVE_HASKELINE
 import System.Console.Haskeline ( runInputT, getInputLine,
@@ -69,7 +69,7 @@ eventLoop i0 h = el i0
                 (Nothing,False,False,Right cs,_    ) -> runCommands cs
                 (Nothing,False,False,Left err,_    ) -> fail err
                 (Nothing,False,True ,Right cs,_    ) -> runCommands cs >> el ""
-                (Nothing,False,True ,Left err,_    ) -> el ""
+                (Nothing,False,True ,Left _  ,_    ) -> el ""  -- EOF sent?
                 (Just s ,_    ,_    ,_       ,False) -> el (i++s++"\n")
                 (Just _ ,_    ,_    ,Right cs,True ) -> runCommands cs >> el ""
                 (Just _ ,_    ,False,Left err,True ) -> fail err
@@ -85,18 +85,18 @@ eventLoop i0 h = el i0
 --  2. if we're reading a HereDoc, we should ignore it
 getInput :: String -> Shell (Maybe String)
 #ifdef HAVE_HASKELINE
-getInput prompt =
+getInput promptStr =
     do mhome <- getEnv "HOME"
-       liftIO $ runInputT (settings mhome) (getInputLine prompt)
+       liftIO $ runInputT (settings mhome) (getInputLine promptStr)
     where settings (Just home) = defaultSettings
                                  { historyFile = Just $ home++"/.shsh_history" }
           settings Nothing     = defaultSettings
 #else
-getInput prompt = do ePutStr prompt
-                     eFlush
-                     eof <- iIsEOF
-                     if eof then ePutStrLn "" >> return Nothing
-                            else Just `fmap` iGetLine
+getInput promptStr = do ePutStr promptStr
+                        eFlush
+                        eof <- iIsEOF
+                        if eof then ePutStrLn "" >> return Nothing
+                               else Just `fmap` iGetLine
 #endif
 
 -- I feel like we still need this for reading from script files,

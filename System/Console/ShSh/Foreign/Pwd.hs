@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE ForeignFunctionInterface, CPP #-}
 
 -- |This is an FFI module for dealing with the pwd.h header...

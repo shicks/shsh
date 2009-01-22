@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 -- |Exports a few routines for dealing with directories.
 
 module System.Console.ShSh.Directory ( parentDir, joinDirs ) where
@@ -11,7 +12,7 @@ parentDir = joinPath . reverse . drop 1 . reverse . splitDirectories
 
 -- |Joins two directories, removing all the '.'s and '..'s.
 joinDirs :: FilePath -> FilePath -> FilePath
-joinDirs a b = join' (splitDirectories a) (splitDirectories b)
+joinDirs a' b' = join' (splitDirectories a') (splitDirectories b')
     where join' a (".":b) = join' a b
           join' a ("..":b) = join' (take (length a - 1) a) b
           join' a (x:b) = join' (a++[x]) b

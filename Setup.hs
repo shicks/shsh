@@ -18,6 +18,7 @@ main = build [] $
                ghcFlags ["-threaded","-O2","-I."]
                -- Tests
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
+               withModule "System.Posix.Files" $ define "UNIX"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
                withModuleExporting "System.FilePath.Glob"
                    "compPosix, commonPrefix" "(compPosix,commonPrefix)" $

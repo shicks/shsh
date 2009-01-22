@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# OPTIONS_GHC -Wall #-}
 
--- |These are the public bindings to the @Internal.IO@ module.
+-- |This is the public interface to the @Internal.IO@ module.
 
 -- |We'll also deal with things like waiting for pipes here, probably.
 -- The question is how much of the Shell API do we want to expose in

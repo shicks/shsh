@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 -- |This defines a bunch of compile-time constants.
 
 module System.Console.ShSh.Constants ( version ) where

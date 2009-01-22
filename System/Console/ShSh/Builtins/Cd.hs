@@ -1,16 +1,16 @@
+{-# OPTIONS_GHC -Wall #-}
 module System.Console.ShSh.Builtins.Cd ( chDir ) where
 
-import Control.Monad ( when )
 import Control.Monad.Trans ( liftIO )
 import Data.Maybe ( fromMaybe )
 import System.Console.ShSh.Directory ( joinDirs )
 import System.Console.ShSh.Shell ( Shell, getEnv, setEnv )
-import System.Console.ShSh.IO ( ePutStrLn )
 
 import System.Directory ( getCurrentDirectory, doesDirectoryExist,
                           setCurrentDirectory )
 import System.Exit ( ExitCode(..) )
 
+{-# NOINLINE chDir #-}
 chDir :: [String] -> Shell ExitCode
 chDir = cd' False False
 
@@ -43,8 +43,8 @@ chDir' a dir = do exists <- liftIO $ doesDirectoryExist dir
                        return ExitSuccess
           go False = do molddir <- getEnv "PWD"
                         olddir <- case molddir of
-                                    Just dir -> return dir
-                                    Nothing  -> liftIO $ getCurrentDirectory
+                                    Just olddir -> return olddir
+                                    Nothing -> liftIO $ getCurrentDirectory
                         let newdir = joinDirs olddir dir
                         liftIO $ setCurrentDirectory newdir
                         setEnv "PWD" newdir

@@ -7,6 +7,7 @@ import System.IO ( openFile, IOMode(..), hClose )
 import Control.Monad.Trans ( liftIO )
 import System.Exit ( ExitCode(..) )
 
+{-# NOINLINE touch #-}
 touch :: [String] -> Shell ExitCode
 touch [] = fail "missing file operand"
 touch fs = do mapM_ touch'' fs

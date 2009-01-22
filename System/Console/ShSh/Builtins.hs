@@ -3,7 +3,7 @@
 
 module System.Console.ShSh.Builtins ( builtin ) where
 
-import System.Console.ShSh.Builtins.Args ( withArgs, -- opt, optSet,
+import System.Console.ShSh.Builtins.Args ( withArgsOrd, -- opt, optSet,
                                            flag, flagOn, flagOff )
 import System.Console.ShSh.Builtins.Util ( readFilesOrStdin )
 
@@ -36,7 +36,6 @@ import Control.Monad.Trans ( liftIO )
 import Data.Char ( chr, ord, isDigit )
 import Data.List ( sortBy )
 import Data.Ord ( comparing )
-import System.Console.GetOpt ( ArgOrder(..) )
 import System.Directory ( getCurrentDirectory )
 import System.Exit ( ExitCode(..) )
 
@@ -91,7 +90,7 @@ cat = successfully $ mapM_ oPutStr <=< readFilesOrStdin
 
 -- |This is nice and all, but apparently -- is NOT supposed to be
 -- recognized...
-echo = withArgs "echo" header args RequireOrder $ successfully $ \ws -> do
+echo = withArgsOrd "echo" header args $ successfully $ \ws -> do
           e <- flag 'e'
           oPutStr . unwords =<< if e then mapM escape ws else return ws
           n <- flag 'n'

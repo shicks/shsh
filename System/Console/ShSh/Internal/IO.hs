@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
 -- |This is the new version of what I called PipeIO before.  This
@@ -22,14 +23,14 @@ module System.Console.ShSh.Internal.IO (
   wClose, wSafeClose, wIsOpen, wIsClosed,
   joinHandles ) where
 
-import Control.Concurrent ( MVar, newEmptyMVar, takeMVar, putMVar, yield )
-import Control.Monad ( when, unless, ap )
+import Control.Concurrent ( yield )
+import Control.Monad ( when, unless )
 import qualified Data.ByteString.Lazy.Char8 as B
 import Data.Monoid ( Monoid, mempty )
 import System.IO ( Handle, hFlush, hClose,
                    hIsEOF, hIsOpen, hIsClosed,
                    hGetContents, hGetChar, hGetLine,
-                   hPutChar, hPutStr, hPutStrLn,
+                   hPutChar, hPutStr,
                    hWaitForInput,
                    stdin, stdout, stderr
                  )
@@ -38,7 +39,7 @@ import System.IO.Unsafe ( unsafeInterleaveIO )
 import System.Console.ShSh.Internal.Chan ( Chan, newChan, isEOFChan,
                                            isEOFChanNonBlocking,
                                            closeChan, unGetChan, notEOFChan,
-                                           isOpenChan, requireOpenChan,
+                                           isOpenChan,
                                            isEmptyChan, getChanContents,
                                            readChan, writeChan )
 import System.Console.ShSh.Util ( whenM )
@@ -126,7 +127,7 @@ rGetChar (RHandle h) = hGetChar h
 
 rGetLine :: StringOrByteString s => ReadHandle -> IO s
 rGetLine (RHandle h) = pack `fmap` hGetLine h
-rGetLine (RChan c) = unpack `fmap` notEOFChan "rGetLine" c gl'
+rGetLine (RChan ch) = unpack `fmap` notEOFChan "rGetLine" ch gl'
     where gl' c = do -- helper...
             eof <- isEOFChan c
             empty <- isEmptyChan c
@@ -146,14 +147,14 @@ rGetLine (RChan c) = unpack `fmap` notEOFChan "rGetLine" c gl'
 
 rWaitForInput :: ReadHandle -> IO () -- simulates hWaitForInput h -1
 rWaitForInput (RHandle h) = hWaitForInput h (-1) >> return ()
-rWaitForInput (RChan c) = notEOFChan "rWaitForInput" c $ \c ->
+rWaitForInput (RChan ch) = notEOFChan "rWaitForInput" ch $ \c ->
                             do empty <- isEmptyChan c
                                when empty $ yield >> rWaitForInput (RChan c)
 
 rGetNonBlocking :: StringOrByteString s => ReadHandle -> Int -> IO s
-rGetNonBlocking (RHandle h) s = fmap unpack $ B.hGetNonBlocking h s
-rGetNonBlocking (RChan c) s = fmap unpack $
-                              notEOFChan "rGetNonBlocking" c $ gnb' s
+rGetNonBlocking (RHandle h) size = fmap unpack $ B.hGetNonBlocking h size
+rGetNonBlocking (RChan ch) size = fmap unpack $
+                               notEOFChan "rGetNonBlocking" ch $ gnb' size
     where gnb' s c = do -- getNonBlocking helper...
             eof <- isEOFChan c
             empty <- isEmptyChan c
@@ -223,7 +224,7 @@ wPutStrLn w s = wPutStr w (s++"\n")
 
 wFlush :: WriteHandle -> IO ()
 wFlush (WHandle h) = whenM (hIsOpen h) (hFlush h)
-wFlush (WChan c) = return () -- requireOpenChan "wFlush" c
+wFlush (WChan _) = return () -- requireOpenChan "wFlush" c
 
 wClose :: WriteHandle -> IO ()
 wClose (WChan c) = closeChan c
@@ -251,6 +252,7 @@ wIsClosed h = not `fmap` wIsOpen h
 -- *Pipes
 
 -- This is internal
+bufferSize :: Integral a => a
 bufferSize = 4096
 
 -- |This is a /much/ cleaner version of the old @doPipe@ function.  Here,

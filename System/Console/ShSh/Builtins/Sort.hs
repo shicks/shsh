@@ -8,10 +8,10 @@ import System.Console.ShSh.Builtins.Util ( readFilesOrStdin )
 
 import Data.List ( sort )
 import System.Exit ( ExitCode(..) )
-import System.Console.GetOpt
 
+{-# NOINLINE runSort #-}
 runSort :: [String] -> Shell ExitCode
-runSort = withArgs "sort" header args RequireOrder sort'
+runSort = withArgs "sort" header args sort'
     where sort' fs =
               do x <- readFilesOrStdin fs
                  oPutStr $ unlines $ sort $ concat $ map lines x

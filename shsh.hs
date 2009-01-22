@@ -1,6 +1,7 @@
-{-# OPTIONS_GHC -cpp #-}
+{-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE CPP #-}
 
-import System.Exit ( exitWith, ExitCode(..) )
+import System.Exit ( exitWith )
 import System.Environment ( getArgs )
 import System.Console.ShSh.Shell ( startShell )
 import System.Console.ShSh.EventLoop ( eventLoop, sourceProfile )
@@ -11,6 +12,7 @@ import System.IO ( stdin, hIsTerminalDevice )
 import System.Posix.Signals ( Handler(..), installHandler, sigPIPE )
 #endif
 
+main :: IO ()
 main = do args <- getArgs
           term <- hIsTerminalDevice stdin
           let h = if term then Nothing else Just stdin -- extend later w/ getopt

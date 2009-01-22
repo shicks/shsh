@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE PatternGuards #-}
 
 module Language.Sh.Parser.Internal where
@@ -8,6 +9,7 @@ import Language.Sh.Syntax
 import Data.Char ( isDigit )
 import Text.ParserCombinators.Parsec ( choice )
 
+impossible :: String -> a
 impossible = const undefined
 
 redirOperator :: P String
@@ -38,6 +40,7 @@ mkRedir ">&"  (Just s) t | Just t' <- wordToInt t = return $ s :>& t'
                          | otherwise = fail "bad file descriptor"
 mkRedir ">>"  (Just s) t = return $ s :>> t
 mkRedir ">|"  (Just s) t = return $ s :>| t
+mkRedir op Nothing _ = impossible $ "not a redirection: "++op
 
 
 mkHereDoc :: String -> Maybe Int -> String -> P Redir -- queues...
@@ -46,6 +49,7 @@ mkHereDoc "<<"  (Just s) t = do addHereDoc t
                                 return $ s :<< t
 mkHereDoc "<<-" (Just s) t = do addHereDoc t
                                 return $ s :<<- t
+mkHereDoc op _ _ = impossible $ "not a heredoc: "++op
 
 wordToInt :: Word -> Maybe Int
 wordToInt w = case fromLiteral w of
@@ -55,17 +59,18 @@ wordToInt w = case fromLiteral w of
 addAssignment :: Assignment -> Statement -> Statement
 addAssignment a (Statement ws rs as) = Statement ws rs (a:as)
 addAssignment a (OrderedStatement ts) = OrderedStatement (TAssignment a:ts)
-addAssignment _ (Compound _ _) = impossible "cannot add assignment to Compound"
+addAssignment _ s = impossible $ "cannot add assignment to "++show s
 
 addWord :: Word -> Statement -> Statement
 addWord w (Statement ws rs as) = Statement (w:ws) rs as
 addWord w (OrderedStatement ts) = OrderedStatement (TWord w:ts)
-addWord _ (Compound _ _) = impossible "cannot add word to Compound"
+addWord _ s = impossible $ "cannot add word to "++show s
 
 addRedirection :: Redir -> Statement -> Statement
 addRedirection r (Statement ws rs as) = Statement ws (r:rs) as
 addRedirection r (OrderedStatement ts) = OrderedStatement (TRedir r:ts)
 addRedirection r (Compound c rs) = Compound c (r:rs)
+addRedirection _ s = impossible $ "cannot add redirection to "++show s
 
 fromLiteral :: Word -> Maybe String
 fromLiteral [] = Just []

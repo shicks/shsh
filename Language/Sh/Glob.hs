@@ -1,14 +1,12 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE CPP #-}
 module Language.Sh.Glob ( expandGlob, matchPattern,
                           removePrefix, removeSuffix ) where
 
 import Control.Monad.Trans ( MonadIO, liftIO )
 import Control.Monad.State ( runState, put )
-import Data.Char ( ord, chr )
 import Data.List ( isPrefixOf, partition )
 import Data.Maybe ( isJust, listToMaybe )
-import System.Directory ( getCurrentDirectory )
-import System.FilePath ( pathSeparator, isPathSeparator, isExtSeparator )
 import Text.Regex.PCRE.Light.Char8 ( Regex, compileM, match, ungreedy )
 
 import Language.Sh.Syntax ( Lexeme(..), Word )
@@ -53,6 +51,7 @@ mkGlob w = case runState (mkG w) False of
           mkG (Quoted (Literal c):xs) = fmap (mkLit c++) $ mkG xs
           mkG (Quoted q:xs) = mkG $ q:xs
           mkG (Quote _:xs) = mkG xs
+          mkG l = error $ "bad lexeme: "++show l
           mkLit c | c `elem` "[*?<" = ['[',c,']']
                   | otherwise       = [c]
 
@@ -70,13 +69,14 @@ mkClass xs = let (range, rest) = break (isLit ']') xs
     where cr' s = Just $ "["++movedash (filter (not . isQuot) s)++"]"
           isLit c x = case x of { Literal c' -> c==c'; _ -> False }
           isQuot x = case x of { Quote _ -> True; _ -> False }
-          quoted c x = case x of Quoted (Quoted x) -> quoted c $ Quoted x
+          quoted c x = case x of Quoted (Quoted x') -> quoted c $ Quoted x'
                                  Quoted (Literal c') -> c==c'
                                  _ -> False
           movedash s = let (d,nd) = partition (quoted '-') s
                            bad = null d || (isLit '-' $ head $ reverse s)
                        in map fromLexeme $ if bad then nd else nd++d
-          fromLexeme x = case x of { Literal c -> c; Quoted q -> fromLexeme q }
+          fromLexeme x = case x of { Literal c -> c; Quoted q -> fromLexeme q;
+                                     l -> error $ "bad lexeme "++show l }
 
 {-
 expandGlob :: MonadIO m => Word -> m [FilePath]
@@ -164,20 +164,21 @@ mkRegex :: Bool   -- ^greedy?
         -> Word   -- ^pattern
         -> Maybe Regex
 mkRegex g r pre suf w
-    = case runState (mkG w) False of
+    = case runState (mkR w) False of
         (s,True) -> mk' $ concat $ affix $ (if r then reverse else id) s
         _        -> Nothing
-    where mkG [] = return []
-          mkG (Literal '[':xs) = case mkClass xs of
-                                   Just (g,xs') -> fmap (g:) $ mkG xs'
-                                   Nothing -> fmap ((mkLit '['):) $ mkG xs
-          mkG (Literal '*':Literal '*':xs) = mkG $ Literal '*':xs
-          mkG (Literal '*':xs) = put True >> fmap (".*":) (mkG xs)
-          mkG (Literal '?':xs) = put True >> fmap (".":) (mkG xs)
-          mkG (Literal c:xs) = fmap (mkLit c:) $ mkG xs
-          mkG (Quoted (Literal c):xs) = fmap (mkLit c:) $ mkG xs
-          mkG (Quoted q:xs) = mkG $ q:xs
-          mkG (Quote _:xs) = mkG xs
+    where mkR [] = return []
+          mkR (Literal '[':xs) = case mkClass xs of
+                                   Just (c,xs') -> fmap (c:) $ mkR xs'
+                                   Nothing -> fmap ((mkLit '['):) $ mkR xs
+          mkR (Literal '*':Literal '*':xs) = mkR $ Literal '*':xs
+          mkR (Literal '*':xs) = put True >> fmap (".*":) (mkR xs)
+          mkR (Literal '?':xs) = put True >> fmap (".":) (mkR xs)
+          mkR (Literal c:xs) = fmap (mkLit c:) $ mkR xs
+          mkR (Quoted (Literal c):xs) = fmap (mkLit c:) $ mkR xs
+          mkR (Quoted q:xs) = mkR $ q:xs
+          mkR (Quote _:xs) = mkR xs
+          mkR l = error $ "bad lexeme: "++show l
           mkLit c | c `elem` "[](){}|^$.*+?\\" = ['\\',c]
                   | otherwise                  = [c]
           affix s = pre:s++[suf]

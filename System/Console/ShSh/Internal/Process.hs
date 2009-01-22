@@ -1,8 +1,9 @@
+{-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE CPP #-}
+
 -- |This is the other half of the new version of what I called PipeIO
 -- before.  Again, this module does \emph{not} depend on Shell, and
 -- therefore Shell can depend on it.
-
-{-# LANGUAGE CPP #-}
 
 -- |This module basically wraps 'System.Process' in a way that allows
 -- us to use the 6.10 API even if we don't have the package.  We
@@ -31,11 +32,11 @@ import System.Console.ShSh.Internal.IO ( wPutStr, rGetContents )
 import System.Console.ShSh.Internal.IO ( WriteHandle, ReadHandle,
                                          toWriteHandle, toReadHandle,
                                          fromWriteHandle, fromReadHandle,
-                                         joinHandles, wClose )
+                                         joinHandles )
 
 import Debug.Trace ( trace )
 
-tr a b = trace (a ++ show b) b
+-- tr a b = trace (a ++ show b) b
 
 -- |This is basically copied directly out of the new 'System.Process' API,
 -- except we need that 'UseHandle' can be a generalized 'ReadHandle' or
@@ -102,19 +103,19 @@ toReadStream = RUseHandle . toReadHandle
 launch :: String -> [String] -> [(String,String)] -> PipeState
        -> IO ExitCode
 #ifdef HAVE_CREATEPROCESS
-launch c args vars ps = do let is = rMkStream $ p_in  ps
-                               os = wMkStream $ p_out ps
-                               es = wMkStream $ p_err ps
-                           (i,o,e,pid) <- createProcess $
-                                          (proc c args) { env = Just vars,
-                                                          std_in  = is,
-                                                          std_out = os,
-                                                          std_err = es }
-                           ps1 <- rProcess i (p_in ps)
-                           ps2 <- wProcess o (p_out ps)
-                           ps3 <- wProcess e (p_err ps)
-                           sequence_ $ concat [ps1,ps2,ps3]
-                           waitForProcess pid
+launch cmd args vars ps = do let is = rMkStream $ p_in  ps
+                                 os = wMkStream $ p_out ps
+                                 es = wMkStream $ p_err ps
+                             (i,o,e,pid) <- createProcess $
+                                            (proc cmd args) { env = Just vars,
+                                                              std_in  = is,
+                                                              std_out = os,
+                                                              std_err = es }
+                             ps1 <- rProcess i (p_in ps)
+                             ps2 <- wProcess o (p_out ps)
+                             ps3 <- wProcess e (p_err ps)
+                             sequence_ $ concat [ps1,ps2,ps3]
+                             waitForProcess pid
     where rMkStream RInherit    = Inherit
           rMkStream (RCreatePipe _) = trace "rMkStream RCreatePipe" CreatePipe
           rMkStream (RUseHandle h) = fromMaybe CreatePipe $
@@ -131,11 +132,13 @@ launch c args vars ps = do let is = rMkStream $ p_in  ps
                                                   return []
           rProcess (Just w) (RUseHandle c) = do pipe <- inChanPipe c w
                                                 return [pipe]
+          rProcess _ _ = error "impossible"
           wProcess Nothing _ = return []
           wProcess (Just r) (WCreatePipe mr) = do putMVar mr $ toReadHandle r
                                                   return []
           wProcess (Just r) (WUseHandle c) = do pipe <- outChanPipe r c
                                                 return [pipe]
+          wProcess _ _ = error "impossible"
 #else
 launch c args env ps =
     case p_in ps of

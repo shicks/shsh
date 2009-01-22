@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE FunctionalDependencies, MultiParamTypeClasses,
              FlexibleInstances #-}
 
@@ -184,9 +185,13 @@ instance (Monad m,Functor m) => ExpressionMapperM m (Assignment -> m Assignment)
 instance (Monad m,Functor m) => ExpressionMapperM m (Redir -> m Redir)
     where mapRedirM f r = defaultMapRedirM f =<< f r
 
+($$) :: (a -> b) -> a -> b
 ($$) = ($)
+(!) :: (a -> b) -> [a] -> [b]
 (!) = map
+(>!) :: (a -> [b]) -> [a] -> [b]
 (>!) = concatMap
+(***) :: (a -> c) -> (b -> d) -> (a,b) -> (c,d)
 (***) f g (a,b) = (f a,g b)
 infixl 0 $$
 infixl 7 !, >!

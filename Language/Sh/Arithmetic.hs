@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE CPP #-}
 module Language.Sh.Arithmetic ( runMathParser ) where
 
@@ -10,8 +11,6 @@ import qualified Text.ParserCombinators.Parsec.Token as P
 import Data.Bits ( shiftL, shiftR, complement, xor, (.&.), (.|.) )
 import Data.List ( unionBy )
 import Data.Maybe ( fromMaybe )
-
-import Debug.Trace ( trace )
 
 import Language.Sh.Compat ( on )
 
@@ -64,13 +63,20 @@ lexer = P.makeTokenParser $
                                     ,"^=","<<=",">>="]
                  }
 
+parens :: AP a -> AP a
 parens = P.parens lexer -- what is P?
+whiteSpace :: AP ()
 whiteSpace = P.whiteSpace lexer
-hexadecimal = P.hexadecimal lexer
-decimal = P.decimal lexer
+hexadecimal :: Integral a => AP a
+hexadecimal = fromIntegral `fmap` P.hexadecimal lexer
+decimal :: Integral a => AP a
+decimal = fromIntegral `fmap` P.decimal lexer
+reservedOp :: String -> AP ()
 reservedOp = P.reservedOp lexer
+identifier :: AP String
 identifier = P.identifier lexer
 
+natural :: (Integral a, Read a) => AP a
 natural = do n <- octal <|> decimal <|> hexadecimal
              whiteSpace
              return n
@@ -107,17 +113,33 @@ expr2 = try (do eIf <- expr1
                   Error err -> return $ Error err
                   Literal si i -> return $ if (i/=0) then expandWith ss si eThen
                                                      else expandWith ss si eElse
+                  Variable _ -> error "impossible"
             ) <|> expr1
     where expandWith ss si t = case expand (mapS show si `joinS` ss) t of
                                  Error err -> Error err
                                  Literal si' i -> Literal (si `joinS` si') i
+                                 Variable _ -> error "impossible"
 
 expr :: AP Term
 expr = buildExpressionParser table2 expr2 -- short circuit
+  where
+    table2 = [ [op "=" $ flip const, op "*=" (*), op "/=" div
+               ,op "%=" mod, op "+=" (+), op "-=" (-)]
+             , [op "<<=" shiftL, op ">>=" shiftR
+               ,op "&=" (.&.), op "^=" xor, op "|=" (.|.)] ]
+    a2 :: (Int -> Int -> Int) -> AP (Term -> Term -> Term)
+    a2 = assignReturn2
+    -- a2's first Term MUST be a string... (else "assignment to non-variable")
+    op name fun = Infix (reservedOp name >> a2 fun) AssocLeft
+
+-- In between tables 1 and 2: the ternary operator...
+
+-- operators:
+-- endTok = (`elem` " \t\r\n()+*-/%^|&")
 
 term :: AP Term
 term    = parens expr
-            <|> fmap (Literal [] . fromIntegral) natural
+            <|> fmap (Literal []) natural
             <|> fmap Variable identifier
           <?> "simple expression"
 
@@ -174,6 +196,8 @@ postinc,preinc :: (Int -> Int) -> AP (Term -> Term)
 postinc f = assignReturn $ \i -> (f i,i)
 preinc  f = assignReturn $ \i -> (f i,f i)
 
+-- These are some weird helper functions.
+
 assignReturn' :: SS -> SI -> (Int -> (Int,Int)) -> (Term -> Term)
 assignReturn' ss si f = ar
     where ar (Error err) = Error err
@@ -197,20 +221,4 @@ assignReturn2 f = ar `fmap` getState
                             Error err -> Error err
                             Literal si j ->
                                 assignReturn' ss si (\i -> (f i j,f i j)) t
-
--- In between these: the ternary operator...
-
---table2 :: OperatorTable Char SS Int
-table2 = [ [op "=" $ flip const, op "*=" (*), op "/=" div
-           ,op "%=" mod, op "+=" (+), op "-=" (-)]
-         , [op "<<=" shiftL, op ">>=" shiftR
-           ,op "&=" (.&.), op "^=" xor, op "|=" (.|.)] ]
-    where a2 :: (Int -> Int -> Int) -> AP (Term -> Term -> Term)
-          a2 = assignReturn2
-          op name fun = Infix (reservedOp name >> a2 fun) AssocLeft
-    -- a2's first Term MUST be a string... (else "assignment to non-variable")
-
-
-
--- operators:
--- endTok = (`elem` " \t\r\n()+*-/%^|&")
+                            Variable _ -> error "impossible"

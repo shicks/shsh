@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wall #-}
+
 -- |Here we define the interface to 'Parsec', resulting in a
 -- 'GenParser' type that behaves much like a stateful 'CharParser',
 -- but with the added abstraction of dealing with aliases.
@@ -6,8 +8,7 @@ module Language.Sh.Parser.Parsec where
 
 import Text.ParserCombinators.Parsec ( GenParser, getState, setState,
                                        tokenPrim, count, (<|>), (<?>),
-                                       skipMany, many, eof,
-                                       getInput, setInput )
+                                       skipMany, getInput, setInput )
 import Text.ParserCombinators.Parsec.Pos ( updatePosChar )
 import Text.ParserCombinators.Parsec.Error ( ParseError, Message(..),
                                              errorMessages, errorPos,
@@ -210,6 +211,7 @@ satisfy' _ = satisfy'' False
 -- and then just stack the control codes on either the space or else
 -- the next eligible letter.
 
+satisfy :: (Char -> Bool) -> P Char
 satisfy = satisfy'' False
 
 -- This is for debugging...
@@ -220,9 +222,10 @@ satisfy'' v f = do ip <- incPos `fmap` getState
                    unless (isBlank c) $ modify $ \s -> s { aliasOK = False }
                    runCtls v
                    return c
-    where showToken (Chr c) = show c
-          nextpos u p (Chr c) _ = u p c
-          test (Chr c) = if f c then Just c else Nothing
+    where showToken cc = show $ fromChar cc
+          nextpos u p cc _ = u p $ fromChar cc
+          test cc = if f (fromChar cc) then Just $ fromChar cc else Nothing
+          fromChar cc = case cc of { Chr c -> c; _ -> error "impossible" }
 
 runCtls :: Bool -> P ()
 runCtls v = getInput >>= run >>= setInput
@@ -243,8 +246,8 @@ aliasOn = modify $ \s -> s { aliasOK = True }
 
 string :: String -> P String
 string []     = return []
-string (c:cs) = do c <- char c
-                   fmap (c:) $ string cs -- errors should work correctly...
+string (c:cs) = do c' <- char c
+                   fmap (c':) $ string cs -- errors should work correctly...
 
 schar :: Char -> P Char
 schar c = do x <- char c

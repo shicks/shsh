@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleContexts #-}
 
 -- |We'll isolate some of this stuff, since it's pretty independent.
@@ -12,7 +13,6 @@ module System.Console.ShSh.ShellError ( ShellError, isFailure,
 
 import System.Console.ShSh.IO ( MonadSIO, ePutStrLn )
 
-import Control.Monad.Trans ( MonadIO, liftIO )
 import Control.Monad.Error ( MonadError, throwError, catchError,
                              Error, strMsg )
 import System.Exit ( ExitCode(..) )

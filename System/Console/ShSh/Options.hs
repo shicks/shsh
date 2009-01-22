@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wall #-}
+
 -- |Here we deal with the various command-line options, which can
 -- also be set with the @set@ builtin.
 
@@ -16,14 +18,10 @@
 module System.Console.ShSh.Options ( setOpts ) where
 
 import Control.Monad ( forM_ )
-import Control.Monad.Trans ( liftIO )
-import Data.List ( union, (\\) )
 import System.Exit ( ExitCode(..) )
-import System.IO ( Handle, hPutStrLn )
 
-import System.Console.ShSh.IO ( oPutStrLn, oPutStr )
-import System.Console.ShSh.Shell ( Shell,
-                                   setFlag, unsetFlag, getFlag, getFlags )
+import System.Console.ShSh.IO ( oPutStrLn )
+import System.Console.ShSh.Shell ( Shell, setFlag, unsetFlag, getFlag )
 
 options :: [(Char,String)]
 options = [('e',"errexit"),

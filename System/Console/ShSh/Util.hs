@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 -- |This is a simple module where we define generally useful functions.
 
 module System.Console.ShSh.Util ( equating, split, splitBy,
@@ -10,14 +11,14 @@ equating p x y = p x == p y
 
 -- |I don't know why this isn't in the standard library.
 split :: Eq a => a -> [a] -> [[a]]
-split c [] = [[]]
+split _ [] = [[]]
 split c (c':cs) | c==c'     = []:split c cs
                 | otherwise = case split c cs of
                                 [] -> [[c']]
                                 (s:ss) -> (c':s):ss
 
 splitBy :: (a -> Bool) -> [a] -> [[a]]
-splitBy f [] = [[]]
+splitBy _ [] = [[]]
 splitBy f (c:cs) | f c       = []:splitBy f cs
                  | otherwise = case splitBy f cs of
                                   [] -> [[c]]

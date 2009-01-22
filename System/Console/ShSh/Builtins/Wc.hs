@@ -7,10 +7,10 @@ import System.Console.ShSh.Builtins.Args ( withArgs, flagOn )
 
 import Control.Monad.Trans ( liftIO )
 import System.Exit ( ExitCode(..) )
-import System.Console.GetOpt
 
+{-# NOINLINE runWc #-}
 runWc :: [String] -> Shell ExitCode
-runWc = withArgs "wc" header args RequireOrder wc'
+runWc = withArgs "wc" header args wc'
     where wc' origfs =
               do let fs = if null origfs then ["-"] else origfs
                      readf "-" = lines `fmap` iGetContents
@@ -18,6 +18,6 @@ runWc = withArgs "wc" header args RequireOrder wc'
                  x <- mapM readf fs
                  oPutStrLn $ show $ length $ concat x
                  return ExitSuccess
-          header = "Usage: wc [file]...\n"++
+          header = "Usage: wc [OPTION...] [FILE...]\n"++
                    "wc lines"
           args = [flagOn "l" [] 'l' "count number of lines"]

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 module System.Console.ShSh.Compat ( on ) where
 
 -- |This module just defines functions that aren't in ghc-6.6.

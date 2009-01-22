@@ -1,3 +1,7 @@
+{-# OPTIONS_GHC -Wall #-}
+
+-- |This module does all the expansions needed to display the prompts
+-- (@PS1@ and @PS2@, at least).
 module System.Console.ShSh.Prompt ( prompt )
     where
 
@@ -43,6 +47,7 @@ expandAll ('\\':c:rest) = expand c >>= \x -> (x++) `fmap` expandAll rest
 expandAll (c:rest) = (c:) `fmap` expandAll rest
 expandAll "" = return ""
 
+-- |Figure out the prompt.  The argument is what we've read so far.
 prompt :: String -> Shell String
 prompt "" = do -- pwd <- fromMaybe "\\s-\\v\\$ " `fmap` getEnv "PS1"
               pwd <- fromMaybe "\\s-\\v: \\w \\$ " `fmap` getEnv "PS1"

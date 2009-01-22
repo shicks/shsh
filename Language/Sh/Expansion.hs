@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wall #-}
+
 -- |This is the expansion module.  It provides an interface for a monad
 -- in which expansions can happen, and then defines the expansions.
 
@@ -9,10 +11,9 @@ module Language.Sh.Expansion ( ExpansionFunctions(..),
 import Control.Monad ( forM_, forM )
 import Control.Monad.Reader ( ReaderT, runReaderT, asks )
 import Control.Monad.Trans ( lift )
-import Data.Char ( isAlphaNum )
-import Data.List ( takeWhile, dropWhile, groupBy, intersperse )
+import Data.List ( dropWhile, groupBy, intersperse )
 import Data.Maybe ( fromMaybe )
-import Data.Monoid ( Monoid, mappend, mempty )
+import Data.Monoid ( Monoid, mempty )
 
 import Language.Sh.Compat ( on )
 import Language.Sh.Glob ( removePrefix, removeSuffix )
@@ -110,6 +111,7 @@ expandWordE w = fmap removeQuotes $ expand' w
 expand' :: (Monad m,Functor m) => Word -> Exp m Word
 expand' = expandParams <=< expandTilde
 
+(<=<) :: Monad m => (b -> m c) -> (a -> m b) -> a -> m c
 f <=< g = \a -> g a >>= f
 infixr 1 <=<
 
@@ -117,18 +119,19 @@ infixr 1 <=<
 expandTilde :: (Monad m,Functor m) => Word -> Exp m Word
 expandTilde w = let (lit,rest) = span isLiteral w
                 in case (fromLit lit) of
-                     '~':s -> exp s rest
+                     '~':s -> go s rest
                      _     -> return w
-    where exp s r | '/' `elem` s = do let (user,path) = break (=='/') s
-                                      dir <- homedir user
-                                      return $ map Literal (dir++"/"++path) ++ r
-          exp s [] = do dir <- homedir s
-                        return $ map Literal dir
-          exp s r = return $ map Literal s ++ r
+    where go s r | '/' `elem` s = do let (user,path) = break (=='/') s
+                                     dir <- homedir user
+                                     return $ map Literal (dir++"/"++path) ++ r
+                 | null r       = do dir <- homedir s
+                                     return $ map Literal dir
+                 | otherwise    =  return $ map Literal s ++ r
           isLiteral (Literal _) = True
           isLiteral _ = False
           fromLit [] = []
           fromLit (Literal c:xs) = c:fromLit xs -- don't need other case
+          fromLit (_:_) = error "impossible"
 
 homedir :: (Monad m,Functor m) => String -> Exp m String
 homedir "" = fromMaybe ("~") `fmap` get "HOME"
@@ -164,6 +167,7 @@ expandParams = expandWith e
                                return $ fromStr q $ removePrefix c r $ toStr v
                      '%' -> do r <- expand' w -- expandPatternE
                                return $ fromStr q $ removeSuffix c r $ toStr v
+                     _   -> fail $ "unknown expansion modifier: "++[o]
           e q (CommandSub cs) = (quoteLiteral q . removeNewlines) `fmap` run cs
           e q (Arithmetic w) = fmap (quoteLiteral q) $
                                  arithExpand =<< expandWordE w
@@ -277,7 +281,7 @@ removeQuotes [] = ""
 removeQuotes (SplitField:xs) = removeQuotes xs -- IFS should already be here
 removeQuotes (Quote _:xs) = removeQuotes xs
 removeQuotes (Quoted x:xs) = removeQuotes $ x:xs
-removeQuotes (Expand _:xs) = undefined -- shouldn't happen
+removeQuotes (Expand _:_) = error "impossible" -- shouldn't happen
 removeQuotes (Literal c:xs) = c:removeQuotes xs
 
 -- *Math-parsing

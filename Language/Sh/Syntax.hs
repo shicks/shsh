@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wall #-}
+
 -- |Here we define the /complete/ abstract syntax tree for
 -- simple and compound statements.
 

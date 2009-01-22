@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wall #-}
+
 -- |This is even lower-level than @Internal.IO@.  We just define a custom
 -- Chan type and then redefine a few operations on it.
 
@@ -10,14 +12,13 @@ module System.Console.ShSh.Internal.Chan ( Chan, newChan, closeChan,
                                          ) where
 
 import Control.Concurrent ( MVar, newEmptyMVar, isEmptyMVar,
-                            takeMVar, putMVar, yield )
+                            putMVar, yield )
 import System.IO.Unsafe ( unsafeInterleaveIO )
 
 import qualified Control.Concurrent.Chan as C
 import qualified Data.ByteString.Lazy as B
 
 import Control.Monad ( unless )
-import Data.List ( takeWhile )
 
 -- |We define a channel actually as a tuple of a 'Chan' and an 'MVar'.
 -- This is mainly so that we can deal with closing write handles in a
@@ -95,7 +96,7 @@ isEOFChan (A c v) = do e <- C.isEmptyChan c
 -- that one to block...  We might also want a way to separate out EOF
 -- from closed?  Maybe to put a single EOF in the Chan but not close it?
 isEOFChanNonBlocking :: Chan -> IO Bool
-isEOFChanNonBlocking (A c v) = do e <- C.isEmptyChan c
+isEOFChanNonBlocking (A c _) = do e <- C.isEmptyChan c
                                   if e then return False
                                        else do b <- C.readChan c
                                                C.unGetChan c b

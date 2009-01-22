@@ -7,12 +7,12 @@ import System.Console.ShSh.Builtins.Args ( withArgs, flagOn )
 
 import Control.Monad.Trans ( liftIO )
 import System.Exit ( ExitCode(..) )
-import System.Console.GetOpt
 import Data.List ( sort )
 import System.Directory ( doesFileExist, getDirectoryContents )
 
+{-# NOINLINE ls #-}
 ls :: [String] -> Shell ExitCode
-ls = withArgs "ls" header args RequireOrder ls'
+ls = withArgs "ls" header args ls'
     where ls' [] = do fs <- liftIO (getDirectoryContents ".")
                       oPutStr $ unlines $ sort $
                               filter unboring fs
@@ -35,4 +35,5 @@ ls = withArgs "ls" header args RequireOrder ls'
                      if isf
                         then return f
                         else do cs <- sort `fmap` getDirectoryContents f
-                                return $ unlines ((f++":") : map ("  "++) (drop 2 cs))
+                                return $ unlines ((f++":") :
+                                                    map ("  "++) (drop 2 cs))

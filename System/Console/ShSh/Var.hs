@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE MultiParamTypeClasses, TypeSynonymInstances,
              FlexibleInstances, FlexibleContexts, CPP #-}
 
@@ -70,7 +71,7 @@ setExportedFlag x f = f { exported = x }
 
 -- Simple routines to check/update associative list elements.
 lookup :: Equiv a' a => a -> [(a',b)] -> Maybe b
-lookup x [] = Nothing
+lookup _ [] = Nothing
 lookup x ((x',y):xs) | x'===x    = Just y
                      | otherwise = lookup x xs
 

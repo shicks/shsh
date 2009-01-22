@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 
 -- |Here we use the stuff defined in the AST and Parsec modules
@@ -10,21 +11,16 @@ import Language.Sh.Parser.Parsec
 import Language.Sh.Syntax
 import Language.Sh.Map
 
-import Language.Sh.Compat ( (<=<) )
-
 import Text.ParserCombinators.Parsec.Error ( ParseError )
 import Text.ParserCombinators.Parsec ( choice, manyTill, eof, many1,
                                        skipMany, optional,
                                        (<|>), (<?>), many, try, count,
-                                       sepBy1, notFollowedBy, lookAhead,
+                                       sepBy1, lookAhead,
                                        getInput, setInput, runParser
                                      )
 import Control.Monad ( unless, when, liftM2, ap, guard )
 import Data.List ( (\\) )
-import Data.Char ( isDigit )
 import Data.Maybe ( isJust, catMaybes )
-
-import Debug.Trace ( trace )
 
 -- We don't actually really need Parsec3 - could adapt that Parsec2 source...
 -- Also, this should maybe be a debug switch...?
@@ -65,18 +61,18 @@ eatNewlines a = do a' <- a
 -- at least, in the case of heredocs inside (illegal?) it seems to fail
 statement :: P Statement
 statement = do aliasOn
-               choice [try $ do name <- basicName
+               choice [try $ do func <- basicName
                                 spaces >> char '(' >> spaces
                                 char ')' <|> unexpectedNoEOF
                                 spaces >> newlines -- optional
-                                FunctionDefinition name
+                                FunctionDefinition func
                                     `fmap` compoundStatement
                                     `ap` many redirection
                    ,Compound `fmap` compoundStatement `ap` many redirection
                    ,do s <- statementNoSS
                        case s of -- needed to prevent errors w/ 'many'
                          OrderedStatement [] -> fail "empty statement"
-                         s -> return s
+                         s' -> return s'
                    ]
 
 -- Once we know we don't have a subshell...
@@ -154,8 +150,8 @@ reservedWord s = try $ do s' <- string s <?> show s
 reservedWordNL :: String -> P String
 reservedWordNL = eatNewlines . reservedWord
 
-reservedWord_ :: String -> P ()
-reservedWord_ s = reservedWord s >> return ()
+-- reservedWord_ :: String -> P ()
+-- reservedWord_ s = reservedWord s >> return ()
 
 isOperator :: String -> Bool
 isOperator x = x `elem` [">",">>",">|","<","<>","<<","<<-",">&","<&",
@@ -204,10 +200,10 @@ dsemi = operator ";;" <|> lookAhead (reservedWord "esac") <?> "`;;' or `esac'"
 -- brace groups, ...
 compoundStatement :: P CompoundStatement
 compoundStatement = choice [do reservedWord "for"
-                               name <- token basicName <|> unexpectedNoEOF
+                               var <- token basicName <|> unexpectedNoEOF
                                vallist <- inClause
                                (cs,_) <- commandsTill (reservedWord "done")
-                               return $ For name vallist cs
+                               return $ For var vallist cs
                            ,do reservedWord "while"
                                (cond,_) <- commandsTill $ reservedWord "do"
                                newlines
@@ -254,6 +250,7 @@ parseIf = do newlines
                             elif <- parseIf
                             return $ If cond thn $ compound elif
                "fi" -> return $ If cond thn []
+               s -> impossible $ "parseIf: next="++s
     where compound x = [Synchronous $ Singleton $ Pipeline [Compound x []]]
 
 -- |Here is where we need to be careful about parens, at least once we
@@ -316,14 +313,14 @@ readHD delim = popHereDoc =<< manyTill' (dqLex "\\$`")
                                         ,eof >> return False])
 
 dqLex :: String -> P Lexeme -- input: chars to escape with '\\'
-dqLex escape = choice [do char '\\'
-                          choice [newline >> dqLex escape
-                                 ,ql `fmap` oneOf escape
-                                 ,return $ ql '\\'
-                                 ]
-                      ,Quoted `fmap` expansion
-                      ,ql `fmap` anyChar
-                      ]
+dqLex esc = choice [do char '\\'
+                       choice [newline >> dqLex esc
+                              ,ql `fmap` oneOf esc
+                              ,return $ ql '\\'
+                              ]
+                   ,Quoted `fmap` expansion
+                   ,ql `fmap` anyChar
+                   ]
 
 -- |Nothing left after command terminator, so turn all the heredocs into
 -- empty @False@s.
@@ -533,6 +530,7 @@ hereEnd = token $ fromLit `fmap` word HereEndContext
           fromLit (Quote _:xs) = fromLit xs
           fromLit (Quoted q:xs) = fromLit $ q:xs
           fromLit (Literal l:xs) = l:fromLit xs
+          fromLit (l:_) = impossible $ "bad lexeme "++show l
 
 commands :: P [Command]
 commands = do newlines
@@ -568,10 +566,10 @@ expandHereDocs c = unorderStatements `fmap` mapCommandsM f c
           stripTabs (Literal n:Literal '\t':rest)
               | n `elem` "\n\r" = stripTabs (Literal n:rest)
           stripTabs (x:xs) = x:stripTabs xs
-          mk i s f = do mwb <- nextHDReplacement
-                        case mwb of -- (Nothing case is impossible?)
-                          Just (w,b) -> return $ Heredoc i s b (f w)
-                          Nothing    -> return $ Heredoc i s False []
+          mk i s func = do mwb <- nextHDReplacement
+                           case mwb of -- (Nothing case is impossible?)
+                             Just (w,b) -> return $ Heredoc i s b (func w)
+                             Nothing    -> return $ Heredoc i s False []
 
 -- here's a smart use of the Monad class...! :-)
 hereDocsComplete :: [Command] -> Bool
@@ -580,7 +578,7 @@ hereDocsComplete = isJust . mapCommandsM complete
                          (_:<<_)  -> Nothing
                          (_:<<-_) -> Nothing
                          Heredoc _ _ False _ -> Nothing
-                         r        -> Just r
+                         _        -> Just r
 
 -- |Ensures there's an 'eof' after whatever we parse.
 only :: P a -> P a

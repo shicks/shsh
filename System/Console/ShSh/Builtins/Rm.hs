@@ -9,11 +9,11 @@ import System.Directory ( removeFile, removeDirectory,
                           getDirectoryContents )
 import Control.Monad ( when )
 import Control.Monad.Trans ( liftIO )
-import System.Console.GetOpt
 import System.Exit ( ExitCode(..) )
 
+{-# NOINLINE rm #-}
 rm :: [String] -> Shell ExitCode
-rm = withArgs "rm" header args RequireOrder rm'
+rm = withArgs "rm" header args rm'
     where rm' [] = fail "rm requires an argument!"
           rm' fs = do amr <- flag 'r'
                       amf <- flag 'f'

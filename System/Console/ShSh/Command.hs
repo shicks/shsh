@@ -1,6 +1,7 @@
--- |Here we run commands.
+{-# OPTIONS_GHC -Wall #-}
 
-{-# OPTIONS_GHC -cpp #-}
+-- |Here we parse the shell AST and delegate all the builtins,
+-- piping, command-running, etc.
 module System.Console.ShSh.Command ( runCommands, source, eval ) where
 
 import System.Console.ShSh.Builtins ( builtin )
@@ -11,9 +12,9 @@ import System.Console.ShSh.Internal.IO ( newPipe, rGetContents )
 import System.Console.ShSh.Internal.Process ( WriteStream(..),
                                               PipeState(..) )
 import System.Console.ShSh.Path ( findExecutable )
-import System.Console.ShSh.ShellError ( announceError, putExitCode )
+import System.Console.ShSh.ShellError ( putExitCode )
 import System.Console.ShSh.Shell ( Shell, ShellProcess(..),
-                                   withShellProcess, maybeCloseIn,
+                                   withShellProcess,
                                    maybeCloseOut, subShell, makeLocal,
                                    runShellProcess, setEnv, getAllEnv,
                                    setFunction, getFunction, setExitCode,
@@ -28,19 +29,15 @@ import Language.Sh.Parser ( parse, hereDocsComplete )
 import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Pipeline(..), Statement(..),
                             CompoundStatement(..),
-                            Word, Lexeme(..), Assignment(..) )
+                            Word, Redir, Assignment(..) )
 import qualified Language.Sh.Expansion as E
 
-import System.Directory ( getCurrentDirectory )
 import System.Exit ( ExitCode(..), exitWith )
-import System.IO ( Handle, IOMode(..), openFile, hGetLine, hIsEOF )
 
 import Control.Monad.Trans ( liftIO )
 import Control.Monad.Error ( catchError, throwError )
 import Control.Monad ( when, unless, forM )
 import Data.Monoid ( mempty )
-
-import Debug.Trace ( trace )
 
 -- |What to do on failure?
 data OnErr = IgnoreE | CheckE
@@ -78,10 +75,12 @@ pipeline b (Pipeline [s]) = sec $ runStatement b s
 pipeline b (Pipeline (s:ss)) = do s' <- runStatement IgnoreE s
                                   ss' <- pipeline b $ Pipeline ss
                                   return $ pipeShells s' ss'
-pipeline b (BangPipeline [s]) = sec $ notProcess `fmap` runStatement IgnoreE s
-pipeline b (BangPipeline (s:ss)) = do s' <- runStatement IgnoreE s
+pipeline _ (Pipeline []) = error "impossible"
+pipeline _ (BangPipeline [s]) = sec $ notProcess `fmap` runStatement IgnoreE s
+pipeline _ (BangPipeline (s:ss)) = do s' <- runStatement IgnoreE s
                                       ss' <- pipeline IgnoreE $ BangPipeline ss
                                       return $ pipeShells s' ss'
+pipeline _ (BangPipeline []) = error "impossible"
 
 notProcess :: ShellProcess -> ShellProcess
 notProcess = withShellProcess $ \sp ->
@@ -98,6 +97,7 @@ checkE CheckE = withShellProcess $ \sp ->
                    return ec
 checkE IgnoreE = id
 
+withEnv ::[Redir] -> [Assignment] -> Shell ExitCode -> Shell ExitCode
 withEnv = withEnvironment expandWord
 
 -- |Run a 'Statement'.
@@ -142,12 +142,12 @@ runCompound b (If cond thn els) =
        case ec of ExitSuccess -> runCommands' b thn
                   _           -> runCommands' b els
 runCompound b (Case expr cases) = do e <- expandWord expr
-                                     run b e cases
-    where run _ _ [] = return ExitSuccess
-          run b s ((ps,cs):xs) = do match <- check s ps
-                                    if match then runCommands' b cs
-                                             else run b s xs
-          check s [] = return False
+                                     run e cases
+    where run _ [] = return ExitSuccess
+          run s ((ps,cs):xs) = do match <- check s ps
+                                  if match then runCommands' b cs
+                                           else run s xs
+          check _ [] = return False
           check s (p:ps) = do p' <- expandPattern p
                               if matchPattern p' s then return True
                                                    else check s ps
@@ -191,17 +191,20 @@ runWithArgs cmd args = do exe <- findExecutable cmd `catchError`
                                  (throwError . putExitCode (ExitFailure 127))
                           runInShell exe args
 
+setVars :: [Assignment] -> Shell ExitCode
 setVars [] = return ExitSuccess
 setVars ((name:=word):as) = (setEnv name =<< expandWord word) >> setVars as
 
 -- |These should really be in 'Builtins', but we want them outside the
 -- 'withEnvironment'...  we could process in multiple stages...
+setLocals :: [String] -> Shell ExitCode
 setLocals [] = return ExitSuccess
 setLocals (x:xs) = do let (name,val) = break (=='=') x
                       makeLocal name
                       unless (null val) $ setEnv name $ drop 1 val
                       setLocals xs -- poor man's mapM_ >> return ExitSuccess
 
+setExports :: [String] -> Shell ExitCode
 setExports [] = getExports >>= mapM (oPutStrLn . (\(s,v) -> "export "++s++"="++v))
                 >> return ExitSuccess
 setExports xs = mapM_ se xs >> return ExitSuccess
