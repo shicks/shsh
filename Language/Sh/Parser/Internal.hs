@@ -40,7 +40,7 @@ mkRedir ">&"  (Just s) t | Just t' <- wordToInt t = return $ s :>& t'
                          | otherwise = fail "bad file descriptor"
 mkRedir ">>"  (Just s) t = return $ s :>> t
 mkRedir ">|"  (Just s) t = return $ s :>| t
-mkRedir op Nothing _ = impossible $ "not a redirection: "++op
+mkRedir op _ _ = impossible $ "not a redirection: `"++op++"'"
 
 
 mkHereDoc :: String -> Maybe Int -> String -> P Redir -- queues...

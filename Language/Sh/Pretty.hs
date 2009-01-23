@@ -41,8 +41,8 @@ reset :: PrettyP ()
 reset = modify $ \s -> s { delims = normalDelimiters, quotes = None }
 
 -- helper functions (all internal)
-setQuote :: QuoteType -> PrettyP ()
-setQuote q = modify $ \s -> s { quotes = q }
+-- setQuote :: QuoteType -> PrettyP ()
+-- setQuote q = modify $ \s -> s { quotes = q }
 
 sub :: PrettyP a -> PrettyP a
 sub a = do s <- get
@@ -201,7 +201,8 @@ instance Pretty [Lexeme] where
                               (next,st) <- peek ls
                               poke (lit q d next c) st
       pc' (SplitField:ls) = do q <- gets quotes
-                               quote None +++ " " +++ quote q
+                               quote None +++ " " +++ quote q +++ pc ls
+      pc' [] = error "impossible"
       lit q d n c = case q of -- backslash-quote anything we need to
                     None     | c `elem` (d++"$`\"'\\") -> ['\\',c]
                     SingleQ  | c == '\''               -> "'\"'\"'"

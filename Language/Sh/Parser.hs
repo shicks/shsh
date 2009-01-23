@@ -61,19 +61,19 @@ eatNewlines a = do a' <- a
 -- at least, in the case of heredocs inside (illegal?) it seems to fail
 statement :: P Statement
 statement = do aliasOn
-               choice [try $ do func <- basicName
+               choice [Compound `fmap` compoundStatement `ap` many redirection
+                      ,try $ do func <- basicName -- this comes AFTER compounds
                                 spaces >> char '(' >> spaces
                                 char ')' <|> unexpectedNoEOF
                                 spaces >> newlines -- optional
                                 FunctionDefinition func
                                     `fmap` compoundStatement
                                     `ap` many redirection
-                   ,Compound `fmap` compoundStatement `ap` many redirection
-                   ,do s <- statementNoSS
-                       case s of -- needed to prevent errors w/ 'many'
-                         OrderedStatement [] -> fail "empty statement"
-                         s' -> return s'
-                   ]
+                      ,do s <- statementNoSS
+                          case s of -- needed to prevent errors w/ 'many'
+                            OrderedStatement [] -> fail "empty statement"
+                            s' -> return s'
+                      ]
 
 -- Once we know we don't have a subshell...
 -- We could probably wrap these into one function, since there's a fair
