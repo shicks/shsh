@@ -1,18 +1,16 @@
 Here's a list of all the stuff we need to do.
 
- - Get the Cabal file working
- - Get Franchise to play nicely with Cabal and two targets (lib and exe)
+ ! Get the Cabal file working
+ ! Get Franchise to play nicely with Cabal and two targets (lib and exe)
  - More redirects (deal with fd's correctly...)
- - Haddock target
- - Variable attributes (exported, read-only (e.g.  $-))
+ ! Haddock target
  - Impossible macro
- - Work out EOT
+ ! Work out EOT
  - Move bad substitution error from parser into expander
  - While sourcing, parse or other error should quit; failing exit code doesn't
- - Figure out what's going on with fatal/non-fatal parse errors - tests?
- - Use own path, rather than (immutable) system path...
+ ! Figure out what's going on with fatal/non-fatal parse errors - tests?
  - SIGPIPE and other signals!
- - Overhaul ShellProcess...
+ ! Overhaul ShellProcess...
 
 Tests Needed:
  - Parse issues, including robust recovery from fatal errors
@@ -27,3 +25,50 @@ Known Issues:
    -> NO... it's some other thread - the error happens at exitWith...?
  - incorrect semantics in setEnv (ie. unset of exported vs readonly
       vars in bash...?)
+
+=======================
+
+BUG: brace groups don't thread properly
+  echo | { cat; echo; }
+This blocks indefinitely - why?
+
+Invoking externals doesn't help:
+  echo | { /bin/cat; echo; }
+
+If we ever use command substitution inside a brace, it gets worse!
+  echo | { `which cat`; echo; }
+Now we get "hClose: resource vanished (Broken pipe)" errors, and
+nothing ever works again (stdout appears to be closed!)
+
+=======================
+
+Darcs test suite results (conformant scripts, at least)
+
+harness.sh      # harness broken
+ignore-this.sh  # ... | not darcs
+issue1039.sh    # ... | not darcs
+issue1139-diff-with-no-args.sh  # darcs bug?
+issue436.sh     # subshells (but braces work OK)
+issue458.sh     # bug w/ echo
+issue595_get_permissions.sh   # unimplemented [
+match-date.sh       # non-implemented date options
+mv-formerly-pl.sh   # asynchronous commands
+pending_has_conflicts.sh  # ""
+printer.sh                # strange pipe error
+# ---> (/bin/fgrep: (standard input): Resource temporarily unavailable)
+pull_many_files.sh        # darcs bug
+pull.sh                   # asynch
+push-dry-run.sh           # [
+rollback.sh               # implement xtrace at some point (passes now)
+set_scripts_executable.sh # darcs bug?
+sigPIPE.sh                # no sigpipe
+time-stamps.sh            # touch doesn't freshen timestamps!
+
+TODO:
+ - figure out pipes through braces (and subshells)
+ - fix echo
+ - implement [
+ - implement a better date
+ - implenent & (!!!) (even w/o job control...?)
+ - implement sigpipe
+ - fix touch

@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
 -- |This module exports a list of builtin commands and how we handle them.
 
-module System.Console.ShSh.Builtins ( builtin ) where
+module System.Console.ShSh.Builtins ( builtin, showAlias ) where
 
 import System.Console.ShSh.Builtins.Args ( withArgsOrd, -- opt, optSet,
                                            flag, flagOn, flagOff )
@@ -140,20 +140,20 @@ showEnv = do env <- getAllEnv
              forM_ (sortBy (comparing fst) env) $ \(e,v) ->
                  oPutStrLn $ e ++ "=" ++ v
 
-showAlias :: (String,String) -> Shell ()
-showAlias (s,x) = oPutStrLn $ s ++ "='" ++ concatMap f x ++ "'"
+showAlias :: String -> String -> Shell ()
+showAlias s x = oPutStrLn $ s ++ "='" ++ concatMap f x ++ "'"
     where f '\'' = "'\"'\"'"
           f c = [c]
 
 showAliases :: Shell ExitCode
 showAliases = do as <- getAliases
-                 forM_ as showAlias
+                 forM_ as $ uncurry showAlias
                  return ExitSuccess
 
 mkAlias :: String -> Shell ()
 mkAlias a | null eqval = do aa <- getAlias name
                             case aa of
-                              Just v  -> showAlias (name,v)
+                              Just v  -> showAlias name v
                               Nothing -> ePutStrLn $
                                          "alias: "++name++" not found"
           | otherwise  = do setAlias name val

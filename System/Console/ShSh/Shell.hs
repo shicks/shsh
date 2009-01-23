@@ -22,8 +22,9 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    startShell, subShell,
                                    withHandler, withHandler_,
                                    withExitHandler, failOnError,
+                                   withMaybeHandler, withChangeCodeHandler,
                                    pipeState, closeOut, maybeCloseOut,
-                                   maybeCloseIn,
+                                   maybeCloseIn, finally,
                                    withSubState, withErrorsPrefixed,
                                    withEnvironment, withPositionals,
                                    runShellProcess, withShellProcess,
@@ -64,7 +65,7 @@ import System.Console.ShSh.Internal.Process ( launch,
                                               fromReadStream, fromWriteStream
                                             )
 import System.Console.ShSh.ShellError ( ShellError, catchS, announceError,
-                                        exitCode, prefixError, exit )
+                                        exitCode, prefixError, exit, failWith )
 import System.Console.ShSh.Compat ( on )
 import System.Console.ShSh.Var ( Equiv, (===),
                                  Var(..), VarFlags(..),
@@ -558,6 +559,13 @@ withExitHandler :: Shell ExitCode -> Shell ExitCode
 withExitHandler s = catchError (catchS s $ \_ -> return ExitSuccess)
                     $ \e -> do announceError e
                                return $ exitCode e
+
+-- |A strange sort of error handler
+withMaybeHandler :: ShellT e a -> ShellT e (Maybe a)
+withMaybeHandler job = catchError (Just `fmap` job) $ \_ -> return Nothing
+
+withChangeCodeHandler :: Int -> ShellT e a -> ShellT e a
+withChangeCodeHandler n job = catchError job $ \err -> failWith n $ show err
 
 assign :: (Word -> Shell String) -> [(Var,(VarFlags,Maybe String))]
        -> Assignment -> InnerShell () [(Var,(VarFlags,Maybe String))]

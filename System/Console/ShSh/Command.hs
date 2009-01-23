@@ -4,7 +4,7 @@
 -- piping, command-running, etc.
 module System.Console.ShSh.Command ( runCommands, source, eval ) where
 
-import System.Console.ShSh.Builtins ( builtin )
+import System.Console.ShSh.Builtins ( builtin, showAlias )
 import System.Console.ShSh.Foreign.Pwd ( getHomeDir )
 import System.Console.ShSh.IO ( ePutStrLn, oPutStrLn, oFlush, eFlush,
                                 iHandle, oHandle, eHandle )
@@ -12,10 +12,12 @@ import System.Console.ShSh.Internal.IO ( newPipe, rGetContents )
 import System.Console.ShSh.Internal.Process ( WriteStream(..),
                                               PipeState(..) )
 import System.Console.ShSh.Path ( findExecutable )
-import System.Console.ShSh.ShellError ( putExitCode )
+import System.Console.ShSh.ShellError ( failWith )
 import System.Console.ShSh.Shell ( Shell, ShellProcess(..),
                                    withShellProcess,
-                                   maybeCloseOut, subShell, makeLocal,
+                                   withChangeCodeHandler, withMaybeHandler,
+                                   maybeCloseOut,
+                                   subShell, makeLocal, finally,
                                    runShellProcess, setEnv, getAllEnv,
                                    setFunction, getFunction, setExitCode,
                                    setExport, getExports, getPositionals,
@@ -26,18 +28,18 @@ import System.Console.ShSh.Shell ( Shell, ShellProcess(..),
 
 import Language.Sh.Glob ( expandGlob, matchPattern )
 import Language.Sh.Parser ( parse, hereDocsComplete )
+import Language.Sh.Pretty ( pretty )
 import Language.Sh.Syntax ( Command(..), AndOrList(..),
                             Pipeline(..), Statement(..),
                             CompoundStatement(..),
                             Word, Redir, Assignment(..) )
 import qualified Language.Sh.Expansion as E
 
-import System.Exit ( ExitCode(..), exitWith )
-
 import Control.Monad.Trans ( liftIO )
-import Control.Monad.Error ( catchError, throwError )
 import Control.Monad ( when, unless, forM )
+import Data.Maybe ( catMaybes )
 import Data.Monoid ( mempty )
+import System.Exit ( ExitCode(..), exitWith )
 
 -- |What to do on failure?
 data OnErr = IgnoreE | CheckE
@@ -161,8 +163,10 @@ runCompound b (Until cond code) =
        case ec of ExitSuccess -> return ExitSuccess
                   _           -> do runCommands' b code
                                     runCompound b $ Until cond code
-runCompound b (BraceGroup cs) = runCommands' b cs
-runCompound _ c = fail $ "Control structure "++show c++" not yet supported."
+runCompound b (BraceGroup cs) = runCommands' b cs -- what to do here...?
+                                `finally` maybeCloseOut -- ?????
+runCompound b (Subshell cs) = runCompound b (BraceGroup cs) -- FOR NOW!!!
+--runCompound _ c = fail $ "Control structure "++show c++" not yet supported."
 
 openHandles :: Shell () -- this is weird -> these shouldn't have side effects
 openHandles = iHandle >> oHandle >> eHandle >> return ()
@@ -174,6 +178,8 @@ runBuiltinOrExe = run' where -- now this is just for layout...
                          | otherwise = return $ BuiltinProcess $
                                                 withPositionals args $ source f
   run' "source" [] = return $ BuiltinProcess $ fail "filename argument required"
+  run' "command" args = return $ BuiltinProcess $ commandBuiltin args
+  run' "type" args = return $ BuiltinProcess $ typeBuiltin args
   run' command args = do b <- builtin command
                          return $ case b of
                            Just b' -> BuiltinProcess $ withExitHandler $
@@ -187,8 +193,7 @@ runBuiltinOrExe = run' where -- now this is just for layout...
                                         runWithArgs command args
 
 runWithArgs :: String -> [String] -> Shell ExitCode
-runWithArgs cmd args = do exe <- findExecutable cmd `catchError`
-                                 (throwError . putExitCode (ExitFailure 127))
+runWithArgs cmd args = do exe <- withChangeCodeHandler 127 $ findExecutable cmd
                           runInShell exe args
 
 setVars :: [Assignment] -> Shell ExitCode
@@ -275,3 +280,92 @@ expandPattern = E.expandPattern ef
 -- |Expand a list of words into a list of strings; fields will be split.
 expandWords :: [Word] -> Shell [String]
 expandWords = E.expand ef
+
+------------------------------------------------------------------------
+-- I don't particularly like having this here, but where else can it go?
+
+data Resolved = Executable FilePath
+              | Builtin ([String] -> Shell ExitCode)
+              | Function CompoundStatement [Redir]
+              | Alias String
+              | Keyword
+
+resolveCommand :: String -> Shell [Resolved]
+resolveCommand s = catMaybes `fmap` sequence -- special path?
+                     [(fmap Alias . lookup s) `fmap` getAliases
+                     ,return $ if s `elem` keywords then Just Keyword
+                                                    else Nothing
+                     ,fmap (uncurry Function) `fmap` getFunction s
+                     ,fmap Builtin `fmap` builtin s
+                     ,fmap Executable `fmap`
+                           withMaybeHandler (findExecutable s)]
+
+keywords :: [String]
+keywords = ["for", "in", "do", "done", "while", "until",
+            "if", "then", "elif", "fi", "case", "{", "}", "[[", "]]"]
+
+--                       case lookup s as of
+--                         Just a -> return $ Alias a
+--                         Nothing -> do
+--                           func <- getFunction s
+--                           case func of
+--                             Just (f,rs) -> return $ Function f rs
+--                             Nothing -> do
+--                               b <- builtin command
+--                               case b of
+--                                 Just b' -> return $ Builtin
+--                                 Nothing -> do
+--                                   exe <- withMaybeHandler $ findExecutable cmd
+--                                   case exe of
+--                                     Just fp -> return Executable fp
+--                                     Nothing -> return NotFound
+
+-- |This is a complicated builtin that we need to put here, since
+-- it needs to call functions in this module...  We might later work
+-- out a distinction between POSIX builtins and standard utils, as well
+-- as the @-p@ path, but for now, we don't do much.
+-- Additionally, bash's command -V tells whether something is hashed...
+data CommandMode = Path | Verb | Basic | Empty
+commandBuiltin :: [String] -> Shell ExitCode
+commandBuiltin = run `flip` Empty
+    where run [] _ = return ExitSuccess
+          run (('-':a:[]):as) m = run as $ mode m a
+          run (('-':a:a'):as) m = run (('-':a'):as) $ mode m a
+          run (s:args) Empty = do rs <- resolveCommand s
+                                  case take 1 rs of
+                                    [Executable fp] -> runInShell fp args
+                                    [Builtin b] -> b args
+                                    _ -> failWith 127 $ s++": command not found"
+          run (s:args) Path = run (s:args) Empty -- for now...?
+          run ss Basic = anyM ss $ \s -> short s =<< resolveCommand s
+          run ss Verb = anyM ss $ \s -> doType "command" s =<< resolveCommand s
+          mode m c = case c of { 'p'->Path; 'v'->Basic; 'V'->Verb; _->m }
+          anyM ss f = do res <- forM ss f
+                         if any id res then return ExitSuccess
+                                       else return $ ExitFailure 1
+          short s (x:_:_) = short s [x]
+          short _ [Executable fp] = oPutStrLn fp >> return True
+          short s [Builtin _] = oPutStrLn s >> return True
+          short s [Keyword] = oPutStrLn s >> return True
+          short s [Function _ _] = oPutStrLn s >> return True
+          short s [Alias s'] = showAlias s s' >> return True
+          short _ [] = return False
+
+typeBuiltin :: [String] -> Shell ExitCode
+typeBuiltin ss = anyM $ \s -> doType "type" s =<< resolveCommand s
+    where anyM f = do res <- forM ss f -- could probably use a clever fold
+                      if any id res then return ExitSuccess
+                                    else return $ ExitFailure 1
+
+doType :: String -> String -> [Resolved] -> Shell Bool
+doType c s (x:_:_) = doType c s [x]
+doType _ s [Executable fp] = oPutStrLn (s++" is "++fp) >> return True
+doType _ s [Builtin _] = oPutStrLn (s++" is a shell builtin") >> return True
+doType _ s [Keyword] = oPutStrLn (s++" is a shell keyword") >> return True
+doType _ s [Function f rs] = do oPutStrLn $ s++" is a function"
+                                oPutStrLn $ pretty $ FunctionDefinition s f rs
+                                return True
+doType _ s [Alias s'] = do oPutStrLn $ s++" is aliased to `"++s'++"'"
+                           return True
+doType cmd s [] = do ePutStrLn $ "shsh: "++cmd++": "++s++": not found"
+                     return False

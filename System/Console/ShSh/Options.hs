@@ -27,7 +27,8 @@ options :: [(Char,String)]
 options = [('e',"errexit"),
            ('f',"noglob"),
            ('v',"verbose"),
-           ('C',"noclobber")]
+           ('C',"noclobber"),
+           ('x',"xtrace")]
 
 swop :: [(String,Char)]
 swop = map (\(a,b)->(b,a)) options

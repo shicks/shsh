@@ -5,7 +5,7 @@
 
 module System.Console.ShSh.ShellError ( ShellError, isFailure,
                                         throw, exit, exitCode,
-                                        putExitCode,
+                                        putExitCode, failWith,
                                         rethrow, catchS,
                                         announceError,
                                         prefixError, withPrefix
@@ -45,6 +45,10 @@ rethrow e = throwError e
 exit :: MonadError ShellError m => Int -> m a
 exit 0 = throwError $ ShellError ExitSuccess ""
 exit n = throwError $ ShellError (ExitFailure n) ""
+
+failWith :: MonadError ShellError m => Int -> String -> m a
+failWith 0 s = throwError $ ShellError ExitSuccess s
+failWith n s = throwError $ ShellError (ExitFailure n) s
 
 throw :: MonadError ShellError m => String -> m a
 throw s = throwError $ ShellError (ExitFailure 1) s
