@@ -3,7 +3,7 @@
 module Language.Sh.Glob ( expandGlob, matchPattern,
                           removePrefix, removeSuffix ) where
 
-import Control.Monad.Trans ( MonadIO, liftIO )
+import Control.Monad.Trans ( MonadIO )
 import Control.Monad.State ( runState, put )
 import Data.List ( isPrefixOf, partition )
 import Data.Maybe ( isJust, listToMaybe )
@@ -14,6 +14,7 @@ import Language.Sh.Syntax ( Lexeme(..), Word )
 -- we might get a bit fancier if older glob libraries will support
 -- a subset of what we want to do...?
 #ifdef HAVE_GLOB
+import Control.Monad.Trans ( liftIO )
 import System.FilePath.Glob ( compileWithOptions, compPosix,
                               globDir, commonPrefix )
 #endif
@@ -28,9 +29,6 @@ expandGlob w = case mkGlob w of
                                    liftIO $ putStrLn $ show (dir,g'')
                                    hits <- globDir [g''] dir
                                    return $ head $ fst $ hits
-#else
-expandGlob = const $ return []
-#endif
 
 -- By the time this is called, we should only have quotes and quoted
 -- literals to worry about.  In the event of finding an unquoted glob
@@ -54,6 +52,9 @@ mkGlob w = case runState (mkG w) False of
           mkG l = error $ "bad lexeme: "++show l
           mkLit c | c `elem` "[*?<" = ['[',c,']']
                   | otherwise       = [c]
+#else
+expandGlob = const $ return []
+#endif
 
 -- This is basically gratuitously copied from Glob's internals.
 mkClass :: Word -> Maybe (String,Word)

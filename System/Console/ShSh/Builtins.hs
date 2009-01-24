@@ -27,7 +27,7 @@ import System.Console.ShSh.Shell ( ShellT, Shell,
                                    getPositionals, modifyPositionals,
                                    getAlias, getAliases, setAlias,
                                    unsetAlias, unsetAllAliases,
-                                   getAllEnv, getEnv, unsetEnv )
+                                   getAllEnv, getEnv )
 import System.Console.ShSh.Util ( split )
 
 import Control.Monad ( forM_, unless )
@@ -62,8 +62,7 @@ builtins = [(":",const $ return ExitSuccess),
             ("mkdir",mkDir), ("mv",mv), ("pwd",pwd), ("rm",rm),
             ("set",set), ("shift",shift), ("sort",runSort),
             ("touch", touch), ("true",const $ return ExitSuccess),
-            ("unalias",unalias),("unset",unset),
-            ("wc",runWc)]
+            ("unalias",unalias), ("wc",runWc)]
             
 builtin :: String -> Shell (Maybe ([String] -> Shell ExitCode))
 builtin b = do noBuiltin <- getEnv "NOBUILTIN"
@@ -74,7 +73,7 @@ builtin b = do noBuiltin <- getEnv "NOBUILTIN"
                return $ if r then Nothing
                              else lookup b builtins
 
-alias, cat, echo, pwd, set, shift, unalias, unset
+alias, cat, echo, pwd, set, shift, unalias
     :: [String] -> Shell ExitCode
 
 alias [] = showAliases
@@ -128,10 +127,6 @@ shift (s:_) | all isDigit s = do let n = read s
                                     else do modifyPositionals $ drop n
                                             return ExitSuccess
             | otherwise     = fail $ s++": numeric argument required"
-
-unset [] = return ExitSuccess
-unset (a:as) = unsetEnv a >> unset as
-
 
 -- The BASH version escapes dangerous values with single-quotes, i.e.
 --   spaces, parens, etc..., make the output runnable.

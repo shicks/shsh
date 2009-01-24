@@ -16,15 +16,17 @@ import System.Console.ShSh.ShellError ( failWith )
 import System.Console.ShSh.Shell ( Shell, ShellProcess(..),
                                    withShellProcess,
                                    withChangeCodeHandler, withMaybeHandler,
-                                   maybeCloseOut,
-                                   subShell, makeLocal, finally,
+                                   maybeCloseOut, withRedirects,
+                                   subShell, makeLocal, finally, unsetEnv,
                                    runShellProcess, setEnv, getAllEnv,
                                    setFunction, getFunction, setExitCode,
                                    setExport, getExports, getPositionals,
                                    pipeShells, runInShell, getExitCode,
                                    withEnvironment, withExitHandler,
                                    getFlag, getAliases, withPositionals,
-                                   withErrorsPrefixed, withPipes )
+                                   withErrorsPrefixed, withPipes
+                                   -- DEBUG!
+                                 , envVars )
 
 import Language.Sh.Glob ( expandGlob, matchPattern )
 import Language.Sh.Parser ( parse, hereDocsComplete )
@@ -36,7 +38,7 @@ import Language.Sh.Syntax ( Command(..), AndOrList(..),
 import qualified Language.Sh.Expansion as E
 
 import Control.Monad.Trans ( liftIO )
-import Control.Monad ( when, unless, forM )
+import Control.Monad ( when, unless, forM, forM_ )
 import Data.Maybe ( catMaybes )
 import Data.Monoid ( mempty )
 import System.Exit ( ExitCode(..), exitWith )
@@ -102,6 +104,9 @@ checkE IgnoreE = id
 withEnv ::[Redir] -> [Assignment] -> Shell ExitCode -> Shell ExitCode
 withEnv = withEnvironment expandWord
 
+withRedirs ::[Redir] -> Shell ExitCode -> Shell ExitCode
+withRedirs = withRedirects expandWord
+
 -- |Run a 'Statement'.
 runStatement :: OnErr -> Statement -> Shell ShellProcess
 runStatement b (Compound c rs) = return $ BuiltinProcess $ withEnv rs [] $
@@ -114,7 +119,9 @@ runStatement _ (OrderedStatement ts) = fail $ "OrderedStatement got through: "
 runStatement b (Statement ws rs as) = checkE b `fmap`
     do ws' <- expandWords ws
        case ws' of
-         [] -> return $ BuiltinProcess $ withEnv rs [] $ setVars as
+         [] -> return $ BuiltinProcess $ withRedirs rs $ setVars as
+         ("unset":xs) -> return $ BuiltinProcess $ do forM_ xs unsetEnv
+                                                      return ExitSuccess
          ("local":xs) -> return $ BuiltinProcess $ setLocals xs
          ["export"] -> return $ BuiltinProcess $ withEnv rs as $ setExports []
          ("export":xs) -> return $ BuiltinProcess $
@@ -173,6 +180,12 @@ openHandles = iHandle >> oHandle >> eHandle >> return ()
 
 runBuiltinOrExe :: String -> [String] -> Shell ShellProcess
 runBuiltinOrExe = run' where -- now this is just for layout...
+  run' "env#" _ = return $ BuiltinProcess $ do -- debug builtin
+                   (e,l,p) <- envVars
+                   oPutStrLn $ "environment\n" ++ unlines (map show e)
+                   oPutStrLn $ "locals\n" ++ unlines (map show l)
+                   oPutStrLn $ "positionals: " ++ show p
+                   return ExitSuccess
   run' "." args = run' "source" args
   run' "source" (f:args) | null args = return $ BuiltinProcess $ source f
                          | otherwise = return $ BuiltinProcess $
@@ -369,3 +382,12 @@ doType _ s [Alias s'] = do oPutStrLn $ s++" is aliased to `"++s'++"'"
                            return True
 doType cmd s [] = do ePutStrLn $ "shsh: "++cmd++": "++s++": not found"
                      return False
+
+-----
+
+-- We have extra builtins that we have to have here for silly reasons...
+-- (although we could put the pertinent things in a class to separate)
+-- -> these are hardcoded into runStatement and runBuiltinOrExe -> ...
+-- Currently these don't work properly with command/type.
+-- specialBuiltins :: [(String,[String] -> ShellProcess)]
+

@@ -21,7 +21,8 @@ import Control.Monad ( forM_ )
 import System.Exit ( ExitCode(..) )
 
 import System.Console.ShSh.IO ( oPutStrLn )
-import System.Console.ShSh.Shell ( Shell, setFlag, unsetFlag, getFlag )
+import System.Console.ShSh.Shell ( Shell, setFlag, unsetFlag, getFlag,
+                                   modifyPositionals )
 
 options :: [(Char,String)]
 options = [('e',"errexit"),
@@ -48,9 +49,10 @@ setOpts ("+o":opt:ss) | isOpt opt = unsetOptLong opt >> setOpts ss
 setOpts ["-o"] = showOptsHuman >> return ExitSuccess
 setOpts ["+o"] = showOpts >> return ExitSuccess
 setOpts (s:ss) = case s of
+                   "--"     -> setPositionals ss
                    '-':c:cs -> setOpt c   >> setOpts (('-':cs):ss)
                    '+':c:cs -> unsetOpt c >> setOpts (('-':cs):ss)
-                   _ -> setOpts ss -- no error checking...?
+                   _ -> setPositionals (s:ss)
 
 setOpt :: Char -> Shell ()
 setOpt c = case lookup c options of
@@ -84,3 +86,6 @@ showOpts :: Shell ()
 showOpts = do forM_ options $ \(c,l) -> do
               v <- getFlag c
               oPutStrLn $ "set " ++ (if v then "-" else "+") ++ "o " ++ l
+
+setPositionals :: [String] -> Shell ExitCode
+setPositionals ss = modifyPositionals (const ss) >> return ExitSuccess

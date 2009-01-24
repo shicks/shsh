@@ -8,7 +8,7 @@
 
 module System.Console.ShSh.Shell ( Shell, ShellT,
                                    getEnv, setEnv, getAllEnv,
-                                   tryEnv, withEnv, unsetEnv,
+                                   tryEnv, alterEnv, unsetEnv,
                                    makeLocal, withLocalScope,
                                    setExport, getExports,
                                    getPositionals, modifyPositionals,
@@ -24,11 +24,13 @@ module System.Console.ShSh.Shell ( Shell, ShellT,
                                    withExitHandler, failOnError,
                                    withMaybeHandler, withChangeCodeHandler,
                                    pipeState, closeOut, maybeCloseOut,
-                                   maybeCloseIn, finally,
+                                   maybeCloseIn, finally, withRedirects,
                                    withSubState, withErrorsPrefixed,
                                    withEnvironment, withPositionals,
                                    runShellProcess, withShellProcess,
                                    ShellProcess(..)
+                                   -- * debugging only!
+                                 , envVars
                                  )
     where
 
@@ -191,17 +193,19 @@ $ echo $B  # now it's 50...
 -- |Now this is more general - we can unset vars with it!  It also treats
 -- locals correctly.  Unfortunately, because of the flags, we can't ever
 -- remove anything from the list...  
-setEnv :: Maybeable String a => String -> a -> ShellT e ()
+setEnv :: (Maybeable String a, Show a) => String -> a -> ShellT e ()
 setEnv v x = Shell $ do let mx = toMaybe x
-                        e <- gets environment
                         l <- gets locals
-                        e' <- case mx of -- can still unset...?  readonly?
-                                Nothing -> setVarHelper v Nothing e
-                                Just _  -> setVarHelper v (Just mx) e
-                        l' <- setVarHelper v (Just mx) l
                         case lookup v l of
-                          Just _  -> modify $ \st -> st { locals = l' }
-                          Nothing -> modify $ \st -> st { environment = e' }
+                          Just _  -> do
+                            l' <- setVarHelper v (Just mx) l
+                            modify $ \st -> st { locals = l' }
+                          Nothing -> do
+                            e <- gets environment
+                            e' <- case mx of -- can still unset...?  readonly?
+                                    Nothing -> setVarHelper v Nothing e
+                                    Just _  -> setVarHelper v (Just mx) e
+                            modify $ \st -> st { environment = e' }
 
 alterVarFlags :: String -> (VarFlags -> VarFlags) -> ShellT e ()
 alterVarFlags v f = Shell $ do e <- gets environment
@@ -232,7 +236,7 @@ getExitCode = do e <- getEnv "?"
 
 makeLocal :: String -> ShellT e ()
 makeLocal var = Shell $ do x <- unShell $ getEnv var
-                           l <- setVarHelper var (Just $ Just x) =<< gets locals
+                           l <- setVarHelper var (Just x) =<< gets locals
                            modify $ \st -> st { locals = l }
 
 setExport :: String -> Bool -> ShellT e ()
@@ -249,10 +253,10 @@ unsetEnv = setEnv `flip` (Nothing :: Maybe String)
 -- argument needs to be generatable from the environment (i.e. a MonadPlus
 -- or a plain string if we allow failure) and that we know how to convert
 -- the output into a maybe.  
-withEnv :: (Stringy (InnerShell e) a,Maybeable String b) =>
-           String -> (a -> b) -> ShellT e () -- could have safe one too
-withEnv s f = do e <- getEnv s
-                 setEnv s $ (toMaybe $ f e :: Maybe String)
+alterEnv :: (Stringy (InnerShell e) a,Maybeable String b) =>
+            String -> (a -> b) -> ShellT e () -- could have safe one too
+alterEnv s f = do e <- getEnv s
+                  setEnv s $ (toMaybe $ f e :: Maybe String)
 
 -- joinStringSet :: Eq a => [(a,b)] -> [(a,b)] -> [(a,b)]
 -- joinStringSet = unionBy ((==) `on` fst)
@@ -306,10 +310,10 @@ getAliases = Shell $ gets aliases
 
 -- *Flag commands - moved from Options
 setFlag :: Char -> ShellT a ()
-setFlag c = withEnv "-" (`union`[c])
+setFlag c = alterEnv "-" (`union`[c])
 
 unsetFlag :: Char -> ShellT a ()
-unsetFlag c = withEnv "-" (\\[c])
+unsetFlag c = alterEnv "-" (\\[c])
 
 getFlag :: Char -> ShellT a Bool
 getFlag c = elem c `fmap` getEnv "-"
@@ -639,6 +643,20 @@ withEnvironment expand rs as (Shell sub) = Shell $ do
     Right a  -> return a
     Left err -> throwError err
 
+withRedirects :: (Word -> Shell String) -> [Redir] -> Shell a -> Shell a
+withRedirects expand rs (Shell sub) = Shell $ do
+  s <- get
+  pipest <- gets pipeState
+  let redir' (xxx,yyy) zzz = do (xxx',yyy') <- redir expand xxx zzz
+                                return (xxx', yyy' >> yyy)
+  (p,closehs) <- foldM redir' (pipest, return ()) rs
+  (result,s') <- catchIO $ runStateT (runErrorT sub) $ s { pipeState = p }
+  catchIO closehs
+  put $ s' { pipeState = pipeState s }
+  case result of
+    Right a  -> return a
+    Left err -> throwError err
+
 withPositionals :: [String] -> Shell a -> Shell a
 withPositionals ps (Shell sub) = Shell $ do
   s <- get
@@ -660,3 +678,14 @@ withLocalScope (Shell sub) = Shell $ do
   case result of
     Right a  -> return a
     Left err -> throwError err
+
+
+-- * Debugging functions!
+
+envVars :: ShellT e ([(Var,(VarFlags,Maybe String))],
+                     [(Var,(VarFlags,Maybe String))],
+                     [String])
+envVars = Shell $ do e <- gets environment
+                     l <- gets locals
+                     p <- gets positionals
+                     return (e,l,p)
