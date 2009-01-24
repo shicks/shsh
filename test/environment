@@ -15,3 +15,71 @@ FOO is foo
 FOO is bar
 FOO is foo
 ~~~~
+
+
+We can also look at positional parameters.
+
+~~~~ check-output/positional.sh
+# fails-in-dash because of shift overflow
+foo () { echo $@; ! shift 2; echo $@; }
+foo bar baz bazbar
+echo $@
+set a b c d e
+echo $@
+shift 2
+echo $@
+foo bar # check for correct shift overflow (no action)
+foo bar baz
+echo $@ # check that function was local
+echo $1^$2^$3^$4^$5
+~~~~
+
+~~~~ known-output/positional.sh
+bar baz bazbar
+bazbar
+
+a b c d e
+c d e
+bar
+bar
+bar baz
+
+c d e
+c^d^e^^
+~~~~
+
+
+And locals:
+
+~~~~ check-output/locals.sh
+unset a # needed for this to work!
+foo () { echo ${a-unset}; local a; a=foo; echo $a; }
+foo
+echo ${a=bar}
+foo
+echo $a
+unset a
+foo
+echo ${a=baz} # only ->baz if unset
+bar () { unset a; }
+baz () { local a; unset a; echo ${a-unset}; }
+bar
+echo ${a=bazbar}
+baz
+echo $a
+~~~~
+
+~~~~ known-output/locals.sh
+unset
+foo
+bar
+bar
+foo
+bar
+unset
+foo
+baz
+bazbar
+unset
+bazbar
+~~~~
