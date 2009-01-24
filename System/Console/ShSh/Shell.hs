@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving,
              FlexibleInstances, FlexibleContexts,
-             MultiParamTypeClasses,
+             MultiParamTypeClasses, PatternGuards,
              TypeSynonymInstances, CPP #-}
 {-# OPTIONS_GHC -Wall #-}
 
@@ -53,7 +53,7 @@ import Data.Monoid ( Monoid, mempty, mappend )
 import System.Directory ( getCurrentDirectory, setCurrentDirectory,
                           getHomeDirectory, doesFileExist )
 import System.Exit ( ExitCode(..) )
-import System.Environment ( getEnvironment )
+import System.Environment ( getEnvironment, getProgName )
 import System.IO ( stdin, stdout, stderr, openFile, hClose, IOMode(..), Handle )
 
 import System.Console.ShSh.IO ( MonadSIO, iHandle, oHandle, eHandle )
@@ -151,19 +151,21 @@ type Shell = ShellT ()
 -- a string, we'll get a fail.  If we put it in a MonadPlus then we
 -- guarantee no failure.
 getEnv :: Stringy (InnerShell e) s => String -> ShellT e s
-getEnv "#" = Shell $ do p <- gets positionals
+getEnv "#" = Shell $ do p <- gets positionals -- never happens? (Expansion)
                         maybeToStringy (Just $ show $ length p) "#"
-getEnv "0" = Shell $ maybeToStringy Nothing "0"
-getEnv v | all isDigit v = Shell $ do p <- gets positionals
-                                      let n = read v - 1 -- starts at 1
-                                      if n>length p
-                                         then maybeToStringy Nothing v
-                                         else maybeToStringy (Just $ p!!n) v
+getEnv v | all isDigit v, n <- read v - 1, n >= 0
+                     = Shell $ do p <- gets positionals
+                                  if n>length p
+                                     then maybeToStringy Nothing v
+                                     else maybeToStringy (Just $ p!!n) v
          | otherwise = Shell $ do e <- gets environment
                                   l <- gets locals
                                   let x = join $ snd `fmap` lookup v l
                                              <|> snd `fmap` lookup v e
                                   maybeToStringy x v
+-- This is a bit messy here, with short-circuiting due to
+-- Language.Sh.Expansion using getAllEnv instead...  this function may
+-- actually never get called......?
 
 -- |This is a simpler version because we also give a default.
 tryEnv :: String -> String -> ShellT e String
@@ -341,10 +343,12 @@ startState = do e <- getEnvironment
                                     `catch` \_ -> return cwd
                 setCurrentDirectory cwd
                 home <- getHomeDirectory
+                prog <- getProgName
                 let e' = map (first Var) $
                          update "-" (mempty,Just f) $
                          map (\(a,b)->(a,(exportedVar,Just b))) $
                          update "SHELL" "shsh" $ update "PWD" pwdval $
+                         update "0" prog $
                          alter "HOME" (<|> Just home) $ winVars e
                 return $ emptyState { environment = e' }
 
