@@ -73,17 +73,23 @@ expandGlob w = do let breakd [] = []
                       w2g (Literal '[':Literal '!':r) =
                           case break isclose r of
                           (m,_:r') -> NoneOf (map l2c m) : w2g r'
-                          _ -> [Alt []] -- bad glob!
+                          _ -> Lit '[' : Lit '!' : w2g r -- not a range
+                      w2g (Literal '[':Literal '^':r) =
+                          case break isclose r of
+                          (m,_:r') -> NoneOf (map l2c m) : w2g r'
+                          _ -> Lit '[' : Lit '^' : w2g r
                       w2g (Literal '[':r) =
                           case break isclose r of
                           (m,_:r') -> Alt (map l2c m) : w2g r'
-                          _ -> [Alt []] -- bad glob!
+                          _ -> Lit '[' : w2g r
                       w2g (Literal '*':r) = Many : w2g r
                       w2g (Literal '?':r) = One : w2g r
                       w2g (Literal c:r) = Lit c : w2g r
-                      w2g (Quoted (Literal c):r) = Lit c : w2g r
                       w2g (Quote _:r) = w2g r
-                      w2g (Quoted x:r) = w2g (x:r) -- ???
+                      w2g (Quoted (Quoted q):r) = w2g (Quoted q:r)
+                      w2g (Quoted (Literal c):r) = Lit c : w2g r
+                      w2g (Quoted (Quote _):r) = w2g r
+                      w2g (Quoted x:r) = w2g (x:r) -- only expansions left
                       w2g l = error $ "bad lexeme: "++show l
                       whichd = if isd $ head w
                                then "/"
