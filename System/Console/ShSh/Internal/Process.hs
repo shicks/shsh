@@ -15,11 +15,16 @@ module System.Console.ShSh.Internal.Process (
 ) where
 
 import Control.Concurrent ( MVar, newEmptyMVar, takeMVar, putMVar, forkIO )
-import Data.Maybe ( fromMaybe )
 import Data.Monoid ( Monoid, mempty, mappend )
 import System.IO ( Handle )
 import System.Exit ( ExitCode )
-#ifdef HAVE_CREATEPROCESS
+#ifdef HAVE_REDIRECTS_CREATEPROCESS
+import Data.Maybe ( fromMaybe )
+import System.Process.Redirects ( std_in, std_out, std_err, env, proc, StdStream(..),
+                                  createProcess, waitForProcess )
+import System.IO ( hClose )
+#elif HAVE_CREATEPROCESS
+import Data.Maybe ( fromMaybe )
 import System.Process ( std_in, std_out, std_err, env, proc, StdStream(..),
                         createProcess, waitForProcess )
 import System.IO ( hClose )
@@ -102,7 +107,7 @@ toReadStream = RUseHandle . toReadHandle
 -- But the Shell's stored one does not.
 launch :: String -> [String] -> [(String,String)] -> PipeState
        -> IO ExitCode
-#ifdef HAVE_CREATEPROCESS
+#if defined(HAVE_CREATEPROCESS) || defined(HAVE_REDIRECTS_CREATEPROCESS)
 launch cmd args vars ps = do let is = rMkStream $ p_in  ps
                                  os = wMkStream $ p_out ps
                                  es = wMkStream $ p_err ps
@@ -110,7 +115,12 @@ launch cmd args vars ps = do let is = rMkStream $ p_in  ps
                                             (proc cmd args) { env = Just vars,
                                                               std_in  = is,
                                                               std_out = os,
-                                                              std_err = es }
+#ifdef HAVE_REDIRECTS_CREATEPROCESS
+                                                              std_err = Just es
+#else
+                                                              std_err = es
+#endif
+                                                            }
                              ps1 <- rProcess i (p_in ps)
                              ps2 <- wProcess o (p_out ps)
                              ps3 <- wProcess e (p_err ps)

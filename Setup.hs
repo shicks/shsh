@@ -26,6 +26,8 @@ main = build [] $
                withModuleExporting "Text.ParserCombinators.Parsec.Expr"
                    "Operator(..)" "Postfix" $
                    define "HAVE_PARSEC_POSTFIX"
+               withModule "System.Process.Redirects" $
+                   define "HAVE_REDIRECTS_CREATEPROCESS"
                withModuleExporting "System.Process" "createProcess, shell"
                    "createProcess (shell \"echo 1\") >> return ()" $
                    define "HAVE_CREATEPROCESS"
