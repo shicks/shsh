@@ -15,8 +15,8 @@ import Language.Sh.Syntax ( Lexeme(..), Word )
 -- a subset of what we want to do...?
 import Control.Monad.Trans ( liftIO )
 #ifdef HAVE_GLOB
-import System.FilePath.Glob ( compileWithOptions, compPosix,
-                              globDir, commonPrefix )
+import System.FilePath.Glob ( compileWith, compPosix,
+                              globDir, commonDirectory )
 #else
 import Data.List ( sort, tails )
 import System.Directory ( getDirectoryContents )
@@ -26,7 +26,7 @@ expandGlob :: MonadIO m => Word -> m [FilePath]
 #ifdef HAVE_GLOB
 expandGlob w = case mkGlob w of
                  Nothing -> return []
-                 Just g  -> let g' = compileWithOptions compPosix g
+                 Just g  -> let g' = compileWith compPosix g
                             in liftIO $
                                 do let (dir,g'') = commonPrefix g'
                                    liftIO $ putStrLn $ show (dir,g'')
@@ -37,24 +37,24 @@ expandGlob w = case mkGlob w of
 -- literals to worry about.  In the event of finding an unquoted glob
 -- char (and if the glob matches) we'll automatically remove quotes, etc.
 -- (since the next stage is, after all, quote removal).
-mkGlob :: Word -> Maybe String
-mkGlob w = case runState (mkG w) False of
-             (s,True) -> Just s
-             _  -> Nothing
-    where mkG [] = return []
-          mkG (Literal '[':xs) = case mkClass xs of
-                                   Just (g,xs') -> fmap (g++) $ mkG xs'
-                                   Nothing -> fmap ((mkLit '[')++) $ mkG xs
-          mkG (Literal '*':Literal '*':xs) = mkG $ Literal '*':xs
-          mkG (Literal '*':xs) = put True >> fmap ('*':) (mkG xs)
-          mkG (Literal '?':xs) = put True >> fmap ('?':) (mkG xs)
-          mkG (Literal c:xs) = fmap (mkLit c++) $ mkG xs
-          mkG (Quoted (Literal c):xs) = fmap (mkLit c++) $ mkG xs
-          mkG (Quoted q:xs) = mkG $ q:xs
-          mkG (Quote _:xs) = mkG xs
-          mkG l = error $ "bad lexeme: "++show l
-          mkLit c | c `elem` "[*?<" = ['[',c,']']
-                  | otherwise       = [c]
+-- mkGlob :: Word -> Maybe String
+-- mkGlob w = case runState (mkG w) False of
+--              (s,True) -> Just s
+--              _  -> Nothing
+--     where mkG [] = return []
+--           mkG (Literal '[':xs) = case mkClass xs of
+--                                    Just (g,xs') -> fmap (g++) $ mkG xs'
+--                                    Nothing -> fmap ((mkLit '[')++) $ mkG xs
+--           mkG (Literal '*':Literal '*':xs) = mkG $ Literal '*':xs
+--           mkG (Literal '*':xs) = put True >> fmap ('*':) (mkG xs)
+--           mkG (Literal '?':xs) = put True >> fmap ('?':) (mkG xs)
+--           mkG (Literal c:xs) = fmap (mkLit c++) $ mkG xs
+--           mkG (Quoted (Literal c):xs) = fmap (mkLit c++) $ mkG xs
+--           mkG (Quoted q:xs) = mkG $ q:xs
+--           mkG (Quote _:xs) = mkG xs
+--           mkG l = error $ "bad lexeme: "++show l
+--           mkLit c | c `elem` "[*?<" = ['[',c,']']
+--                   | otherwise       = [c]
 #else
 expandGlob [] = return []
 expandGlob w = do let breakd [] = []
