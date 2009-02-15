@@ -13,10 +13,13 @@ import Language.Sh.Syntax ( Lexeme(..), Word )
 
 -- we might get a bit fancier if older glob libraries will support
 -- a subset of what we want to do...?
-#ifdef HAVE_GLOB
 import Control.Monad.Trans ( liftIO )
+#ifdef HAVE_GLOB
 import System.FilePath.Glob ( compileWithOptions, compPosix,
                               globDir, commonPrefix )
+#else
+import Data.List ( sort, tails )
+import System.Directory ( getDirectoryContents )
 #endif
 
 expandGlob :: MonadIO m => Word -> m [FilePath]
@@ -53,7 +56,67 @@ mkGlob w = case runState (mkG w) False of
           mkLit c | c `elem` "[*?<" = ['[',c,']']
                   | otherwise       = [c]
 #else
-expandGlob = const $ return []
+expandGlob [] = return []
+expandGlob w = do let breakd [] = []
+                      breakd x = case break isd x of
+                                 (p,[]) -> [p]
+                                 (p,ps) -> p : breakd (dropWhile isd ps)
+                      isd (Literal '/') = True
+                      isd (Quoted l) = isd l
+                      isd _ = False
+                      l2c (Literal c) = c
+                      l2c (Quoted l) = l2c l
+                      l2c l = error $ "bad lexeme in l2gs: "++ show l
+                      isclose (Literal ']') = True
+                      isclose _ = False
+                      w2g [] = []
+                      w2g (Literal '[':Literal '!':r) =
+                          case break isclose r of
+                          (m,_:r') -> NoneOf (map l2c m) : w2g r'
+                          _ -> [Alt []] -- bad glob!
+                      w2g (Literal '[':r) =
+                          case break isclose r of
+                          (m,_:r') -> Alt (map l2c m) : w2g r'
+                          _ -> [Alt []] -- bad glob!
+                      w2g (Literal '*':r) = Many : w2g r
+                      w2g (Literal '?':r) = One : w2g r
+                      w2g (Literal c:r) = Lit c : w2g r
+                      w2g (Quoted (Literal c):r) = Lit c : w2g r
+                      w2g (Quote _:r) = w2g r
+                      w2g (Quoted x:r) = w2g (x:r) -- ???
+                      w2g l = error $ "bad lexeme: "++show l
+                      whichd = if isd $ head w
+                               then "/"
+                               else "."
+                  liftIO $ filePathMatches (map w2g $ breakd w) whichd
+
+data Glob = Lit Char | Many | One | Alt [Char] | NoneOf [Char]
+            deriving ( Show )
+
+simpleMatch :: [Glob] -> String -> Bool
+simpleMatch [] "" = True
+simpleMatch (Many:rest) s = any (simpleMatch rest) $ tails s
+simpleMatch (One:rest) (_:s) = simpleMatch rest s
+simpleMatch (Lit x:rest) (c:cs) | x == c = simpleMatch rest cs
+simpleMatch (Alt xs:rest) (c:cs) | c `elem` xs = simpleMatch rest cs
+simpleMatch (NoneOf xs:rest) (c:cs) | c `notElem` xs = simpleMatch rest cs
+simpleMatch _ _ = False
+
+filePathMatches :: [[Glob]] -> FilePath -> IO [FilePath]
+filePathMatches [] _ = return []
+filePathMatches (g:gs) d = do xs <- filter (`notElem` [".",".."])
+                                    `fmap` (getDirectoryContents d
+                                            `catch` \_ -> return [])
+                              let xs' = filter (simpleMatch g) $ case g of
+                                                                 Lit _:_ -> xs
+                                                                 _ -> filter notdot xs
+                                  notdot ('.':_) = False
+                                  notdot _ = True
+                                  fpm x = map ((x++"/")++)
+                                          `fmap` filePathMatches gs (d++'/':x)
+                              case gs of
+                                [] -> return $ sort xs'
+                                _ -> (sort . concat) `fmap` mapM fpm xs'
 #endif
 
 -- This is basically gratuitously copied from Glob's internals.
