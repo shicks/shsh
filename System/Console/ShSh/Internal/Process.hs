@@ -39,8 +39,6 @@ import System.Console.ShSh.Internal.IO ( WriteHandle, ReadHandle,
                                          fromWriteHandle, fromReadHandle,
                                          joinHandles )
 
-import Debug.Trace ( trace )
-
 -- tr a b = trace (a ++ show b) b
 
 -- |This is basically copied directly out of the new 'System.Process' API,
@@ -127,11 +125,11 @@ launch cmd args vars ps = do let is = rMkStream $ p_in  ps
                              sequence_ $ concat [ps1,ps2,ps3]
                              waitForProcess pid
     where rMkStream RInherit    = Inherit
-          rMkStream (RCreatePipe _) = trace "rMkStream RCreatePipe" CreatePipe
+          rMkStream (RCreatePipe _) = CreatePipe
           rMkStream (RUseHandle h) = fromMaybe CreatePipe $
                                      UseHandle `fmap` fromReadHandle h
           wMkStream WInherit    = Inherit
-          wMkStream (WCreatePipe _) = trace "wMkStream WCreatePipe" CreatePipe
+          wMkStream (WCreatePipe _) = CreatePipe
           wMkStream (WUseHandle h) = fromMaybe CreatePipe $
                                      UseHandle `fmap` fromWriteHandle h
           --wProcess :: Maybe Handle -> WriteStream -> PipeState
