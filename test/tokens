@@ -48,14 +48,13 @@ Single quotes preserve the value of all characters within them, including
 <newline>.  Single quotes may not occur within single quotes.
 
 ~~~~ check-output/singlequote.sh
-# fails-in-dash
-e'ch'o '-''n'e 'ab'cd'!&|<>\n'
+e'ch'o '-''r' 'ab'cd'!&|<>'
 ~~~~
 
 produces the output:
 
 ~~~~ known-output/singlequote.sh
-abcd!&|<>
+-r abcd!&|<>
 ~~~~
 
 ~~~~ check-output/singlequote2.sh
