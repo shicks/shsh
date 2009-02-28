@@ -5,6 +5,7 @@ import Data.List ( isSuffixOf )
 main = build [] $
             do copyright "Copyright 2008 Stephen Hicks"
                license "BSD3"
+               withLib "c" "sys/stat.h" "umask(0)" $ define "HAVE_UMASK"
                addExtraData "category" "Language"
                addExtraData "maintainer" "Stephen Hicks <sdh33@cornell.edu>"
                addExtraData "synopsis"
