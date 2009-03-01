@@ -21,9 +21,9 @@ main = build [] $
                withModule "System.Posix.Signals" $ define "HAVE_SIGNALS"
                withModule "System.Posix.Files" $ define "UNIX"
                withModule "System.Console.Haskeline" $ define "HAVE_HASKELINE"
-               withModuleExporting "System.FilePath.Glob"
-                   "compPosix, commonPrefix" "(compPosix,commonPrefix)" $
-                   define "HAVE_GLOB" -- cannot be satisfied w/ released glob!
+--                withModuleExporting "System.FilePath.Glob"
+--                    "compPosix, commonPrefix" "(compPosix,commonPrefix)" $
+--                    define "HAVE_GLOB" -- cannot be satisfied w/ released glob!
                withModuleExporting "Text.ParserCombinators.Parsec.Expr"
                    "Operator(..)" "Postfix" $
                    define "HAVE_PARSEC_POSTFIX"
