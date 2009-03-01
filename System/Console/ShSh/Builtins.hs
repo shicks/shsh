@@ -1,10 +1,9 @@
 {-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE PatternGuards #-}
 -- |This module exports a list of builtin commands and how we handle them.
 
 module System.Console.ShSh.Builtins ( builtin, showAlias ) where
 
-import System.Console.ShSh.Builtins.Args ( withArgsOrd, -- opt, optSet,
-                                           flag, flagOn, flagOff )
 import System.Console.ShSh.Builtins.Util ( readFilesOrStdin )
 
 import System.Console.ShSh.Builtins.Cd ( chDir )
@@ -31,12 +30,14 @@ import System.Console.ShSh.Shell ( ShellT, Shell,
                                    getAllEnv, getEnv )
 import System.Console.ShSh.Util ( split )
 
-import Control.Monad ( forM_, unless )
-import Control.Monad.State ( put )
+import Control.Applicative ( (<**>) )
+import Control.Arrow ( first, second )
+import Control.Monad ( forM_, join )
 import Control.Monad.Trans ( liftIO )
-import Data.Char ( chr, ord, isDigit )
+import Data.Char ( chr, isDigit )
 import Data.List ( sortBy )
 import Data.Ord ( comparing )
+import Numeric ( readOct, readHex )
 import System.Directory ( getCurrentDirectory )
 import System.Exit ( ExitCode(..) )
 
@@ -88,33 +89,38 @@ set foo = setOpts foo
 
 cat = successfully $ mapM_ oPutStr <=< readFilesOrStdin
 
--- |This is nice and all, but apparently -- is NOT supposed to be
--- recognized...
-echo = withArgsOrd "echo" header args $ successfully $ \ws -> do
-          e <- flag 'e'
-          oPutStr . unwords =<< if e then mapM escape ws else return ws
-          n <- flag 'n'
-          unless n $ oPutStrLn ""
-    where escape [] = return []
-          escape ('\\':rest) = esc rest
-          escape (c:cs) = (c:) `fmap` escape cs
-          esc [] = return "\\"
-          esc ('0':a:b:c:rest) = (chr (64*ord a + 8*ord b + ord c):)
-                                 `fmap` escape rest
-          esc ('c':_) = put [('n',Nothing)] >> return [] --suppress '\n' too
-          esc (a:rest) = case lookup a codes of
-                           Just b -> (b:) `fmap` escape rest
-                           Nothing -> ('\\':) `fmap` escape rest
+echo = successfully $ readArgs False False
+    where readArgs :: Bool -> Bool -> [String] -> Shell ()
+          readArgs n e ("-":as) = oPutStr $ echo' n e "-" as
+          readArgs n e (('-':a):as) | Just (n',e') <- foldl (<**>) (Just (n,e)) $ map parseArg a
+                                                   = readArgs n' e' as
+          readArgs n e as = oPutStr $ echo' n e (join $ take 1 as) (drop 1 as)
+          parseArg :: Char -> Maybe ((Bool,Bool) -> (Bool,Bool))
+          parseArg 'n' = Just $ first (|| True)
+          parseArg 'e' = Just $ second (|| True)
+          parseArg 'E' = Just $ second (&& False)
+          parseArg _ = Nothing
+          echo' :: Bool -> Bool -> String -> [String] -> String
+          echo' True _ "" [] = ""
+          echo' False _ "" [] = "\n"
+          echo' n e "" (a:as) = ' ':echo' n e a as
+          echo' n True ('\\':cs) as = esc n cs as
+          echo' n e (c:cs) as = c:echo' n e cs as
+          esc :: Bool -> String -> [String] -> String
+          esc n ('0':a:b:c:cs) as | Just x <- fromOctal a b c = chr x:echo' n True cs as
+          esc n ('x':a:b:cs) as | Just x <- fromHex a b = chr x:echo' n True cs as
+          esc _ ('c':_) _ = ""
+          esc n (a:cs) as | Just b <- lookup a codes = b:echo' n True cs as
+          esc n cs as = '\\':echo' n True cs as -- anything else
+          codes :: [(Char,Char)]
           codes = [('a','\a'),('b','\b'),('f','\f'),('n','\n'),
                    ('r','\r'),('t','\t'),('v','\v'),('\\','\\')]
-          header = "Usage: echo [-neE] args...\n"++
-                   "Print the arguments on the standard output, "++
-                   "separated by spaces."
-          args = [flagOn "n" [] 'n' "do not output trailing newline",
-                  flagOn "e" [] 'e'
-                    "enable interpretation of backslash escapes",
-                  flagOff "E" [] 'e'
-                    "disable interpretation of backslash escapes (default)"]
+          fromOctal :: Char -> Char -> Char -> Maybe Int
+          fromOctal a b c | a `elem` "012", [(x,"")] <- readOct $ a:b:c:"" = Just x
+                          | otherwise = Nothing
+          fromHex :: Char -> Char -> Maybe Int
+          fromHex a b | [(x,"")] <- readHex $ a:b:"" = Just x
+                      | otherwise = Nothing
 
 pwd _ = do cwd <- liftIO getCurrentDirectory
            oPutStrLn cwd
