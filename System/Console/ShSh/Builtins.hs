@@ -107,20 +107,14 @@ echo = successfully $ readArgs False False
           echo' n True ('\\':cs) as = esc n cs as
           echo' n e (c:cs) as = c:echo' n e cs as
           esc :: Bool -> String -> [String] -> String
-          esc n ('0':a:b:c:cs) as | Just x <- fromOctal a b c = chr x:echo' n True cs as
-          esc n ('x':a:b:cs) as | Just x <- fromHex a b = chr x:echo' n True cs as
+          esc n ('0':cs) as | [(x,s)] <- readOct (take 3 cs) = chr x:echo' n True (s++drop 3 cs) as
+          esc n ('x':cs) as | [(x,s)] <- readHex (take 2 cs) = chr x:echo' n True (s++drop 2 cs) as
           esc _ ('c':_) _ = ""
           esc n (a:cs) as | Just b <- lookup a codes = b:echo' n True cs as
           esc n cs as = '\\':echo' n True cs as -- anything else
           codes :: [(Char,Char)]
           codes = [('a','\a'),('b','\b'),('f','\f'),('n','\n'),
                    ('r','\r'),('t','\t'),('v','\v'),('\\','\\')]
-          fromOctal :: Char -> Char -> Char -> Maybe Int
-          fromOctal a b c | a `elem` "012", [(x,"")] <- readOct $ a:b:c:"" = Just x
-                          | otherwise = Nothing
-          fromHex :: Char -> Char -> Maybe Int
-          fromHex a b | [(x,"")] <- readHex $ a:b:"" = Just x
-                      | otherwise = Nothing
 
 pwd _ = do cwd <- liftIO getCurrentDirectory
            oPutStrLn cwd
