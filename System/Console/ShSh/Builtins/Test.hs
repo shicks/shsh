@@ -2,50 +2,64 @@
 
 module System.Console.ShSh.Builtins.Test ( test, brackets ) where
 
+import Control.Monad ( MonadPlus(..) )
+import Control.Monad.Trans ( liftIO )
+import Control.Monad.Error ( catchError )
+import System.Directory ( doesFileExist, doesDirectoryExist,
+                          canonicalizePath, getModificationTime,
+                          getPermissions, readable, writable,
+                          executable, searchable )
+import System.Exit ( ExitCode(..) )
+import System.IO ( openFile, hClose, hFileSize, IOMode(..) )
+
 import System.Console.ShSh.Shell ( Shell )
+import System.Console.ShSh.ShellError ( failWith )
 
 -- We'd like to use parsec, but I think it's too hard, since the best type
 -- would be @eval :: P Bool@, but this requires IO actions to be performed.
 -- ... or we'll just write our own parsec in 20 minutes.
 
 test :: [String] -> Shell ExitCode
-test ss = case runParser (disjunction `finally` eof) ss of
+test ss =
+    do r <- runParser (disjunction `finally` eof) ss
+       case r of
             Left  s     -> failWith 2 $ "test: "++s
             Right True  -> return ExitSuccess
             Right False -> return $ ExitFailure 1
 
 brackets :: [String] -> Shell ExitCode
-brackets ss = case runParser (disjunction `finally` (literal "]" >> eof)) ss of
-                Left  s     -> failWith 2 $ "[: "++s
-                Right True  -> return ExitSuccess
-                Right False -> return $ ExitFailure 1
+brackets ss =
+    do r <- runParser (disjunction `finally` (literal "]" >> eof)) ss
+       case r of
+         Left  s     -> failWith 2 $ "[: "++s
+         Right True  -> return ExitSuccess
+         Right False -> return $ ExitFailure 1
 
 -- We could give priorities to the errors and then keep the
 -- one with higher priority...?
 type UnP a = Shell (Either String (a,[String]))
 newtype P a = P { unP :: [String] -> UnP a }
 instance Monad P where
-    (a >>= f) = P $ \ss -> do r <- a ss
+    (>>=) a f = P $ \ss -> do r <- unP a ss
                               case r of
                                 Left s -> return $ Left s
-                                Right (a',ss') -> f a' ss'
+                                Right (a',ss') -> unP (f a') ss'
     return a  = P $ \ss -> return $ Right (a,ss)
     fail msg  = P $ const $ return $ Left msg
 
--- I don't actually use this...
 instance MonadPlus P where -- needed for msum = choice
     mzero = fail ""
-    mplus a b = P $ \ss -> do r <- a ss
+    mplus a b = P $ \ss -> do r <- unP a ss
                               case r of
-                                Left _  -> b ss
+                                Left _  -> unP b ss
                                 Right x -> return $ Right x
 
 (<|>) :: P a -> P a -> P a
 (<|>) = mplus
 
 runParser :: P a -> [String] -> Shell (Either String a)
-runParser p = P $ \ss = do r <- p ss
-                           case r of
+runParser (P p) ss = do r <- p ss
+                        case r of
                              Left s -> return $ Left s
                              Right (a,_) -> return $ Right a
 
@@ -53,14 +67,15 @@ return' :: a -> [String] -> UnP a
 return' a ss = return $ Right (a,ss)
 
 fail' :: String -> UnP a
-fail' = unP fail
+fail' = return . Left
 
 finally :: P a -> P b -> P a
 finally a b = do { a' <- a; b; return a' }
 
 io :: IO a -> P a
-io a = P $ \ss -> do a' <- liftIO a `catchError` (fail' . show)
-                     return' a'
+io a = P $ \ss -> do a' <- liftIO a
+                     return' a' ss
+                  `catchError` (fail' . show)
 
 eof :: P Bool
 eof = P $ \ss -> case ss of
@@ -75,8 +90,8 @@ literal s = P $ \ss -> case ss of
     where expected e f = fail' $ "`"++e++"' expected, found `"++f++"'"
           missing e = fail' $ "missing `"++e++"'"
 
-anyString :: P ()
-anystring = P $ \ss -> case ss of
+anyString :: P String
+anyString = P $ \ss -> case ss of
                          (s':ss') -> return' s' ss'
                          []       -> fail' "unexpected eof"
 
@@ -147,6 +162,43 @@ unOps = [("-b",isBlockFile),("-c",isCharFile),("-d",doesDirectoryExist),
          ("-x",isExecutable),("-z",r null),("-L",isSymlink),
          ("-O",isOwner),("-G",isGroup),("-S",isSocket)]
     where r f a = return $ f a
+
+newerThan, sameFile :: String -> String -> IO Bool
+newerThan a b = do ta <- getModificationTime a
+                   tb <- getModificationTime b
+                   return (ta > tb)
+                `catch` \_ -> return False
+
+sameFile a b = do a' <- canonicalizePath a
+                  b' <- canonicalizePath b
+                  return (a' == b')
+               `catch` \_ -> return False
+
+isFipo, isTerm, isNonempty, isReadable, isRegularFile,
+    isSocket, isExecutable, isSetGid, isSetUid, isOwner, isGroup,
+    isSymlink, isWritable, isSticky, isCharFile, isBlockFile :: String -> IO Bool
+isBlockFile _ = return False
+isCharFile _ = return False
+isSticky _ = return False
+isSymlink _ = return False
+isGroup _ = return False
+isOwner _ = return False
+isSetUid _ = return False
+isSetGid _ = return False
+isSocket _ = return False
+isTerm _ = return False
+isFipo _ = return False
+
+isWritable f = (writable `fmap` getPermissions f) `catch` \_ -> return False
+isExecutable f = (do p <- getPermissions f
+                     return (executable p || searchable p)) `catch` \_ -> return False
+isReadable f = (readable `fmap` getPermissions f) `catch` \_ -> return False
+isRegularFile = doesFileExist
+isNonempty f = do h <- openFile f ReadMode
+                  l <- hFileSize h
+                  hClose h
+                  return $ l > 0
+               `catch` \_ -> return False
 
 {-
     -b file       True if file exists and is a block special file.

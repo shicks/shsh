@@ -17,6 +17,7 @@ import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Mv ( mv )
 import System.Console.ShSh.Builtins.Rm ( rm )
 import System.Console.ShSh.Builtins.Sort ( runSort )
+import System.Console.ShSh.Builtins.Test ( test )
 import System.Console.ShSh.Builtins.Touch ( touch )
 import System.Console.ShSh.Builtins.Umask ( umask )
 import System.Console.ShSh.Builtins.Wc ( runWc )
@@ -63,6 +64,7 @@ builtins = [(":",const $ return ExitSuccess),
             ("grep",grep), ("ls",ls),
             ("mkdir",mkDir), ("mv",mv), ("pwd",pwd), ("rm",rm),
             ("set",set), ("shift",shift), ("sort",runSort),
+            ("test",test),
             ("touch", touch), ("true",const $ return ExitSuccess),
             ("unalias",unalias), ("umask",umask), ("wc",runWc)]
             
