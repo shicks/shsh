@@ -38,7 +38,7 @@ import Language.Sh.Syntax ( Command(..), AndOrList(..),
 import qualified Language.Sh.Expansion as E
 
 import Control.Monad.Trans ( liftIO )
-import Control.Monad ( when, unless, forM, forM_ )
+import Control.Monad ( when, unless, forM, forM_, mplus )
 import Data.Maybe ( catMaybes )
 import Data.Monoid ( mempty )
 import System.Exit ( ExitCode(..), exitWith )
@@ -199,8 +199,8 @@ runBuiltinOrExe = run' where -- now this is just for layout...
                                       withErrorsPrefixed command $ do
                                         openHandles
                                         ec <- b' args -- after builtins are run.
-                                        oFlush -- to behave like external
-                                        eFlush -- commands, need to flush
+                                        oFlush `mplus` return () -- to behave like external
+                                        eFlush `mplus` return () -- commands, need to flush
                                         return ec
                            Nothing -> ExternalProcess $ withExitHandler $
                                         runWithArgs command args
