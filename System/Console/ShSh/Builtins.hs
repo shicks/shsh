@@ -23,6 +23,7 @@ import System.Console.ShSh.Builtins.Test ( test )
 import System.Console.ShSh.Builtins.Touch ( touch )
 import System.Console.ShSh.Builtins.Umask ( umask )
 import System.Console.ShSh.Builtins.Wc ( runWc )
+import System.Console.ShSh.Builtins.Which ( which )
 
 import System.Console.ShSh.IO ( oPutStrLn, oPutStr, ePutStrLn )
 import System.Console.ShSh.Options ( setOpts )
@@ -69,7 +70,7 @@ builtins = [(":",const $ return ExitSuccess),
             ("set",set), ("shift",shift), ("sleep",sleep), ("sort",runSort),
             ("test",test),
             ("touch", touch), ("true",const $ return ExitSuccess),
-            ("unalias",unalias), ("umask",umask), ("wc",runWc)]
+            ("unalias",unalias), ("umask",umask), ("wc",runWc), ("which",which)]
             
 builtin :: String -> Shell (Maybe ([String] -> Shell ExitCode))
 builtin b = do noBuiltin <- getEnv "NOBUILTIN"
