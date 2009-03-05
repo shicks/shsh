@@ -8,7 +8,7 @@ import System.Console.ShSh.Shell ( Shell )
 import System.FilePath ( (</>), takeFileName )
 import Control.Monad ( when )
 import Control.Monad.Trans ( liftIO )
-import System.Directory ( renameFile, doesDirectoryExist )
+import System.Directory ( renameFile, renameDirectory, doesDirectoryExist )
 import System.Exit ( ExitCode(..) )
 
 {-# NOINLINE mv #-}
@@ -28,7 +28,9 @@ mv = withArgs "mv" header opts run
                        return ExitSuccess
           mv1 s d = do amV <- flag 'v'
                        when amV $ ePutStrLn $ unwords ["mv",s,d]
-                       liftIO $ renameFile s d
+                       isd <- liftIO $ doesDirectoryExist s
+                       if isd then liftIO $ renameDirectory s d
+                              else liftIO $ renameFile s d
           opts = [flagOn "v" ["verbose"] 'v'
                              "print a message for each file moved"]
           header = "Usage: mv [OPTION]... SOURCE DEST\n\
