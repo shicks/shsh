@@ -5,7 +5,7 @@ import System.Console.ShSh.Builtins.Args ( withArgs, flagOn, flag )
 import System.Console.ShSh.IO ( ePutStrLn )
 import System.Console.ShSh.Shell ( Shell )
 
-import System.FilePath ( (</>), takeFileName )
+import System.FilePath ( (</>), takeFileName, isPathSeparator )
 import Control.Monad ( when )
 import Control.Monad.Trans ( liftIO )
 import System.Directory ( renameFile, renameDirectory, doesDirectoryExist )
@@ -19,7 +19,8 @@ mv = withArgs "mv" header opts run
           run fs  = do let dest = last fs
                        isdir <- liftIO $ doesDirectoryExist dest
                        case fs of
-                         [s,_] | not isdir && last dest /= '/' -> mv1 s dest
+                         [s,_] | not $ isdir || isPathSeparator (last dest)
+                                   -> mv1 s dest
                          _ -> do when (not isdir) $
                                       fail $ "target `"++dest++
                                              "' is not a directory."
