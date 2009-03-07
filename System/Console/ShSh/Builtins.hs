@@ -12,6 +12,7 @@ import System.Console.ShSh.Builtins.Cp ( cp )
 import System.Console.ShSh.Builtins.Date ( date )
 import System.Console.ShSh.Builtins.Exit ( exit )
 import System.Console.ShSh.Builtins.Grep ( grep )
+import System.Console.ShSh.Builtins.Head ( runHead )
 import System.Console.ShSh.Builtins.Ls ( ls )
 import System.Console.ShSh.Builtins.Mkdir ( mkDir )
 import System.Console.ShSh.Builtins.Mv ( mv )
@@ -64,7 +65,7 @@ builtins = [(":",const $ return ExitSuccess),
             ("echo",echo),("exec",const $ return ExitSuccess),
             ("exit", exit),
             ("false",const $ return $ ExitFailure 1),
-            ("grep",grep), ("ls",ls),
+            ("grep",grep), ("head",runHead), ("ls",ls),
             ("mkdir",mkDir), ("mv",mv), ("pwd",pwd), ("rm",rm),
             ("seq",runSeq),
             ("set",set), ("shift",shift), ("sleep",sleep), ("sort",runSort),
