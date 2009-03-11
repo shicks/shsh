@@ -11,6 +11,7 @@ import System.Console.ShSh.Builtins.Cmp ( cmp )
 import System.Console.ShSh.Builtins.Cp ( cp )
 import System.Console.ShSh.Builtins.Date ( date )
 import System.Console.ShSh.Builtins.Diff ( diff )
+import System.Console.ShSh.Builtins.Dirname ( dirname )
 import System.Console.ShSh.Builtins.Exit ( exit )
 import System.Console.ShSh.Builtins.Grep ( grep )
 import System.Console.ShSh.Builtins.Head ( runHead )
@@ -63,6 +64,7 @@ builtins :: [(String,[String] -> Shell ExitCode)]
 builtins = [(":",const $ return ExitSuccess),
             ("alias",alias),("cat",cat),
             ("cd",chDir), ("cmp",cmp), ("cp",cp), ("date",date), ("diff",diff),
+            ("dirname",dirname),
             ("echo",echo),("exec",const $ return ExitSuccess),
             ("exit", exit),
             ("false",const $ return $ ExitFailure 1),
